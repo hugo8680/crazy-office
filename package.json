@@ -1,0 +1,13 @@
+{
+  "name": "crazy-network-lab",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An interactive cartoon network rescue laboratory with collaborating simulation agents.",
+  "scripts": {
+    "dev": "node scripts/server.mjs",
+    "start": "node scripts/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check dist/app.js && node --check dist/scene.js && node --check dist/simulation.js"
+  }
+}
