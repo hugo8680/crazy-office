@@ -1,366 +1,173 @@
-import { AGENTS, SCENARIOS, NODES, Simulation } from './simulation.js';
+import { AGENTS, SCENARIOS, Simulation, AGENT_TOOLSETS, DEFAULT_AGENT_CONFIGS } from './simulation.js';
 import { mountScene } from './scene.js';
-
-const $ = (selector) => document.querySelector(selector);
-const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const icon = (name, className = '') => `<svg class="icon ${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-const time = (seconds = 0) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
-const numeric = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
-const phaseList = [['detect', '发现'], ['diagnose', '诊断'], ['recover', '处置'], ['verify', '验收']];
-const statusNames = { online: '正常运行', warning: '异常告警', offline: '服务不可达', recovering: '正在恢复' };
-const agentStatusNames = { idle: '待命', working: '执行中', waiting: '等待中', done: '已完成' };
-const logTypes = { task: '任务分派', action: '执行动作', result: '工具结果', handoff: '协作交接', approval: '审批决策', system: '系统事件' };
-const scenarios = {
-  ddos: { name: '流量风暴', en: 'DDoS', icon: 'shield', intro: '公网流量暴增，业务访问拥堵', goal: '恢复公网访问，保障客户业务可用。', scope: '公网入口 / 客户业务', checks: '可用率 ≥ 99% · 丢包率 ≤ 1%', badge: 'P1' },
-  power: { name: '机房断电', en: 'POWER', icon: 'plug', intro: 'UPS 输出故障，机柜失去供电', goal: '恢复关键设备供电，按依赖启动服务。', scope: '机房供电 / 核心服务', checks: '供电稳定 · 服务探测通过', badge: 'P1' },
-  switch: { name: '核心失联', en: 'SWITCH', icon: 'server', intro: '核心交换机故障，办公网络离线', goal: '切换可用链路，恢复各部门网络。', scope: '核心交换机 / 办公网', checks: '各部门连通 · 业务验收通过', badge: 'P1' },
-};
-const nodeDetails = {
-  internet: { ip: '203.0.113.1', zone: '公网出口', service: '对外访问 / 运营商链路' },
-  firewall: { ip: '10.0.0.1', zone: '安全边界', service: '访问控制 / 流量防护' },
-  core: { ip: '10.0.0.2', zone: '网络机房', service: '跨 VLAN 路由 / 核心交换' },
-  server: { ip: '10.0.10.10', zone: '网络机房', service: '客户门户 / 内部业务' },
-  storage: { ip: '10.0.10.20', zone: '网络机房', service: '业务数据 / 配置备份' },
-  ups: { ip: '10.0.0.100', zone: '网络机房', service: '供电保障 / 电池监测' },
-  access: { ip: '10.0.20.1', zone: '员工工区', service: '终端接入 / VLAN 转发' },
-  workstations: { ip: '10.0.20.0/24', zone: '员工工区', service: '办公终端 / 研发工作台' },
-  meeting: { ip: '10.0.30.10', zone: '会议室', service: '视频会议 / 会议屏幕' },
-  executive: { ip: '10.0.40.10', zone: '领导办公室', service: '管理终端 / 经营看板' },
-  reception: { ip: '10.0.50.10', zone: '客户会见厅', service: '客户演示 / 访客接待' },
-  finance: { ip: '10.0.60.10', zone: '财务室', service: '财务终端 / 内部审批' },
-};
-const portraitColors = {
-  zhang: ['#e1ecd5', '#6e965e', '#364236', '#e8ba91'],
-  liu: ['#e3e6f1', '#8392b6', '#3b3d48', '#e9bd98'],
-  lead: ['#f4e7cf', '#b6a37b', '#4c4d44', '#e7be98'],
-  business: ['#f2dfd7', '#c89886', '#55423e', '#edc7aa'],
-  finance: ['#ece2f1', '#a18caf', '#4d3d4d', '#edc5a6'],
-  boss: ['#e2e9df', '#7d9279', '#8d8b79', '#dbb798'],
-  ops: ['#e3edf0', '#7a9ba7', '#3e4848', '#dcb28f'],
-};
-
-function portrait(id, className = '') {
-  const [bg, shirt, hair, skin] = portraitColors[id] || portraitColors.zhang;
-  const isWoman = ['business', 'finance'].includes(id);
-  const glasses = ['lead', 'finance', 'boss'].includes(id);
-  return `<svg class="portrait ${className}" viewBox="0 0 60 60" role="img" aria-label="${esc(AGENTS.find(a => a.id === id)?.name || '系统')}"><rect width="60" height="60" rx="14" fill="${bg}"/>${isWoman ? `<path d="M16 25q0-16 15-16t15 16v19H16z" fill="${hair}"/>` : ''}<path d="M11 61v-8q1-17 19-17t19 17v8" fill="${shirt}"/><path d="M26 35v8q4 5 8 0v-8" fill="${skin}"/><ellipse cx="30" cy="26" rx="13" ry="15" fill="${skin}"/><ellipse cx="17" cy="27" rx="2.5" ry="4" fill="${skin}"/><ellipse cx="43" cy="27" rx="2.5" ry="4" fill="${skin}"/><path d="M17 24q-3-13 8-16 14-4 18 7l1 10-5-8q-11 4-19-1z" fill="${hair}"/>${isWoman ? `<path d="M18 19q2 15-2 25l6-4V20M40 17q7 5 5 27l-5-4" fill="${hair}"/>` : ''}<circle cx="25" cy="27" r="1.1" fill="#3f4840"/><circle cx="35" cy="27" r="1.1" fill="#3f4840"/><path d="M27 33q3 3 6 0" stroke="#a67964" fill="none" stroke-width="1.2" stroke-linecap="round"/>${glasses ? '<g stroke="#586253" fill="none" stroke-width="1.1"><rect x="19.5" y="23" width="9" height="7" rx="2"/><rect x="31.5" y="23" width="9" height="7" rx="2"/><path d="M28.5 25h3M17 24l3 1M40 25l3-1"/></g>' : ''}${id === 'liu' ? '<path d="M15 26v-4a15 15 0 0130 0v6M15 25v7M45 25v8l-6 3" fill="none" stroke="#72819b" stroke-width="3" stroke-linecap="round"/>' : ''}${id === 'ops' ? '<path d="M15 19q2-13 15-13t15 13z" fill="#e6b96b" stroke="#bc9a5c" stroke-width="1"/><path d="M12 20h36M30 7v11" stroke="#bc9a5c" stroke-width="2" stroke-linecap="round"/>' : ''}${id === 'boss' ? '<path d="M24 41l6 8 6-8-5 19h-2z" fill="#f5f5e9"/><path d="M30 46l-3 4 3 9 3-9z" fill="#617b65"/>' : ''}${id === 'lead' ? '<path d="M20 44l10 5 10-5M30 49v11" stroke="#efeadb" stroke-width="2" fill="none"/>' : ''}</svg>`;
-}
+import { $, esc, icon, time, numeric, phaseList, statusNames, agentStatusNames, logTypes, scenarios, nodeDetails, portrait } from './ui.js';
 
 const sim = new Simulation('ddos');
-let state = sim.getState();
-let panelTab = 'mission';
-let currentView = 'lab';
-let selectedNode = null;
-let topologyVisible = true;
-let soundEnabled = false;
-let audioContext;
-let sessionId = null;
-let savedSession = null;
-let peakConcurrent = 0;
-let lastStatus = state.status;
-let controlSignature = '';
-let agentSignature = '';
-let taskSignature = '';
-let nodeSignature = '';
-let toastTimer;
+const configKey = 'net-rescue-agent-config-v2';
 let history = [];
-try { const saved = JSON.parse(localStorage.getItem('net-rescue-archive-v1') || '[]'); if (Array.isArray(saved)) history = saved.filter(r => r && r.report && typeof r.id === 'string').slice(0, 12); } catch { /* Storage can be unavailable in private browsing. */ }
-
-const scene = mountScene($('#office-scene'), { onSelectNode(id) { selectedNode = selectedNode === id ? null : id; scene.setSelectedNode(selectedNode); nodeSignature = ''; renderNode(); } });
-
-function showToast(message) {
-  clearTimeout(toastTimer);
-  $('#toast').textContent = message;
-  $('#toast').hidden = false;
-  toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 2600);
-}
-
-function beep(kind = 'normal') {
-  if (!soundEnabled) return;
-  try {
-    audioContext ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (audioContext.state === 'suspended') audioContext.resume();
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
-    osc.connect(gain); gain.connect(audioContext.destination);
-    osc.type = 'sine';
-    osc.frequency.value = kind === 'complete' ? 740 : kind === 'approval' ? 440 : 580;
-    gain.gain.setValueAtTime(.045, audioContext.currentTime);
-    gain.gain.exponentialRampToValueAtTime(.001, audioContext.currentTime + .16);
-    osc.start(); osc.stop(audioContext.currentTime + .17);
-  } catch { /* Sound is optional. */ }
-}
-
-function renderMetrics() {
-  const m = state.metrics || {};
-  const metrics = [
-    { label: '网络可用率', icon: 'activity', value: numeric(m.availability, 100).toFixed(1), unit: '%', bad: m.availability < 99, note: m.availability < 99 ? '业务访问受影响' : '关键业务运行正常', chart: null },
-    { label: '平均延迟', icon: 'clock', value: Math.round(numeric(m.latency, 12)), unit: 'ms', bad: m.latency > 80, note: m.latency > 80 ? '响应时间升高' : '链路响应稳定', chart: null },
-    { label: '丢包率', icon: 'layers', value: numeric(m.packetLoss, 0).toFixed(1), unit: '%', bad: m.packetLoss > 1, note: m.packetLoss > 1 ? '数据传输异常' : '数据传输正常', chart: null },
-    { label: '受影响用户', icon: 'users', value: numeric(m.affectedUsers), unit: `/ ${NODES.reduce((sum, node) => sum + numeric(node.users), 0)}`, bad: m.affectedUsers > 0, note: m.affectedUsers > 0 ? state.status === 'completed' ? '非核心业务仍受限制' : '抢修小队正在处理' : '所有部门正常在线', chart: null },
-  ];
-  $('#network-metrics').innerHTML = metrics.map(m => `<div class="metric"><div class="metric-label">${icon(m.icon)}${m.label}</div><div class="metric-value ${m.bad ? 'bad' : ''}">${m.value}<span>${m.unit}</span></div><div class="metric-change ${m.bad ? 'bad' : ''}">${m.note}</div>${m.chart ? `<svg class="metric-chart" viewBox="0 0 46 23" aria-hidden="true"><path d="${m.chart}" stroke="${m.bad ? '#d4a078' : '#a6bf87'}" stroke-width="1.5" fill="none"/></svg>` : ''}</div>`).join('');
-  const online = Object.values(state.nodes || {}).filter(n => n.status === 'online').length;
-  const all = Object.keys(state.nodes || {}).length || 12;
-  $('#online-count').textContent = `${online} / ${all} 节点可用`;
-  const normal = Object.values(state.nodes || {}).every(n => n.status === 'online');
-  $('#network-status').className = `live-pill ${normal ? '' : 'danger'}`;
-  $('#network-status').innerHTML = `<span class="status-dot"></span>${normal ? '网络正常' : state.status === 'completed' ? '降级运行' : '抢修进行中'}`;
-  const active = ['running', 'paused', 'awaiting_approval'].includes(state.status);
-  $('#scene-alert').hidden = !active;
-  if (active) $('#scene-alert').innerHTML = `${icon(state.status === 'awaiting_approval' ? 'clock' : 'zap')}<span>${state.status === 'awaiting_approval' ? '处置方案待审批，抢修已挂起' : state.status === 'paused' ? '演练已暂停，可单步推进' : `${esc(scenarios[state.scenarioId]?.name)} · ${esc(phaseList.find(p => p[0] === state.phase)?.[1] || '协同处理中')}`}</span>`;
-}
-
-function renderScenarioControl() {
-  const selected = scenarios[state.scenarioId] || scenarios.ddos;
-  return `<div class="mission-content"><div class="small-heading">选择一个突发事件<span>INJECT AN INCIDENT</span></div><div class="scenario-list">${SCENARIOS.map(s => { const d = scenarios[s.id]; return `<button class="scenario-option ${s.id === state.scenarioId ? 'selected' : ''}" data-scenario="${esc(s.id)}" aria-pressed="${s.id === state.scenarioId}"><span class="scenario-icon ${esc(s.id)}">${icon(d.icon)}</span><span class="scenario-copy"><span class="scenario-name">${d.name}<small>${d.en}</small></span><small>${d.intro}</small></span><span class="radio-dot"></span></button>`; }).join('')}</div><div class="mission-target"><div class="small-heading">本次任务<span>MISSION BRIEF</span></div><div class="target-line">${icon('target')}<span>${selected.goal}</span></div><dl class="mission-facts"><div><dt>影响范围</dt><dd>${selected.scope}</dd></div><div><dt>协作小队</dt><dd>7 位 Agent · 按职责分工</dd></div><div><dt>验收标准</dt><dd>${selected.checks}</dd></div></dl></div><div class="start-area"><button class="button button-primary button-wide" data-action="start">${icon('zap')}注入故障，开始抢修${icon('arrow')}</button><p class="safe-note">${icon('shield')}故障仅作用于模拟网络</p></div></div>`;
-}
-
-function renderPhases() {
-  const idx = state.phase === 'complete' ? 4 : phaseList.findIndex(p => p[0] === state.phase);
-  return `<div class="phase-steps">${phaseList.map(([id, name], i) => `<div class="phase-step ${i < idx ? 'done' : i === idx ? 'active' : ''}"><i>${i < idx ? '✓' : i + 1}</i><span>${name}</span></div>`).join('')}</div>`;
-}
-
-function renderApproval() {
-  const a = state.approval;
-  if (!a) return '';
-  return `<div class="approval-box"><div class="approval-title">${icon('clock')}指挥官决策 · 等待确认</div><h4>${esc(a.title)}</h4><p>${esc(a.description)}${a.amount ? `<br>申请额度：¥${numeric(a.amount).toLocaleString('zh-CN')}` : ''}</p><div class="approval-actions"><button class="button button-orange" data-action="approve">${icon('check')}批准方案</button><button class="button button-light" data-action="reject">采用本地方案</button></div></div>`;
-}
-
-function renderRunningControl() {
-  const s = scenarios[state.scenarioId];
-  const working = (state.agents || []).filter(a => a.status === 'working');
-  const isPaused = state.status === 'paused';
-  return `<div class="mission-content"><div class="incident-heading"><span class="scenario-icon ${state.scenarioId}">${icon(s.icon)}</span><div><h3>${s.name}</h3><small>INCIDENT #${String(history.length + 1).padStart(3, '0')}</small></div><span class="severity">${s.badge}</span></div><div class="run-timer" id="run-timer">${time(state.elapsed)}</div><div class="run-timer-label">${state.status === 'awaiting_approval' ? '等待审批 · 仿真计时暂停' : isPaused ? '演练已暂停' : '仿真抢修用时'}</div><div class="run-controls"><button class="button button-light" data-action="pause" ${state.status === 'awaiting_approval' ? 'disabled' : ''}>${icon(isPaused ? 'play' : 'pause')}${isPaused ? '继续' : '暂停'}</button><button class="button button-light" data-action="step" ${state.status === 'awaiting_approval' ? 'disabled' : ''}>${icon('step')}推进 5 秒</button><select class="speed-select" id="speed" aria-label="演练速度">${[1, 2, 4].map(n => `<option value="${n}" ${state.speed === n ? 'selected' : ''}>${n}× 速度</option>`).join('')}</select></div>${renderPhases()}${state.approval ? renderApproval() : `<div class="run-goal">${icon('target')}<span>${s.goal}</span></div><div class="small-heading">${working.length ? '正在执行' : '等待前置结果'}<span>${working.length} AGENTS ACTIVE</span></div><div class="active-task-list">${(working.length ? working : (state.agents || []).filter(a => a.status === 'waiting').slice(0, 3)).slice(0, 4).map(a => `<button class="active-task-item" data-agent="${esc(a.id)}">${portrait(a.id)}<span><strong>${esc(a.task || a.action || '等待协作结果')}</strong><small>${esc(a.name)} · ${esc(a.role)}</small></span><i class="task-dot"></i></button>`).join('')}</div>`}<div class="run-bottom"><span>已完成 <strong id="run-tasks">${(state.tasks || []).filter(t => t.status === 'done').length} / ${(state.tasks || []).length}</strong> 项任务</span><span>峰值 <strong>${Math.max(peakConcurrent, numeric(state.maxConcurrent))}</strong> 位并行</span></div></div>`;
-}
-
-function resultCheckText(check) {
-  if (typeof check === 'string') return check;
-  return check?.description || check?.label || check?.name || check?.title || JSON.stringify(check);
-}
-
-function renderResultControl() {
-  const result = state.result || {};
-  const checks = Array.isArray(result.verifiedChecks) ? result.verifiedChecks : [ '核心设备已恢复在线', '关键业务验收通过', '处置过程与任务结果已归档' ];
-  return `<div class="mission-content"><div class="small-heading">演练完成<span>INCIDENT RESOLVED</span></div><div class="result-banner ${result.fullyRestored === false ? 'degraded' : ''}"><span class="result-icon">${icon(result.fullyRestored === false ? 'shield' : 'check')}</span><h3>${esc(result.title || '业务恢复，小队收工！')}</h3><p>${esc(scenarios[state.scenarioId].name)} · ${esc(result.mode === 'local_fallback' ? '本地方案完成' : '协同处置完成')}</p><div class="result-numbers"><div class="result-number"><strong>${time(result.duration ?? state.elapsed)}</strong><span>仿真抢修用时</span></div><div class="result-number"><strong>${numeric(state.metrics?.availability).toFixed(1)}<small>%</small></strong><span>业务可用率</span></div><div class="result-number"><strong>${Math.max(peakConcurrent, numeric(state.maxConcurrent))}<small> 人</small></strong><span>同时协作峰值</span></div><div class="result-number"><strong>${(state.logs || []).filter(l => l.type === 'handoff').length}<small> 次</small></strong><span>任务与结果交接</span></div></div></div><div class="result-checks">${checks.slice(0, 4).map(c => `<div class="result-check">${icon('check')}<span>${esc(resultCheckText(c))}</span></div>`).join('')}${result.remainingRisk ? `<div class="result-check">${icon('info')}<span>${esc(result.remainingRisk)}</span></div>` : ''}</div><div class="result-buttons"><button class="button button-primary" data-action="report">${icon('download')}导出抢修报告</button><button class="button button-light" data-action="reset">${icon('reset')}再开一局</button></div></div>`;
-}
-
-function renderLogPanel() {
-  const logs = state.logs || [];
-  return `<div class="log-panel"><div class="log-panel-header"><span>共享任务板 · 实时信息交接</span><span class="status-label"><span class="status-dot"></span>${state.status === 'completed' ? '已归档' : state.status === 'idle' ? '等待事件' : '演练中'}</span></div><div class="log-scroll" id="log-scroll">${logs.length ? logs.map(logMarkup).join('') : `<div class="empty-logs">${icon('terminal')}<div>小队已就位，等待突发事件。<br>注入故障后，在这里查看任务、行动和结果。</div></div>`}</div><div class="log-bottom"><span>${logs.length} 条可追溯记录</span><button class="button-text" data-action="report">导出 JSON ${icon('download')}</button></div></div>`;
-}
-
-function logMarkup(log) {
-  const agent = AGENTS.find(a => a.id === log.agentId);
-  return `<div class="log-entry">${portrait(agent?.id || 'lead')}<div class="log-body"><div class="log-meta"><strong>${esc(agent?.name || '实验室系统')}${log.targetAgentId ? ` → ${esc(AGENTS.find(a => a.id === log.targetAgentId)?.name || log.targetAgentId)}` : ''}</strong><time class="log-time">${time(log.time)}</time></div><div class="log-type ${esc(log.type)}">${esc(logTypes[log.type] || log.type)}</div><p>${esc(log.text)}</p></div></div>`;
-}
-
-function renderControl() {
-  const signature = [panelTab, state.status, state.scenarioId, state.phase, state.speed, state.approval?.id || '', (state.tasks || []).map(t => `${t.id}:${t.status}`).join('|'), state.logs?.length || 0].join('/');
-  if (signature !== controlSignature) {
-    controlSignature = signature;
-    const oldScroll = $('#log-scroll');
-    const scrollPosition = oldScroll?.scrollTop || 0;
-    const atEnd = !oldScroll || oldScroll.scrollHeight - oldScroll.clientHeight - oldScroll.scrollTop < 50;
-    const focusedAction = document.activeElement?.dataset?.action;
-    $('#control-content').innerHTML = panelTab === 'activity' ? renderLogPanel() : state.status === 'idle' ? renderScenarioControl() : state.status === 'completed' ? renderResultControl() : renderRunningControl();
-    const newScroll = $('#log-scroll');
-    if (newScroll) newScroll.scrollTop = atEnd ? newScroll.scrollHeight : scrollPosition;
-    if (focusedAction) $('#control-content').querySelector(`[data-action="${focusedAction}"]`)?.focus({ preventScroll: true });
-  }
-  if ($('#run-timer')) $('#run-timer').textContent = time(state.elapsed);
-  $('#log-count').textContent = state.logs?.length || 0;
-}
-
-function renderAgents() {
-  const agents = state.agents?.length ? state.agents : AGENTS.map(a => ({ ...a, status: 'idle' }));
-  const signature = agents.map(a => `${a.id}/${a.status}/${a.task}/${a.action}/${a.result}`).join('|');
-  if (signature !== agentSignature) {
-    agentSignature = signature;
-    $('#agent-grid').innerHTML = agents.map((a, idx) => {
-      const tasks = (state.tasks || []).filter(t => t.ownerId === a.id);
-      const done = tasks.filter(t => t.status === 'done').length;
-      const working = tasks.find(t => t.status === 'running');
-      return `<button class="agent-card ${esc(a.status || 'idle')}" data-agent="${esc(a.id)}" aria-label="查看${esc(a.name)}的任务"><span class="agent-state"><span class="status-dot"></span>${agentStatusNames[a.status] || '待命'}</span><div class="agent-head">${portrait(a.id)}<div><div class="agent-name">${esc(a.name)}</div><div class="agent-role">${esc(a.role)}</div></div></div><div class="agent-current ${a.status === 'working' ? 'active' : ''}" title="${esc(a.task || a.result || '')}">${esc(a.status === 'idle' ? idleTask(a.id) : a.task || a.result || '等待下一项任务')}</div><div class="agent-foot"><span>AGENT ${String(idx + 1).padStart(2, '0')}</span><span>${tasks.length ? `${done}/${tasks.length} 任务` : icon('chevron')}</span></div>${a.status === 'working' ? `<i class="agent-progress" style="width:${Math.max(8, numeric(working?.progress) <= 1 ? numeric(working?.progress) * 100 : numeric(working?.progress))}%"></i>` : ''}</button>`;
-    }).join('');
-  }
-  // Keep progress live without replacing focused cards or restarting their SVG animation.
-  for (const task of state.tasks || []) {
-    if (task.status !== 'running') continue;
-    const bar = $('#agent-grid').querySelector(`[data-agent="${task.ownerId}"] .agent-progress`);
-    if (bar) bar.style.width = `${Math.max(8, Math.min(100, numeric(task.progress) * 100))}%`;
-  }
-  const active = agents.filter(a => a.status === 'working').length;
-  const waiting = state.status === 'awaiting_approval';
-  $('#team-status').innerHTML = `<span class="status-dot"></span>${state.status === 'idle' ? '7 位 Agent 待命' : state.status === 'completed' ? state.result?.fullyRestored === false ? '核心业务恢复，后续事项已记录' : '任务完成，全员收工' : waiting ? '方案就绪，等待审批' : `${active} 位执行中 · ${Math.max(peakConcurrent, numeric(state.maxConcurrent))} 位并行峰值`}`;
-  $('#team-caption').textContent = state.status === 'idle' ? '分工明确，各显身手。点击成员查看任务与交接。' : state.status === 'completed' ? '每个动作都有结果，每次交接都有记录。' : '工程师处理设备，业务确认影响，财务与管理层协调资源。';
-}
-
-function idleTask(id) {
-  return { zhang: '链路诊断 · 连通性检查', liu: '流量分析 · 安全防护', lead: '制定方案 · 调度分工', business: '业务影响 · 恢复验收', finance: '预算核算 · 资源采购', boss: '方案决策 · 资源授权', ops: '供电巡检 · 设备操作' }[id] || '等待任务';
-}
-
-function renderTasks() {
-  const tasks = state.tasks || [];
-  $('#task-section').hidden = state.status === 'idle' || !tasks.length;
-  if (!tasks.length) return;
-  const signature = tasks.map(t => `${t.id}:${t.status}:${Math.floor(numeric(t.progress) * (numeric(t.progress) <= 1 ? 20 : .2))}`).join('/');
-  if (signature !== taskSignature) {
-    taskSignature = signature;
-    $('#task-board').innerHTML = phaseList.map(([id, label], index) => {
-      const list = tasks.filter(t => t.phase === id);
-      return `<div class="task-column"><div class="task-column-title">0${index + 1} ${label}<span>${list.filter(t => t.status === 'done').length}/${list.length}</span></div>${list.map(t => `<div class="task-card ${esc(t.status)}"><div class="task-card-title">${t.status === 'done' ? icon('check') : '<i></i>'}<span>${esc(t.title)}</span></div><div class="task-card-meta"><span>${esc(AGENTS.find(a => a.id === t.ownerId)?.name || t.ownerId)}</span><span>${t.status === 'done' ? '已完成' : t.status === 'running' ? '执行中' : '等待前置'}</span></div>${t.dependencies?.length ? `<div class="task-deps" title="${esc(t.dependencies.map(dep => tasks.find(d => d.id === dep)?.title || dep).join(' → '))}">接收 ${[...new Set(t.dependencies.map(dep => AGENTS.find(a => a.id === tasks.find(d => d.id === dep)?.ownerId)?.name || '上游成员'))].map(esc).join(' / ')} 的结果</div>` : ''}${t.status === 'running' ? `<div class="task-progress"><i style="width:${Math.min(100, Math.max(4, numeric(t.progress) * (numeric(t.progress) <= 1 ? 100 : 1)))}%"></i></div>` : ''}</div>`).join('')}</div>`;
-    }).join('');
-  }
-  $('#task-counter').textContent = `${tasks.filter(t => t.status === 'done').length} / ${tasks.length} 已完成`;
-}
-
-function renderNode() {
-  const detail = $('#node-detail');
-  detail.hidden = !selectedNode;
-  if (!selectedNode) return;
-  const n = state.nodes?.[selectedNode] || NODES.find(n => n.id === selectedNode);
-  if (!n) { detail.hidden = true; return; }
-  const d = nodeDetails[selectedNode];
-  const signature = `${selectedNode}/${n.status}/${n.reason}/${state.logs?.length}`;
-  if (nodeSignature === signature) return;
-  nodeSignature = signature;
-  const relevant = (state.logs || []).filter(l => l.nodeId === selectedNode).at(-1);
-  detail.innerHTML = `<div class="node-detail-head"><strong>${esc(n.label || n.name || d.zone)}</strong><button class="icon-button" data-close-node aria-label="关闭设备详情">${icon('close')}</button></div><dl><div><dt>设备状态</dt><dd class="node-status ${esc(n.status)}"><span class="status-dot" style="background:${n.status === 'offline' ? '#d7856b' : n.status === 'warning' ? '#d8b371' : '#92ac78'}"></span>${statusNames[n.status] || '正常运行'}</dd></div><div><dt>网络地址</dt><dd>${d.ip}</dd></div><div><dt>所属区域</dt><dd>${d.zone}</dd></div><div><dt>设备用途</dt><dd>${d.service}</dd></div></dl><p class="node-note">${esc(relevant?.text || n.reason || n.description || '设备健康，等待巡检任务。')}</p>`;
-}
-
-function saveCompleted() {
-  if (!sessionId || savedSession === sessionId) return;
-  savedSession = sessionId;
-  const report = sim.exportReport();
-  report.uiMetrics = { peakConcurrent: Math.max(peakConcurrent, numeric(state.maxConcurrent)), handoffs: (state.logs || []).filter(l => l.type === 'handoff').length };
-  history.unshift({ id: sessionId, date: new Date().toISOString(), scenarioId: state.scenarioId, duration: state.elapsed, report });
-  history = history.slice(0, 12);
-  try { localStorage.setItem('net-rescue-archive-v1', JSON.stringify(history)); } catch { showToast('本机存储不可用，仍可导出本次报告'); }
-  $('#archive-count').textContent = history.length;
-}
-
-function render(next) {
-  state = next;
-  peakConcurrent = Math.max(peakConcurrent, (state.agents || []).filter(a => a.status === 'working').length);
-  if (state.status !== lastStatus) {
-    if (state.status === 'completed') { saveCompleted(); if (currentView === 'archive') renderArchive(); beep('complete'); }
-    if (state.status === 'awaiting_approval') { panelTab = 'mission'; updateTabs(); beep('approval'); }
-    lastStatus = state.status;
-  }
-  renderMetrics(); renderControl(); renderAgents(); renderTasks(); renderNode();
-  const desks = { lead: 'core', business: 'reception', finance: 'finance', boss: 'executive', zhang: 'access', liu: 'firewall', ops: 'ups' };
-  scene.update({ ...state, agents: (state.agents || []).map(agent => ({ ...agent, nodeId: agent.nodeId || desks[agent.id] })) });
-}
-
-function updateTabs() {
-  document.querySelectorAll('[data-tab]').forEach(button => { button.classList.toggle('active', button.dataset.tab === panelTab); button.setAttribute('aria-selected', String(button.dataset.tab === panelTab)); });
-}
-
-function reset() {
-  selectedNode = null; scene.setSelectedNode(null);
-  sessionId = null; savedSession = null; peakConcurrent = 0;
-  panelTab = 'mission'; controlSignature = ''; agentSignature = ''; taskSignature = ''; updateTabs();
-  sim.reset();
-}
-
-function start() {
-  sessionId = String(Date.now()); savedSession = null; peakConcurrent = 0;
-  panelTab = 'mission'; updateTabs(); sim.start(); beep();
-}
-
-function pauseOrResume() {
-  if (state.status === 'running') sim.pause();
-  else if (state.status === 'paused') sim.resume();
-}
-
-function step() {
-  if (state.status === 'paused') sim.resume();
-  if (sim.getState().status === 'running') { sim.advance(5); if (sim.getState().status === 'running') sim.pause(); }
-}
-
-function downloadReport(report = sim.exportReport(), label = state.scenarioId) {
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const localDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
-  const anchor = document.createElement('a'); anchor.href = url; anchor.download = `net-rescue-${label}-${localDate}.json`;
-  document.body.append(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast('抢修报告已导出，包含任务、动作与工具结果');
-}
-
-function showDialog(html) {
-  $('#dialog-content').innerHTML = html;
-  if (!$('#detail-dialog').open) $('#detail-dialog').showModal();
-}
-
-function dialogHeader(title, eyebrow = '') {
-  return `${eyebrow ? `<div class="dialog-eyebrow">${eyebrow}</div>` : ''}<div class="dialog-top"><h2>${title}</h2><button class="icon-button" data-dialog-close aria-label="关闭弹窗">${icon('close')}</button></div>`;
-}
-
-function showHelp() {
-  showDialog(`<div class="dialog-inner">${dialogHeader('欢迎来到疯狂网络实验室', 'HOW TO PLAY')}<div class="dialog-text">这里是一间用真实连接关系搭建的卡通办公室。选择一个事故，观察七位不同职责的模拟 Agent 如何共享证据、并行排障、交接任务并完成恢复验收。</div><div class="guide-steps"><div class="guide-step"><span>01</span><div><strong>选一个事故，注入故障</strong><p>DDoS 影响公网入口，断电影响供电依赖，交换机故障影响下游部门。点击设备可查看当前状态。</p></div></div><div class="guide-step"><span>02</span><div><strong>看小队分工，必要时做决策</strong><p>工程师执行诊断与修复；组长整合证据；业务确认影响；财务核算费用；管理层提出授权意见。遇到审批时，由你批准外部资源，或采用本地降级方案。</p></div></div><div class="guide-step"><span>03</span><div><strong>检查结果，留下证据</strong><p>在“协作记录”查看动作和工具结果，在任务板查看前置依赖。完成后导出 JSON 报告，或在“行动档案”复盘。</p></div></div></div><div class="engine-note"><strong>当前版本：本地策略 Agent 协作仿真</strong><br>7 个角色拥有独立任务状态，通过共享任务板、前置依赖和仿真工具协作。节点状态与指标由处置结果更新；没有连接真实办公网络，也没有调用真实大模型。费用和业务数据均为演练设定。</div><div style="margin-top:20px;display:flex;align-items:center;justify-content:space-between"><span class="dialog-text"><span class="keyboard-key">Space</span> 暂停 / 继续</span><button class="button button-primary" data-dialog-close>明白，开始实验 ${icon('arrow')}</button></div></div>`);
-}
-
-function showAgent(id) {
-  const a = state.agents?.find(a => a.id === id) || AGENTS.find(a => a.id === id);
-  if (!a) return;
-  const logs = (state.logs || []).filter(l => l.agentId === id || l.targetAgentId === id);
-  const tasks = (state.tasks || []).filter(t => t.ownerId === id);
-  showDialog(`<div class="dialog-inner"><div class="dialog-eyebrow">AGENT PROFILE / SHARED CONTEXT</div><div class="dialog-top"><div class="dialog-agent">${portrait(id)}<div><h2>${esc(a.name)}</h2><p>${esc(a.role)} · ${agentStatusNames[a.status] || '待命'}</p></div></div><button class="icon-button" data-dialog-close aria-label="关闭成员详情">${icon('close')}</button></div><div class="agent-detail-grid"><div><small>明确任务</small><strong>${esc(state.status === 'idle' ? idleTask(id) : a.task || idleTask(id))}</strong></div><div><small>执行动作</small><strong>${esc(a.action || '等待事件与前置证据')}</strong></div><div><small>交付结果</small><strong>${esc(a.result || (state.status === 'idle' ? '演练开始后产生工具结果' : '当前任务尚未交付'))}</strong></div></div>${tasks.length ? `<h3 class="dialog-log-title">负责的任务 · ${tasks.filter(t => t.status === 'done').length}/${tasks.length}</h3>${tasks.map(t => `<div class="dialog-log"><time>${t.status === 'done' ? '✓ 完成' : t.status === 'running' ? '● 执行' : '○ 等待'}</time><span>${esc(t.title)}${t.result && t.status === 'done' ? `<br><small>${esc(t.result)}</small>` : ''}</span></div>`).join('')}` : ''}${logs.length ? `<h3 class="dialog-log-title">行动与协作交接</h3>${logs.slice(-10).map(l => `<div class="dialog-log"><time>${time(l.time)}</time><span><small>${esc(logTypes[l.type] || l.type)}</small>${esc(l.text)}</span></div>`).join('')}` : `<div class="engine-note">${esc(idleTask(id))}。事件发生后，相关证据与协作结果会进入这个角色的共享上下文。</div>`}</div>`);
-}
-
-function setView(view) {
-  currentView = view;
-  $('#lab-view').hidden = view !== 'lab'; $('#archive-view').hidden = view !== 'archive';
-  document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  if (view === 'archive') renderArchive();
-}
-
-function renderArchive() {
-  $('#archive-count').textContent = history.length;
-  if (!history.length) {
-    $('#archive-list').innerHTML = `<div class="archive-empty">${icon('book')}<h3>第一份抢修档案，等你来写。</h3><p>完成一次演练，任务、交接和恢复结果会保存在这里。</p><button class="button button-primary" data-return-lab>去实验室 ${icon('arrow')}</button></div>`;
-    return;
-  }
-  const formatter = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short', hour12: false, timeZone: 'Asia/Shanghai' });
-  $('#archive-list').innerHTML = `<div class="archive-grid">${history.map(h => { const s = scenarios[h.scenarioId] || scenarios.ddos; const result = h.report.result || {}; return `<article class="archive-card"><div class="archive-card-head"><span class="scenario-icon ${esc(h.scenarioId)}">${icon(s.icon)}</span><div><h3>${s.name} · ${result.fullyRestored === false ? '降级恢复' : '抢修完成'}</h3><time>${esc(formatter.format(new Date(h.date)))}</time></div></div><div class="archive-card-numbers"><div><strong>${time(h.duration)}</strong><span>仿真耗时</span></div><div><strong>${numeric(h.report.uiMetrics?.peakConcurrent)} 人</strong><span>并行峰值</span></div><div><strong>${numeric(h.report.uiMetrics?.handoffs)} 次</strong><span>协作交接</span></div></div><div class="archive-card-actions"><button class="button button-light" data-archive-detail="${esc(h.id)}">${icon('book')}查看过程</button><button class="button button-primary" data-archive-export="${esc(h.id)}">${icon('download')}导出报告</button></div></article>`; }).join('')}</div>`;
-}
-
-function showArchiveDetail(id) {
-  const item = history.find(h => h.id === id); if (!item) return;
-  const r = item.report; const s = scenarios[item.scenarioId] || scenarios.ddos;
-  showDialog(`<div class="dialog-inner">${dialogHeader(`${s.name} · 行动复盘`, 'INCIDENT POSTMORTEM')}<div class="report-summary">${esc(r.result?.summary || '抢修任务完成，关键业务通过验收。')}<br>仿真用时 ${time(item.duration)} · 并行峰值 ${numeric(r.uiMetrics?.peakConcurrent)} 人 · 协作交接 ${numeric(r.uiMetrics?.handoffs)} 次${r.result?.cost !== undefined ? ` · 费用 ¥${numeric(r.result.cost).toLocaleString('zh-CN')}` : ''}${r.result?.remainingRisk ? `<br>后续事项：${esc(r.result.remainingRisk)}` : ''}</div><h3 class="dialog-log-title">完整行动时间线</h3>${(r.timeline || r.logs || []).map(l => `<div class="dialog-log"><time>${time(l.time)}</time><span><small>${esc(AGENTS.find(a => a.id === l.agentId)?.name || '系统')} / ${esc(logTypes[l.type] || l.type)}</small><br>${esc(l.text)}</span></div>`).join('')}</div>`);
-}
-
-$('#control-content').addEventListener('click', (event) => {
-  const button = event.target.closest('button'); if (!button) return;
-  if (button.dataset.scenario) { sim.selectScenario(button.dataset.scenario); return; }
-  if (button.dataset.agent) { showAgent(button.dataset.agent); return; }
-  const actions = { start, pause: pauseOrResume, step, approve: () => sim.approve(true), reject: () => sim.approve(false), reset, report: () => downloadReport() };
-  actions[button.dataset.action]?.();
+try { const saved=JSON.parse(localStorage.getItem('net-rescue-archive-v1')||'[]'); if(Array.isArray(saved))history=saved.filter(r=>r?.report&&typeof r.id==='string').slice(0,12); } catch {}
+try { const saved=JSON.parse(localStorage.getItem(configKey)||'[]'); if(Array.isArray(saved))for(const c of saved){try{sim.configureAgent(c.id,c);}catch{}} } catch {}
+function recommendedTeam(id){return [...new Set([...SCENARIOS.find(s=>s.id===id).recommendedAgents,'finance','boss'])];}
+sim.setTeam(recommendedTeam('ddos'));
+let state=sim.getState(), panel=null, panelSignature='', dockSignature='', lastStatus=state.status;
+let sessionId=null, savedSession=null, peakConcurrent=0, topologyVisible=true, soundEnabled=false, audioContext, toastTimer;
+const $popover=$('#scene-popover'), $content=$('#popover-content'), $scene=$('#office-scene');
+const notices=new Map(); let processedLogCount=0;
+const noticeLayer=document.createElement('div');noticeLayer.id='notice-layer';$('#lab').append(noticeLayer);
+const scene=mountScene($scene,{
+  onSelectNode(id){if(panel?.type==='node'&&panel.id===id)closePanel();else openPanel('node',id);},
+  onSelectAgent(id){if(panel?.type==='agent'&&panel.id===id)closePanel();else openPanel('agent',id,'work');},
+  onViewChange(){requestAnimationFrame(positionOverlays);},
 });
-$('#control-content').addEventListener('change', event => { if (event.target.id === 'speed') sim.setSpeed(Number(event.target.value)); });
-document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => { panelTab = button.dataset.tab; updateTabs(); renderControl(); }));
-document.querySelectorAll('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
-$('#agent-grid').addEventListener('click', event => { const id = event.target.closest('[data-agent]')?.dataset.agent; if (id) showAgent(id); });
-$('#reset').addEventListener('click', reset);
-$('#back-to-lab').addEventListener('click', () => setView('lab'));
-$('#help-open').addEventListener('click', showHelp);
-$('#node-detail').addEventListener('click', event => { if (event.target.closest('[data-close-node]')) { selectedNode = null; scene.setSelectedNode(null); renderNode(); } });
-$('#topology-toggle').addEventListener('click', () => { topologyVisible = !topologyVisible; scene.setTopology(topologyVisible); $('#topology-toggle').classList.toggle('active', topologyVisible); $('#topology-toggle').setAttribute('aria-pressed', String(topologyVisible)); });
-$('#zoom-in').addEventListener('click', () => scene.zoom(.15));
-$('#zoom-out').addEventListener('click', () => scene.zoom(-.15));
-$('#zoom-fit').addEventListener('click', () => scene.resetView());
-$('#sound-toggle').addEventListener('click', () => { soundEnabled = !soundEnabled; $('#sound-toggle').innerHTML = icon(soundEnabled ? 'volume' : 'mute'); $('#sound-toggle').title = soundEnabled ? '关闭提示音' : '开启提示音'; $('#sound-toggle').setAttribute('aria-label', soundEnabled ? '关闭提示音' : '开启提示音'); if (soundEnabled) beep(); });
-$('#detail-dialog').addEventListener('click', event => { if (event.target.closest('[data-dialog-close]') || event.target === $('#detail-dialog')) $('#detail-dialog').close(); });
-$('#archive-list').addEventListener('click', event => { const b = event.target.closest('button'); if (!b) return; if (b.hasAttribute('data-return-lab')) setView('lab'); if (b.dataset.archiveDetail) showArchiveDetail(b.dataset.archiveDetail); if (b.dataset.archiveExport) { const h = history.find(h => h.id === b.dataset.archiveExport); if (h) downloadReport(h.report, h.scenarioId); } });
-document.addEventListener('keydown', event => { if (event.code === 'Space' && !$('#detail-dialog').open && currentView === 'lab' && ['BODY', 'HTML'].includes(document.activeElement.tagName)) { event.preventDefault(); pauseOrResume(); } });
-
+const agentById=id=>state.agents.find(a=>a.id===id)||AGENTS.find(a=>a.id===id);
+const configById=id=>state.agentConfigs.find(a=>a.id===id)||DEFAULT_AGENT_CONFIGS.find(a=>a.id===id);
+const nameOf=id=>agentById(id)?.name||id||'系统';
+const toolset=id=>AGENT_TOOLSETS[id]||[];
+const selectedIds=()=>state.selectedAgentIds;
+const isIdle=()=>state.status==='idle';
+const configuredCount=()=>state.agentConfigs.filter(a=>a.configured).length;
+const selectedAgents=()=>state.agents.filter(a=>selectedIds().includes(a.id));
+function toast(message){clearTimeout(toastTimer);$('#toast').textContent=message;$('#toast').hidden=false;toastTimer=setTimeout(()=>{$('#toast').hidden=true;},2800);}
+function beep(kind){if(!soundEnabled)return;try{audioContext ||= new(window.AudioContext||window.webkitAudioContext)();if(audioContext.state==='suspended')audioContext.resume();const osc=audioContext.createOscillator(),gain=audioContext.createGain();osc.connect(gain);gain.connect(audioContext.destination);osc.frequency.value=kind==='approval'?430:710;gain.gain.setValueAtTime(.035,audioContext.currentTime);gain.gain.exponentialRampToValueAtTime(.001,audioContext.currentTime+.15);osc.start();osc.stop(audioContext.currentTime+.16);}catch{}}
+function rememberConfigs(){try{localStorage.setItem(configKey,JSON.stringify(state.agentConfigs));}catch{toast('配置已应用到本次演练，浏览器存储不可用');}}
+function header(title,eyebrow=''){return `<div class="popover-inner">${eyebrow?`<div class="popover-eyebrow">${eyebrow}</div>`:''}<div class="popover-top"><h2>${title}</h2><button class="icon-button" data-close-panel aria-label="关闭操作面板">${icon('close')}</button></div>`;}
+function openPanel(type,id=null,tab=null){panel={type,id,tab};panelSignature='';scene.setSelectedNode(type==='node'?id:null);scene.setSelectedAgent(['agent','approval'].includes(type)?id:null);if(type==='agent'){const a=scene.getAgentAnchor(id),r=$scene.getBoundingClientRect();if(a&&(a.x+r.left<50||a.x+r.left>window.innerWidth-50))scene.focusAgent(id);}renderPanel();renderDock();renderHud();renderNotices();}
+function closePanel(){panel=null;panelSignature='';$popover.hidden=true;scene.setSelectedNode(null);scene.setSelectedAgent(null);renderDock();renderHud();renderNotices();}
+function panelAnchor(){if(panel?.type==='node')return scene.getNodeAnchor(panel.id);if(['agent','approval'].includes(panel?.type))return scene.getAgentAnchor(panel.id);if(panel?.type==='result')return scene.getNodeAnchor('server');return null;}
+function positionOverlays(){
+  const rect=$('#lab').getBoundingClientRect(),origin=$scene.getBoundingClientRect(),w=rect.width,h=rect.height;
+  if(panel&&!$popover.hidden){const box=$popover.getBoundingClientRect(),anchor=panelAnchor();let left,top;if(anchor){const x=anchor.x+origin.left-rect.left,y=anchor.y+origin.top-rect.top;left=x+30+box.width<w-14?x+30:x-box.width-30;top=y-Math.min(90,box.height*.22);}else{left=(w-box.width)/2;top=h-box.height-100;}if(w<620){left=(w-box.width)/2;top=(h-box.height)/2-15;}$popover.style.left=`${Math.max(12,Math.min(w-box.width-12,left))}px`;$popover.style.top=`${Math.max(12,Math.min(h-box.height-80,top))}px`;}
+  const occupied=[];for(const [id]of notices){const el=noticeLayer.querySelector(`[data-notice="${id}"]`),anchor=scene.getAgentAnchor(id);if(!el||!anchor)continue;const left=Math.min(w-el.offsetWidth-15,Math.max(15,anchor.x+origin.left-rect.left-el.offsetWidth/2));let top=Math.max(95,anchor.y+origin.top-rect.top-el.offsetHeight-44);for(const box of occupied)if(left<box.x+box.w+8&&left+el.offsetWidth>box.x-8&&top<box.y+box.h+8&&top+el.offsetHeight>box.y-8)top=Math.min(h-el.offsetHeight-100,box.y+box.h+9);el.style.left=`${left}px`;el.style.top=`${top}px`;occupied.push({x:left,y:top,w:el.offsetWidth,h:el.offsetHeight});}
+}
+function safeAction(action){try{action();}catch(error){toast(error.message||'当前状态无法执行这个动作');}}
+function readinessMarkup(){const check=sim.validateConfiguration();return `<div class="readiness ${check.ready?'':'error'}"><strong>${icon(check.ready?'check':'info')}${check.ready?(state.canApprovePaid?'技能齐全，可申请完整恢复':'技能齐全，采用本地降级方案'):'请补齐下列能力'}</strong>${check.ready?(state.canApprovePaid?'':'<div>加入财务与总经理，可启用完整恢复预算审批。</div>'):`<ul>${check.errors.slice(0,4).map(e=>`<li>${esc(e.message)}</li>`).join('')}</ul>`}</div>`;}
+function chooseScenario(id,recommended=true){if(!isIdle()&&state.status!=='completed')return toast('先重置当前抢修，再切换事件');sessionId=null;savedSession=null;peakConcurrent=0;processedLogCount=0;notices.clear();pendingNotices.clear();sim.selectScenario(id);if(recommended)sim.setTeam(recommendedTeam(id));panelSignature='';renderPanel();}
+function startIncident(){if(!isIdle())return;if(!sim.validateConfiguration().ready){openPanel('team');return toast('请先补齐小队技能或工具权限');}sessionId=String(Date.now());savedSession=null;peakConcurrent=0;processedLogCount=0;closePanel();sim.start();beep('start');}
+function resetIncident(){closePanel();sessionId=null;savedSession=null;peakConcurrent=0;processedLogCount=0;notices.clear();pendingNotices.clear();sim.reset();toast('演练已重置，Agent 配置已保留');}
+function pauseResume(){if(state.status==='running')sim.pause();else if(state.status==='paused')sim.resume();}
+function step(){if(state.status==='paused')sim.resume();if(state.status==='running'){sim.advance(5);if(state.status==='running')sim.pause();}}
+function renderHud(){
+  const nodes=Object.values(state.nodes),normal=nodes.every(n=>n.status==='online');$('#online-count').textContent=`${nodes.filter(n=>n.status==='online').length} / ${nodes.length} 节点可用`;$('#network-hud .status-dot').className=`status-dot ${normal?'':'warning'}`;$('#availability').textContent=`${numeric(state.metrics.availability).toFixed(1)}%`;$('#squad-label').textContent=`${selectedIds().length} 位 Agent · ${configuredCount()}/7 已配置`;
+  const hud=$('#incident-hud');hud.hidden=isIdle();if(!isIdle()){const phase=state.phase==='complete'?4:phaseList.findIndex(([id])=>id===state.phase);hud.className=`incident-hud glass ${state.status==='completed'?'completed':''} ${state.result?.fullyRestored===false?'degraded':''}`;hud.innerHTML=`<div class="incident-heading">${icon(state.status==='completed'?'check':scenarios[state.scenarioId].icon)}<span>${state.status==='completed'?state.result?.fullyRestored===false?'核心恢复 · 降级运行':'全网恢复':scenarios[state.scenarioId].name}</span><time>${time(state.elapsed)}</time></div><div class="incident-sub">${phaseList.map(([id,label],i)=>`${i?'<i></i>':''}<span class="${i<=phase?'active':''}">${label}</span>`).join('')}<small>${state.status==='awaiting_approval'?'待审批':state.status==='paused'?'已暂停':`${state.tasks.filter(t=>t.status==='done').length}/${state.tasks.length}`}</small></div>`;}$('#scene-cue').hidden=!isIdle()||!!panel;
+}
+function renderDock(){
+  const sig=[state.status,state.speed,panel?.type,selectedIds().join(','),history.length].join('/');if(sig===dockSignature)return;dockSignature=sig;let primary;
+  if(isIdle())primary=`<button class="dock-action dock-primary" data-open="scenario">${icon('zap')}<span>开始一次抢修</span></button>`;
+  else if(state.status==='completed')primary=`<button class="dock-action dock-primary" data-open="result">${icon('check')}<span>查看结果</span></button>`;
+  else if(state.status==='awaiting_approval')primary=`<button class="dock-action dock-primary" data-open="approval">${icon('clock')}<span>确认抢修方案</span></button>`;
+  else primary=`<button class="dock-action dock-primary" data-action="pause">${icon(state.status==='paused'?'play':'pause')}<span>${state.status==='paused'?'继续抢修':'暂停'}</span></button>`;
+  $('#action-dock').innerHTML=`<button class="dock-action ${panel?.type==='team'?'active':''}" data-open="team" title="配置角色与选择小队">${icon('users')}<span>角色</span><em>${selectedIds().length}</em></button><button class="dock-action ${panel?.type==='logs'?'active':''}" data-open="logs" title="员工做了什么">${icon('terminal')}<span class="dock-label optional">记录</span></button><span class="dock-divider"></span>${primary}${!isIdle()&&state.status!=='completed'?`<select class="dock-speed" id="speed" aria-label="演练速度">${[1,2,4].map(v=>`<option value="${v}" ${v===state.speed?'selected':''}>${v}×</option>`).join('')}</select>`:''}<button class="dock-action dock-more" data-open="more" aria-label="更多实验动作">${icon('grid')}</button>`;
+}
+function renderTeam(){
+  const ids=selectedIds(),recommended=recommendedTeam(state.scenarioId);
+  return `${header('选择处理这次故障的角色','STEP 2 / SELECT AGENTS')}<p class="popover-lead">系统已按「${scenarios[state.scenarioId].name}」推荐阵容，勾选角色即可调整。</p><div class="team-list">${AGENTS.map(a=>{const config=configById(a.id),selected=ids.includes(a.id);return `<div class="team-row ${selected?'selected':''}"><label class="team-select"><input type="checkbox" data-team-agent="${a.id}" ${selected?'checked':''} ${!isIdle()?'disabled':''} aria-label="派遣${esc(config.name)}">${portrait(a.id)}<span class="team-copy"><strong>${esc(config.name)}<small>${esc(config.role)}${recommended.includes(a.id)?' · 推荐':''}</small></strong><span class="team-skills">${esc(toolset(a.id).map(t=>t.label).join(' · '))}</span></span></label><button class="button" data-configure="${a.id}">${config.configured?icon('check'):icon('wrench')}${isIdle()?'配置':'查看'}</button></div>`;}).join('')}</div>${isIdle()?`${readinessMarkup()}<div class="team-footer"><span>已选 ${ids.length} 位 · 已配置 ${ids.filter(id=>configById(id).configured).length}/${ids.length}</span><button class="button button-text" data-action="recommended">恢复推荐</button></div><div class="button-row"><button class="button" data-open="scenario">更换故障</button><button class="button button-primary" data-action="start">${icon('play')}确认小队，开始抢修</button></div>`:'<p class="subtle">抢修期间小队锁定，重置后可调整角色。</p>'}</div>`;
+}
+function renderAgent(){
+  const a=agentById(panel.id),config=configById(panel.id);if(!a)return '';
+  const selected=selectedIds().includes(a.id),logs=state.logs.filter(l=>l.agentId===a.id||l.targetAgentId===a.id),tasks=state.tasks.filter(t=>t.ownerId===a.id),working=tasks.find(t=>t.status==='running'),tab=panel.tab||'work';
+  let html=`<div class="popover-inner"><div class="popover-eyebrow">ROLE-BASED AGENT / ${esc(a.id.toUpperCase())}</div><div class="popover-top"><div class="profile-head">${portrait(a.id)}<div><h2>${esc(config.name)} <small>AGENT</small></h2><p>${esc(config.role)} · ${selected?agentStatusNames[a.status]||'待命':'未派遣'}</p><span class="configured-label ${config.configured?'confirmed':''}">${icon(config.configured?'check':'wrench')}${config.configured?'配置已确认':'默认角色配置'}</span></div></div><button class="icon-button" data-close-panel aria-label="关闭操作面板">${icon('close')}</button></div><div class="popover-tabs"><button class="popover-tab ${tab==='work'?'active':''}" data-agent-tab="work">做了什么</button><button class="popover-tab ${tab==='configure'?'active':''}" data-agent-tab="configure">配置 Agent</button><button class="popover-tab ${tab==='handoff'?'active':''}" data-agent-tab="handoff">交接记录</button></div>`;
+  if(tab==='configure'){
+    const readonly=!isIdle();html+=`<form id="agent-config-form" data-agent-id="${a.id}" class="config-form">${readonly?'<div class="readonly-note">正在抢修，重置后可以修改配置。</div>':''}<div class="field-pair"><label><span class="field-label">员工名称</span><input class="field-input" name="name" value="${esc(config.name)}" maxlength="16" required ${readonly?'disabled':''}></label><label><span class="field-label">角色</span><input class="field-input" name="role" value="${esc(config.role)}" maxlength="24" required ${readonly?'disabled':''}></label></div><label><span class="field-label">这个 Agent 负责什么</span><textarea class="field-input" name="instructions" rows="3" maxlength="600" required ${readonly?'disabled':''}>${esc(config.instructions)}</textarea></label><div><div class="field-label">技能与工具</div><div class="tool-options">${toolset(a.id).map(t=>`<label class="tool-option"><input type="checkbox" name="tool" value="${esc(t.id)}" ${config.tools.includes(t.id)?'checked':''} ${readonly?'disabled':''}><span><strong>${esc(t.label)}</strong><small>${esc(t.description)}</small></span></label>`).join('')}</div></div><details><summary class="field-label">高级：允许交接给哪些同事</summary><div class="collaborator-options">${AGENTS.filter(other=>other.id!==a.id).map(other=>`<label class="collaborator-option"><input type="checkbox" name="collaborator" value="${other.id}" ${config.collaborators.includes(other.id)?'checked':''} ${readonly?'disabled':''}>${esc(nameOf(other.id))}</label>`).join('')}</div><p class="config-role-note">未授权工具或交接对象时，相关任务会在开始前提示。</p></details><div id="form-error" class="form-error" hidden></div>${!readonly?`<div class="form-actions"><button type="button" class="button" data-open="team">返回小队</button><button type="submit" class="button button-primary">${icon('check')}保存 Agent 配置</button></div>`:''}</form>`;
+  }else if(tab==='handoff'){
+    const handoffs=logs.filter(l=>l.type==='handoff'||l.type==='approval');html+=`<div class="popover-section-title">可以协作的同事</div><div class="related-agents">${config.collaborators.map(id=>`<button class="person-link" data-agent="${id}">${portrait(id)}${esc(nameOf(id))}</button>`).join('')}</div><div class="divider"></div>${handoffs.length?`<div class="log-list">${handoffs.map(logMarkup).join('')}</div>`:'<p class="popover-lead">接收的证据和交付的结果会记录在这里。</p>'}`;
+  }else{
+    html+=`<div class="skill-tags">${toolset(a.id).map(t=>`<span class="skill-tag ${config.tools.includes(t.id)?'':'disabled'}">${esc(t.label)}</span>`).join('')}</div><div class="agent-work"><div class="work-label">任务 · 要解决什么</div><p class="work-text strong">${esc(isIdle()?config.instructions:selected?a.task||'等待分派':'本次没有派遣这个角色')}</p>${working?`<div class="progress-track"><i style="width:${working.progress*100}%"></i></div>`:''}</div><div class="agent-work"><div class="work-label">行动 · 做了什么${working?.toolName?` / ${esc(working.toolName)}`:''}</div><p class="work-text">${esc(a.action||'等待故障发生，再按技能承接任务。')}</p></div><div class="agent-work"><div class="work-label">结果 · 得到了什么</div><p class="work-result">${esc(a.result||'完成后会在这里展示明确结果。')}</p></div>${logs.length?`<div class="popover-section-title">最近的工作</div><div class="log-list">${logs.filter(l=>l.type==='result').slice(-3).map(logMarkup).join('')}</div>`:''}${isIdle()?`<div class="button-row"><button class="button" data-toggle-member="${a.id}">${selected?'本次不派遣':'加入本次小队'}</button><button class="button button-primary" data-agent-tab="configure">${icon('wrench')}配置 Agent</button></div>`:''}`;
+  }
+  return html+'</div>';
+}
+function renderNode(){
+  const id=panel.id,n=state.nodes[id],d=nodeDetails[id];if(!n||!d)return '';
+  const related=selectedAgents().filter(a=>a.nodeId===id),fault={internet:['ddos','模拟 DDoS 流量攻击'],firewall:['ddos','模拟 DDoS 流量攻击'],ups:['power','模拟机房断电'],core:['switch','模拟核心交换机故障']}[id];
+  return `${header(esc(n.label),'DEVICE ACTIONS')}<dl class="node-facts"><div><dt>实时状态</dt><dd class="status-text"><i class="status-dot ${n.status==='online'?'':n.status==='warning'?'warning':'offline'}"></i>${statusNames[n.status]}</dd></div><div><dt>网络地址</dt><dd class="mono">${d.ip}</dd></div><div><dt>所属区域</dt><dd>${d.zone}</dd></div><div><dt>设备用途</dt><dd>${d.service}</dd></div></dl><div class="node-fault">${esc(n.reason)}</div>${related.length?`<div class="popover-section-title">谁在处理</div><div class="related-agents">${related.map(a=>`<button class="person-link" data-agent="${a.id}">${portrait(a.id)}${esc(a.name)} Agent</button>`).join('')}</div>`:''}<div class="popover-section-title">可以做什么</div><div class="node-actions">${fault&&isIdle()?`<button class="context-action danger" data-inject="${fault[0]}">${icon('zap')}<span>${fault[1]}<small>先确认系统推荐的角色小队</small></span>${icon('chevron','small')}</button>`:''}<button class="context-action" data-node-logs="${id}">${icon('terminal')}<span>查看谁做了什么<small>${state.logs.filter(l=>l.nodeId===id).length} 条设备行动记录</small></span>${icon('chevron','small')}</button></div></div>`;
+}
+function renderScenarios(){return `${header('这次，处理什么故障？','STEP 1 / CHOOSE INCIDENT')}<div class="scenario-grid">${SCENARIOS.map(item=>`<button class="scenario-card ${item.id} ${item.id===state.scenarioId?'selected':''}" data-scenario="${item.id}"><span class="scenario-symbol">${icon(scenarios[item.id].icon)}</span><span><strong>${scenarios[item.id].name}<small>${scenarios[item.id].en}</small></strong><p>${scenarios[item.id].intro}</p></span>${icon(item.id===state.scenarioId?'check':'chevron')}</button>`).join('')}</div><div class="scenario-goal">${scenarios[state.scenarioId].goal}</div><div class="popover-section-title">推荐出场的角色 <small>${selectedIds().length} 位 Agent</small></div><div class="related-agents">${selectedAgents().map(a=>`<button class="person-link" data-agent="${a.id}">${portrait(a.id)}${esc(a.name)}</button>`).join('')}</div><div class="button-row"><button class="button button-primary" data-open="team">${icon('users')}下一步，确认抢修小队${icon('arrow')}</button></div><p class="subtle">故障和工具均为本地仿真，不影响真实网络。</p></div>`;}
+function logMarkup(log,snapshotAgents=[]){const names=Array.isArray(snapshotAgents)?snapshotAgents:[];const own=log.agentName||names.find(a=>a.id===log.agentId)?.name||nameOf(log.agentId),target=log.targetAgentName||names.find(a=>a.id===log.targetAgentId)?.name||nameOf(log.targetAgentId);return `<div class="log-entry">${portrait(log.agentId)}<div class="log-body"><div class="log-meta"><strong>${esc(own)}${log.targetAgentId?` → ${esc(target)}`:''}</strong><time>${time(log.time)}</time></div><span class="log-label ${esc(log.type)}">${esc(logTypes[log.type]||log.type)}${log.toolName?` · ${esc(log.toolName)}`:''}</span><p>${esc(log.text)}</p></div></div>`;}
+function renderLogs(){const logs=state.logs.filter(l=>!panel.id||l.nodeId===panel.id);return `${header('员工做了什么','ACTIONS & RESULTS')}<p class="popover-lead">${esc(panel.id?state.nodes[panel.id]?.label:'本次抢修小队')} · ${logs.length} 条记录</p><div class="log-list" id="log-list">${logs.length?logs.map(logMarkup).join(''):`<div class="empty-note">${icon('terminal')}开始抢修后，每个角色的任务、行动和结果都会记录在这里。</div>`}</div><div class="log-footer"><span>按实际执行顺序记录</span><button class="button button-text" data-action="report">${icon('download')}导出</button></div></div>`;}
+function renderTasks(){const tasks=state.tasks;return `${header('大家如何一起完成抢修','SHARED TASK BOARD')}<p class="popover-lead">前置结果就绪后再行动，独立工作可以并行。${tasks.filter(t=>t.status==='done').length}/${tasks.length} 已完成</p><div class="task-columns">${phaseList.map(([phase,title],i)=>{const list=tasks.filter(t=>t.phase===phase);return `<div class="task-column"><h3>0${i+1} ${title}<small>${list.filter(t=>t.status==='done').length}/${list.length}</small></h3>${list.map(t=>`<div class="task-item ${t.status}"><div class="task-item-title">${icon(t.status==='done'?'check':t.status==='running'?'activity':'clock')}<span>${esc(t.title)}</span></div><div class="task-owner"><span>${esc(nameOf(t.ownerId))}</span><span>${t.status==='done'?'已完成':t.status==='running'?'执行中':'待前置'}</span></div>${t.toolName?`<div class="task-dep">技能 · ${esc(t.toolName)}</div>`:''}${t.dependencies.length?`<div class="task-dep">接收 ${[...new Set(t.dependencies.map(dep=>nameOf(tasks.find(task=>task.id===dep)?.ownerId)))].map(esc).join(' / ')} 的结果</div>`:''}${t.status==='running'?`<div class="progress-track"><i style="width:${t.progress*100}%"></i></div>`:''}</div>`).join('')}</div>`;}).join('')}</div></div>`;}
+function renderApproval(){
+  const a=state.approval;if(!a)return `${header('方案已经确认')}<p class="popover-lead">小队正在执行后续工作。</p></div>`;
+  const paid=a.canApprovePaid!==false;
+  return `${header(esc(a.title),'需要你确认')}<div class="approval-chain">${selectedIds().includes('finance')?`${portrait('finance')}<span>${esc(nameOf('finance'))}核算</span>${icon('arrow')}`:''}${portrait(a.approverId||'lead')}<span>${esc(nameOf(a.approverId||'lead'))}提交</span>${icon('arrow')}<span>由你确认</span></div>${paid?`<div class="approval-amount">¥${numeric(a.amount).toLocaleString('zh-CN')}</div>`:'<div class="approval-amount">本地资源方案</div>'}<p class="approval-copy">${esc(a.description)}</p><div class="approval-note"><strong>本地方案的影响</strong><br>${esc(a.fallback||'零新增支出，恢复范围与遗留风险会写入结果。')}</div><div class="button-row">${paid?'<button class="button button-orange" data-action="approve">批准完整恢复</button><button class="button" data-action="reject">采用本地方案</button>':'<button class="button button-orange" data-action="reject">确认方案，继续抢修</button>'}</div><p class="subtle">抢修计时已暂停，确认后继续。</p></div>`;
+}
+function checkText(c){return typeof c==='string'?c:c?.label||c?.description||c?.title||'';}
+function renderResult(){const r=state.result||{},m=state.metrics;return `${header('这次抢修，完成了什么','INCIDENT RESULT')}<div class="result-title ${r.fullyRestored===false?'degraded':''}">${esc(r.title||'抢修完成')}</div><p class="result-summary">${esc(r.summary||'')}</p><div class="result-stats"><div><strong>${time(r.duration??state.elapsed)}</strong><small>仿真用时</small></div><div><strong>${numeric(m.availability).toFixed(1)}%</strong><small>业务可用率</small></div><div><strong>${numeric(r.peakConcurrent||r.maxConcurrent||peakConcurrent)} 人</strong><small>同时工作的 Agent</small></div></div>${(r.verifiedChecks||[]).slice(0,4).map(c=>`<div class="result-check">${icon('check')}<span>${esc(checkText(c))}</span></div>`).join('')}<div class="result-check">${icon('users')}<span>${state.logs.filter(l=>l.type==='handoff').length} 次证据交接 · ${numeric(r.cost).toLocaleString('zh-CN')} 元模拟支出</span></div>${r.remainingRisk?`<div class="result-risk">后续事项：${esc(r.remainingRisk)}</div>`:''}<div class="button-row"><button class="button" data-open="logs">${icon('terminal')}看员工工作</button><button class="button button-primary" data-action="report">${icon('download')}导出报告</button></div><button class="button button-text button-wide" data-action="reset" style="margin-top:7px">${icon('reset')}重新组队，再来一次</button></div>`;}
+function renderMetrics(){const m=state.metrics;return `${header('网络现在怎么样','SIMULATED TELEMETRY')}<div class="metrics-grid">${[['可用率',numeric(m.availability).toFixed(1),'%',m.availability<99,'按终端状态加权'],['平均延迟',m.latency,'ms',m.latency>80,'模拟链路响应'],['丢包率',numeric(m.packetLoss).toFixed(1),'%',m.packetLoss>1,'模拟数据传输'],['受影响用户',m.affectedUsers,'/ 80',m.affectedUsers>0,'办公、会议及客户业务']].map(([label,value,unit,bad,note])=>`<div class="metric"><span>${label}</span><strong class="${bad?'bad':''}">${value}<small>${unit}</small></strong><p>${note}</p></div>`).join('')}</div><p class="subtle">网络测量为仿真数据。</p></div>`;}
+function renderArchive(){const formatter=new Intl.DateTimeFormat('zh-CN',{dateStyle:'short',timeStyle:'short',hour12:false,timeZone:'Asia/Shanghai'});return `${header('以前的抢修记录','LOCAL ARCHIVE')}<div class="archive-list">${history.length?history.map(h=>`<article class="archive-item"><div class="archive-item-head"><strong>${esc(scenarios[h.scenarioId]?.name||'网络事件')}</strong><time>${Number.isNaN(new Date(h.date).getTime())?'本机记录':esc(formatter.format(new Date(h.date)))}</time></div><p>${esc(h.report.result?.title||'抢修完成')} · ${time(h.duration)}<br>${numeric(h.report.uiMetrics?.peakConcurrent||h.report.collaboration?.maxConcurrent)} 位并行 · ${numeric(h.report.uiMetrics?.handoffs||h.report.collaboration?.handoffs)} 次交接</p><div class="button-row"><button class="button" data-archive="${h.id}">查看过程</button><button class="button button-primary" data-export-archive="${h.id}">导出报告</button></div></article>`).join(''):'<div class="empty-note">完成演练后，配置、任务和协作结果会保存在这里。</div>'}</div></div>`;}
+function renderArchiveDetail(){const h=history.find(h=>h.id===panel.id);if(!h)return '';return `${header(esc(scenarios[h.scenarioId]?.name||'抢修复盘'),'POSTMORTEM')}<p class="popover-lead">${esc(h.report.result?.summary||'')}</p><div class="log-list">${(h.report.timeline||h.report.logs||[]).map(l=>logMarkup(l,h.report.agentConfigs||h.report.agents)).join('')}</div><div class="button-row"><button class="button" data-open="archive">返回档案</button><button class="button button-primary" data-export-archive="${h.id}">导出报告</button></div></div>`;}
+function renderMore(){return `${header('更多动作','ACTIONS')}<div class="more-actions"><button class="button" data-open="tasks">${icon('network')}协作任务</button><button class="button" data-open="archive">${icon('book')}抢修档案 ${history.length}</button><button class="button" data-open="help">${icon('info')}操作提示</button><button class="button" data-action="sound">${icon(soundEnabled?'volume':'mute')}${soundEnabled?'关闭提示音':'开启提示音'}</button><button class="button" data-action="reset">${icon('reset')}重置演练</button><button class="button" data-action="step" ${['running','paused'].includes(state.status)?'':'disabled'}>${icon('step')}推进 5 秒</button></div></div>`;}
+function renderHelp(){return `${header('只要三步，就能开始','HOW TO PLAY')}<div class="guide-step"><i>01</i><div><strong>选择故障</strong><p>点底部“开始一次抢修”，或点击互联网、UPS、核心交换机，选择故障动作。</p></div></div><div class="guide-step"><i>02</i><div><strong>确认小队</strong><p>系统会按技能推荐角色。可直接开始，也可点小人配置名称、职责和工具。</p></div></div><div class="guide-step"><i>03</i><div><strong>看大家如何抢修</strong><p>员工完成关键工作时，会弹出“任务、行动、结果”。只有方案审批需要你确认。点员工能查看他做过的工作。</p></div></div><div class="engine-note"><strong>每个小人都是一个带技能的 Agent。</strong><br>工具与交接权限参与检查；实际工作由技能覆盖和任务依赖分派。目前是本地规则仿真，尚未调用真实大模型或生产网络。</div></div>`;}
+function renderPanel(){
+  if(!panel){$popover.hidden=true;return;}
+  const editing=panel.type==='agent'&&panel.tab==='configure';
+  const sig=[panel.type,panel.id,panel.tab,state.status,state.scenarioId,selectedIds().join(','),configuredCount(),editing?'':state.logs.length,editing?'':state.tasks.map(t=>`${t.id}:${t.status}:${Math.floor(t.progress*10)}`).join(','),history.length].join('/');
+  if(sig===panelSignature){positionOverlays();return;}panelSignature=sig;
+  const oldScroll=$popover.scrollTop,list=$('#log-list'),scroll=list?.scrollTop||0,atEnd=!list||list.scrollHeight-list.clientHeight-list.scrollTop<50;
+  const renderers={team:renderTeam,agent:renderAgent,node:renderNode,scenario:renderScenarios,logs:renderLogs,tasks:renderTasks,approval:renderApproval,result:renderResult,metrics:renderMetrics,archive:renderArchive,archiveDetail:renderArchiveDetail,more:renderMore,help:renderHelp};
+  $popover.className=`scene-popover glass ${['team','scenario','logs','archive','archiveDetail','help'].includes(panel.type)?'wide':''} ${panel.type==='tasks'?'extra-wide':''} ${panel.type==='approval'?'approval':''} ${editing?'configuration':''}`;
+  $content.innerHTML=renderers[panel.type]?.()||'';$popover.hidden=false;$popover.scrollTop=oldScroll;const newList=$('#log-list');if(newList)newList.scrollTop=atEnd?newList.scrollHeight:scroll;positionOverlays();
+}
+function saveCompleted(){
+  if(!sessionId||savedSession===sessionId)return;savedSession=sessionId;
+  const report=sim.exportReport();report.uiMetrics={peakConcurrent:state.maxConcurrent||peakConcurrent,handoffs:state.handoffs||state.logs.filter(l=>l.type==='handoff').length};
+  history.unshift({id:sessionId,date:new Date().toISOString(),scenarioId:state.scenarioId,duration:state.elapsed,report});history=history.slice(0,12);try{localStorage.setItem('net-rescue-archive-v1',JSON.stringify(history));}catch{toast('档案未能写入本机存储，仍可导出报告');}
+}
+const pendingNotices=new Map();let noticeSignature='',noticesHiddenAt=null;
+function collectNotices(){
+  if(state.logs.length<processedLogCount){processedLogCount=0;notices.clear();pendingNotices.clear();}
+  for(const log of state.logs.slice(processedLogCount)){
+    if(log.type!=='result'||!agentById(log.agentId))continue;
+    const task=state.tasks.find(t=>t.ownerId===log.agentId&&t.status==='done'&&Math.abs(numeric(t.finishedAt)-numeric(log.time))<.01)||state.tasks.filter(t=>t.ownerId===log.agentId&&t.status==='done').at(-1);
+    pendingNotices.set(log.id,{agentId:log.agentId,task:task?.title||'完成分派工作',action:task?.action||'执行角色工具',result:log.text,id:log.id});
+  }
+  processedLogCount=state.logs.length;
+}
+function renderNotices(){
+  const now=performance.now(),hidden=!!panel||state.status==='awaiting_approval'||isIdle();noticeLayer.hidden=hidden;if(hidden){if(noticesHiddenAt===null)noticesHiddenAt=now;return;}if(noticesHiddenAt!==null){for(const n of notices.values())n.expires+=now-noticesHiddenAt;noticesHiddenAt=null;}for(const[id,n]of notices)if(n.expires<now)notices.delete(id);
+  const limit=window.innerWidth<720?1:2;
+  for(const[key,n]of pendingNotices){if(notices.size>=limit)break;if(notices.has(n.agentId))continue;notices.set(n.agentId,{...n,expires:now+5500});pendingNotices.delete(key);}
+  noticeLayer.hidden=hidden;
+  const sig=[...notices].map(([id,n])=>`${id}:${n.id}`).join('/');if(sig!==noticeSignature){noticeSignature=sig;noticeLayer.innerHTML=[...notices].map(([id,n])=>`<article class="employee-notice" data-notice="${id}" role="status"><div class="employee-notice-head"><button data-agent="${id}">${portrait(id)}<span><strong>${esc(nameOf(id))} <small>AGENT</small></strong><em>${esc(agentById(id).role)} · 工作完成</em></span></button><button class="icon-button" data-dismiss-notice="${id}" aria-label="关闭${esc(nameOf(id))}工作提示">${icon('close')}</button></div><dl><div><dt>任务</dt><dd>${esc(n.task)}</dd></div><div><dt>行动</dt><dd>${esc(n.action)}</dd></div><div class="notice-result"><dt>结果</dt><dd>${esc(n.result)}</dd></div></dl></article>`).join('');}positionOverlays();
+}
+function render(next){
+  state=next;peakConcurrent=Math.max(peakConcurrent,state.agents.filter(a=>a.status==='working').length);collectNotices();
+  if(state.status!==lastStatus){
+    if(state.status==='awaiting_approval'){panel={type:'approval',id:state.approval?.approverId||state.tasks.find(t=>t.id==='approval')?.ownerId||'boss'};panelSignature='';beep('approval');}
+    if(state.status==='completed'){saveCompleted();toast('抢修已结束，点小人看工作，点底部查看结果');beep('complete');}
+    if(lastStatus==='awaiting_approval'&&state.status==='running'&&panel?.type==='approval')closePanel();
+    lastStatus=state.status;
+  }
+  scene.update(state);renderHud();renderDock();renderPanel();renderNotices();
+}
+function download(report=sim.exportReport(),label=state.scenarioId){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`net-rescue-${label}-${new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}).format(new Date())}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('已导出角色配置、任务与协作结果');}
+function toggleMember(id){const ids=selectedIds();sim.setTeam(ids.includes(id)?ids.filter(x=>x!==id):[...ids,id]);}
+function dispatchOpen(type){if(type==='approval')openPanel('approval',state.approval?.approverId||state.tasks.find(t=>t.id==='approval')?.ownerId||'boss');else if(type==='scenario'&&!isIdle())toast('当前抢修尚未结束，请先重置');else if(panel?.type===type)closePanel();else openPanel(type);}
+$('#lab').addEventListener('click',event=>{
+  const b=event.target.closest('button');if(!b)return;
+  safeAction(()=>{
+    if(b.hasAttribute('data-close-panel'))return closePanel();
+    if(b.dataset.open)return dispatchOpen(b.dataset.open);
+    if(b.dataset.agent)return openPanel('agent',b.dataset.agent,'work');
+    if(b.dataset.configure)return openPanel('agent',b.dataset.configure,'configure');
+    if(b.dataset.agentTab){panel.tab=b.dataset.agentTab;panelSignature='';return renderPanel();}
+    if(b.dataset.scenario)return chooseScenario(b.dataset.scenario);
+    if(b.dataset.inject){chooseScenario(b.dataset.inject);return openPanel('team');}
+    if(b.dataset.nodeLogs)return openPanel('logs',b.dataset.nodeLogs);
+    if(b.dataset.toggleMember)return toggleMember(b.dataset.toggleMember);
+    if(b.dataset.dismissNotice){notices.delete(b.dataset.dismissNotice);return renderNotices();}
+    if(b.dataset.archive)return openPanel('archiveDetail',b.dataset.archive);
+    if(b.dataset.exportArchive){const h=history.find(h=>h.id===b.dataset.exportArchive);if(h)download(h.report,h.scenarioId);return;}
+    const actions={start:startIncident,pause:pauseResume,step,approve:()=>sim.approve(true),reject:()=>sim.approve(false),reset:resetIncident,report:()=>download(),recommended:()=>sim.setTeam(recommendedTeam(state.scenarioId)),fit:()=>{scene.resetView();closePanel();},sound:()=>{soundEnabled=!soundEnabled;panelSignature='';renderPanel();beep('sound');toast(soundEnabled?'提示音已开启':'提示音已关闭');}};actions[b.dataset.action]?.();
+  });
+});
+$('#lab').addEventListener('change',event=>safeAction(()=>{if(event.target.id==='speed')sim.setSpeed(Number(event.target.value));if(event.target.dataset.teamAgent)toggleMember(event.target.dataset.teamAgent);}));
+$content.addEventListener('submit',event=>{
+  if(event.target.id!=='agent-config-form')return;event.preventDefault();const form=event.target,data=new FormData(form),id=form.dataset.agentId;
+  try{sim.configureAgent(id,{name:String(data.get('name')||'').trim(),role:String(data.get('role')||'').trim(),instructions:String(data.get('instructions')||'').trim(),tools:data.getAll('tool'),collaborators:data.getAll('collaborator'),configured:true});rememberConfigs();panelSignature='';renderPanel();toast(`${nameOf(id)} Agent 配置已生效`);}catch(error){const target=$('#form-error');target.hidden=false;target.textContent=error.message;}
+});
+$('#topology-toggle').addEventListener('click',()=>{topologyVisible=!topologyVisible;scene.setTopology(topologyVisible);$('#topology-toggle').classList.toggle('active',topologyVisible);$('#topology-toggle').setAttribute('aria-pressed',String(topologyVisible));});
+$('#zoom-in').addEventListener('click',()=>scene.zoom(.15));$('#zoom-out').addEventListener('click',()=>scene.zoom(-.15));$('#zoom-fit').addEventListener('click',()=>{$scene.classList.toggle('overview');scene.resetView();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')closePanel();if(event.code==='Space'&&['BODY','HTML'].includes(document.activeElement.tagName)){event.preventDefault();pauseResume();}});
+window.addEventListener('resize',positionOverlays);
 sim.subscribe(render);
-$('#archive-count').textContent = history.length;
-render(state);
-let lastFrame = performance.now();
-setInterval(() => { const now = performance.now(); const delta = Math.min(1, (now - lastFrame) / 1000); lastFrame = now; if (state.status === 'running') sim.advance(delta * numeric(state.speed, 1)); }, 250);
-
-// Deliberately expose only a read-only snapshot for automated verification and demonstrations.
-window.networkLab = Object.freeze({ getState: () => sim.getState(), getHistory: () => structuredClone(history) });
+let previousTime=performance.now();setInterval(()=>{const now=performance.now(),delta=Math.min(1,(now-previousTime)/1000);previousTime=now;if(state.status==='running')sim.advance(delta*state.speed);else renderNotices();},250);
+window.networkLab=Object.freeze({getState:()=>sim.getState(),getHistory:()=>structuredClone(history)});

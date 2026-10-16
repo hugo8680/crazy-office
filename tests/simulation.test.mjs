@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AGENTS, NODES, SCENARIOS, Simulation } from '../dist/simulation.js';
+import { AGENTS, AGENT_TOOLSETS, DEFAULT_AGENT_CONFIGS, NODES, SCENARIOS, Simulation } from '../dist/simulation.js';
 
 function toApproval(sim) {
   sim.start();
@@ -184,4 +184,119 @@ test('state snapshots are isolated, subscriptions unsubscribe, and switching sce
   assert.throws(() => sim.selectScenario('invalid'), /Unknown scenario/);
   assert.throws(() => sim.setSpeed(3), /speed/);
   assert.throws(() => sim.advance(-1), /non-negative/);
+});
+
+test('role configuration is preserved across reset and scenario changes, and logs keep stable identities', () => {
+  const sim = new Simulation();
+  sim.configureAgent('zhang', { name: '网络队长小橙', role: '链路诊断 Agent', instructions: '先采集证据，再恢复连接；不执行自由文本。', configured: true });
+  const final = finish(sim);
+  const actions = final.logs.filter((event) => event.agentId === 'zhang' && event.type === 'action');
+  assert.ok(actions.length > 0);
+  assert.ok(actions.every((event) => event.agentName === '网络队长小橙' && event.role === '链路诊断 Agent'));
+  assert.ok(actions.every((event) => event.toolId && event.toolName && event.taskId && event.instructions.includes('先采集证据')));
+  assert.ok(final.tasks.some((task) => task.ownerId === 'zhang'));
+  sim.reset();
+  assert.equal(sim.getState().agents.find((agent) => agent.id === 'zhang').name, '网络队长小橙');
+  sim.selectScenario('power');
+  const config = sim.getState().agentConfigs.find((agent) => agent.id === 'zhang');
+  assert.equal(config.configured, true);
+  assert.equal(config.role, '链路诊断 Agent');
+  assert.equal(sim.exportReport().agentConfigs.find((agent) => agent.id === 'zhang').instructions, config.instructions);
+});
+
+test('missing required tool permissions block start and restore to an executable graph when enabled', () => {
+  const sim = new Simulation('ddos');
+  const liu = DEFAULT_AGENT_CONFIGS.find((agent) => agent.id === 'liu');
+  sim.configureAgent('liu', { tools: liu.tools.filter((id) => id !== 'traffic_defense') });
+  const validation = sim.validateConfiguration();
+  assert.equal(validation.ready, false);
+  assert.ok(validation.errors.some((error) => error.agentId === 'liu' && error.missingTools?.includes('traffic_defense')));
+  sim.start();
+  assert.equal(sim.getState().status, 'idle');
+  assert.equal(sim.getState().logs.length, 0);
+  assert.ok(sim.getState().configurationErrors.length > 0);
+  assert.equal(sim.getState().nodes.server.status, 'online', 'blocked start must not inject a fault');
+  sim.configureAgent('liu', { tools: liu.tools });
+  assert.equal(sim.validateConfiguration().ready, true);
+  assert.equal(finish(sim).status, 'completed');
+});
+
+test('role capabilities cannot be forged by renaming, free instructions, or cross-role tools', () => {
+  const sim = new Simulation();
+  assert.throws(() => sim.configureAgent('finance', { tools: ['traffic_defense'] }), /工具/);
+  assert.throws(() => sim.configureAgent('liu', { name: ' ' }), /name/);
+  assert.throws(() => sim.configureAgent('liu', { instructions: '' }), /instructions/);
+  assert.throws(() => sim.configureAgent('lead', { collaborators: ['unknown'] }), /协作对象/);
+  assert.throws(() => sim.configureAgent('lead', { collaborators: ['lead'] }), /协作对象/);
+  sim.start();
+  assert.throws(() => sim.configureAgent('zhang', { name: '忙碌时改名' }), /待命/);
+  assert.throws(() => sim.setTeam(['zhang']), /待命/);
+});
+
+test('a required cross-agent handoff is a real permission and is included in the exported configuration', () => {
+  const sim = new Simulation();
+  const lead = DEFAULT_AGENT_CONFIGS.find((agent) => agent.id === 'lead');
+  sim.configureAgent('lead', { collaborators: lead.collaborators.filter((id) => id !== 'zhang') });
+  assert.equal(sim.validateConfiguration().ready, false);
+  assert.ok(sim.validateConfiguration().errors.some((error) => error.agentId === 'lead' && error.missingCollaborators?.includes('zhang')));
+  assert.equal(sim.start().status, 'idle');
+  sim.configureAgent('lead', { collaborators: lead.collaborators });
+  finish(sim);
+  const report = sim.exportReport();
+  for (const handoff of report.timeline.filter((event) => event.type === 'handoff')) {
+    assert.ok(report.agentConfigs.find((config) => config.id === handoff.agentId).collaborators.includes(handoff.targetAgentId));
+  }
+  for (const action of report.timeline.filter((event) => event.type === 'action')) {
+    assert.ok(report.agentConfigs.find((config) => config.id === action.agentId).tools.includes(action.toolId));
+    assert.ok(AGENT_TOOLSETS[action.agentId].some((tool) => tool.id === action.toolId));
+  }
+});
+
+test('scenario-specific teams change real owners and forbid paid recovery without both optional management roles', () => {
+  for (const scenario of SCENARIOS) {
+    const sim = new Simulation(scenario.id);
+    sim.setTeam(scenario.recommendedAgents);
+    assert.equal(sim.validateConfiguration().ready, true, scenario.id);
+    const configured = sim.getState();
+    assert.ok(configured.tasks.every((task) => scenario.recommendedAgents.includes(task.ownerId)));
+    assert.ok(!configured.tasks.some((task) => ['quote', 'priority', 'reconcile'].includes(task.id)));
+    toApproval(sim);
+    assert.equal(sim.getState().approval.canApprovePaid, false);
+    assert.equal(sim.getState().approval.amount, 0);
+    sim.approve(true); // A caller cannot bypass the lack of a financial approval chain.
+    sim.advance(500);
+    const final = sim.getState();
+    assert.equal(final.status, 'completed');
+    assert.equal(final.result.cost, 0);
+    assert.equal(final.result.mode, 'local_fallback');
+    assert.ok(final.logs.every((event) => scenario.recommendedAgents.includes(event.agentId)));
+    assert.ok(final.logs.filter((event) => event.targetAgentId).every((event) => scenario.recommendedAgents.includes(event.targetAgentId)));
+    assert.equal(final.result.businessConfirmed, scenario.recommendedAgents.includes('business'));
+    if (scenario.id === 'ddos') assert.equal(final.tasks.find((task) => task.id === 'rack').ownerId, 'zhang');
+    if (scenario.id === 'switch') assert.equal(final.tasks.find((task) => task.id === 'security').ownerId, 'zhang');
+    if (scenario.id === 'power') {
+      assert.equal(final.tasks.find((task) => task.id === 'businessCheck').ownerId, 'lead');
+      assert.match(final.tasks.find((task) => task.id === 'businessCheck').result, /尚缺业务用户侧确认/);
+      assert.match(final.result.remainingRisk, /尚缺业务用户侧确认/);
+    }
+    sim.reset();
+    assert.deepEqual(sim.getState().selectedAgentIds, scenario.recommendedAgents);
+  }
+});
+
+test('missing role skills identify recommended specialists while compatible backup roles can cover storage', () => {
+  const sim = new Simulation('ddos');
+  sim.setTeam(['lead', 'zhang', 'business']);
+  const validation = sim.validateConfiguration();
+  assert.equal(validation.ready, false);
+  assert.ok(validation.errors.some((error) => error.missingSkills && error.recommendedAgents.includes('liu')));
+  assert.equal(sim.start().status, 'idle');
+  sim.selectScenario('power');
+  sim.setTeam(['lead', 'zhang', 'ops']);
+  assert.equal(sim.validateConfiguration().ready, true);
+  assert.equal(sim.getState().tasks.find((task) => task.id === 'storageCheck').ownerId, 'ops');
+  const final = finish(sim, false);
+  assert.equal(final.status, 'completed');
+  assert.ok(final.maxConcurrent >= 2);
+  assert.ok(final.tasks.every((task) => task.ownerId !== 'liu' && task.ownerId !== 'business'));
 });

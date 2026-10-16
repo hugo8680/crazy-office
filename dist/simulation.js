@@ -13,10 +13,58 @@ export const AGENTS = [
   { id: 'ops', name: '阿杰', role: '机房运维', color: '#6A9A50', initial: '杰' },
 ];
 
+// These are capabilities of the local simulator. Permissions are checked before
+// scheduling; role instructions are context, never executable code or an LLM plan.
+export const AGENT_TOOLSETS = {
+  zhang: [
+    { id: 'network_probe', label: '链路与端口探测', description: '读取模拟链路、端口、连接与路由状态，定位网络中断。' },
+    { id: 'network_restore', label: '网络配置与连接恢复', description: '恢复模拟配置、连接池与核心网络启动顺序。' },
+    { id: 'configuration_audit', label: '配置与隔离审计', description: '比对配置快照，复核 VLAN 与访问矩阵。' },
+  ],
+  liu: [
+    { id: 'traffic_analysis', label: '攻击流量分析', description: '分析模拟流量基线、来源分布与安全变更记录。' },
+    { id: 'traffic_defense', label: '防护策略执行', description: '应用模拟过滤、限流或清洗策略并检查正常流量。' },
+    { id: 'storage_integrity', label: '恢复点与数据校验', description: '读取模拟恢复点，检查存储日志和校验值。' },
+  ],
+  lead: [
+    { id: 'incident_dispatch', label: '工单与抢修编排', description: '建立工单、合并证据并安排依赖任务。' },
+    { id: 'service_probe', label: '服务探针验收', description: '执行模拟客户、办公和财务探针；不替代业务用户确认。' },
+    { id: 'evidence_review', label: '恢复证据复核', description: '交叉核验设备、探针与费用记录并汇总剩余风险。' },
+  ],
+  business: [
+    { id: 'impact_assessment', label: '业务影响调查', description: '收集模拟失败请求，确认用户与业务影响范围。' },
+    { id: 'business_acceptance', label: '业务用户验收', description: '复跑客户查询、办公登录与财务访问用例。' },
+    { id: 'business_priority', label: '业务优先级核对', description: '核对关键客户任务与非核心服务的降级边界。' },
+  ],
+  finance: [
+    { id: 'cost_estimate', label: '应急资源询价', description: '读取模拟资源调拨或服务报价。' },
+    { id: 'budget_check', label: '预算余额核验', description: '核对模拟应急预算，准备审批依据。' },
+    { id: 'expense_reconcile', label: '实际费用登记', description: '核对执行路径并记录实际模拟支出。' },
+  ],
+  boss: [
+    { id: 'priority_authorization', label: '恢复优先级授权', description: '确认核心业务优先级和可暂停的非核心服务。' },
+    { id: 'budget_authorization', label: '资源方案审批', description: '提交人类决策；审批通过后才允许付费路径。' },
+    { id: 'incident_closure', label: '事故恢复确认', description: '核对恢复范围与后续事项，关闭模拟工单。' },
+  ],
+  ops: [
+    { id: 'hardware_inspection', label: '供电与硬件巡检', description: '检查模拟市电、UPS、温度、光模块与物理端口。' },
+    { id: 'power_recovery', label: '备用供电切换', description: '执行模拟模块更换或备用电池与负载切除。' },
+    { id: 'device_recovery', label: '设备恢复与一致性检查', description: '恢复模拟设备、检查存储一致性并启动业务探针。' },
+  ],
+};
+
+export const DEFAULT_AGENT_CONFIGS = AGENTS.map((agent) => ({
+  id: agent.id, name: agent.name, role: agent.role,
+  instructions: `${agent.role}：先交付可核验的排查证据，再调用获准工具；按任务依赖交接，记录行动、结果与剩余风险。`,
+  tools: AGENT_TOOLSETS[agent.id].map((tool) => tool.id),
+  collaborators: AGENTS.filter((other) => other.id !== agent.id).map((other) => other.id),
+  configured: false,
+}));
+
 export const SCENARIOS = [
-  { id: 'ddos', title: '流量风暴', subtitle: 'DDoS 流量攻击', description: '异常连接挤满出口，客户访问超时。安全、网络与业务需要一起恢复服务。', severity: 'P1', affected: '客户访问 / 办公网络', icon: 'storm', budget: 800 },
-  { id: 'power', title: '机房停电', subtitle: 'UPS 供电故障', description: 'UPS 故障导致核心设备掉电。先确认供电与数据安全，再按顺序启动业务。', severity: 'P1', affected: '核心机房 / 全体办公区', icon: 'power', budget: 1600 },
-  { id: 'switch', title: '核心失联', subtitle: '核心交换机故障', description: '核心交换机失联，业务网络中断。排除攻击与供电问题后，更换设备并核验配置。', severity: 'P1', affected: '办公终端 / 会议 / 客户接待', icon: 'switch', budget: 480 },
+  { id: 'ddos', title: '流量风暴', subtitle: 'DDoS 流量攻击', description: '异常连接挤满出口，客户访问超时。安全、网络与业务需要一起恢复服务。', severity: 'P1', affected: '客户访问 / 办公网络', icon: 'storm', budget: 800, recommendedAgents: ['lead', 'zhang', 'liu', 'business'] },
+  { id: 'power', title: '机房停电', subtitle: 'UPS 供电故障', description: 'UPS 故障导致核心设备掉电。先确认供电与数据安全，再按顺序启动业务。', severity: 'P1', affected: '核心机房 / 全体办公区', icon: 'power', budget: 1600, recommendedAgents: ['lead', 'zhang', 'liu', 'ops'] },
+  { id: 'switch', title: '核心失联', subtitle: '核心交换机故障', description: '核心交换机失联，业务网络中断。排除攻击与供电问题后，更换设备并核验配置。', severity: 'P1', affected: '办公终端 / 会议 / 客户接待', icon: 'switch', budget: 480, recommendedAgents: ['lead', 'zhang', 'ops', 'business'] },
 ];
 
 export const NODES = [
@@ -105,6 +153,90 @@ function createTasks(scenarioId) {
   ];
 }
 
+function taskCapabilities(scenarioId, t) {
+  const entry = (ownerId, ...toolIds) => ({ ownerId, toolIds });
+  if (['detect', 'plan'].includes(t.id)) return [entry('lead', 'incident_dispatch')];
+  if (t.id === 'impact') return [entry('business', 'impact_assessment', 'business_priority'), entry('lead', 'service_probe')];
+  if (t.id === 'priority') return [entry('boss', 'priority_authorization')];
+  if (t.id === 'quote') return [entry('finance', 'cost_estimate', 'budget_check')];
+  if (t.id === 'approval') return [entry('boss', 'budget_authorization'), entry('lead', 'incident_dispatch')];
+  if (t.id === 'reconcile') return [entry('finance', 'expense_reconcile')];
+  if (t.id === 'verify') return [entry('lead', 'evidence_review')];
+  if (t.id === 'close') return [entry('boss', 'incident_closure'), entry('lead', 'evidence_review')];
+  if (t.id === 'businessCheck') return [entry('business', 'business_acceptance'), entry('lead', 'service_probe')];
+  if (t.id === 'network') return [entry('zhang', 'network_probe')];
+  if (t.id === 'rack') return scenarioId === 'ddos'
+    ? [entry('ops', 'hardware_inspection'), entry('zhang', 'network_probe')]
+    : [entry('ops', 'hardware_inspection')];
+  if (t.id === 'powerCheck') return [entry('ops', 'hardware_inspection')];
+  if (t.id === 'security') {
+    if (scenarioId === 'power') return [entry('liu', 'storage_integrity'), entry('ops', 'device_recovery')];
+    if (scenarioId === 'switch') return [entry('liu', 'traffic_analysis'), entry('zhang', 'configuration_audit')];
+    return [entry('liu', 'traffic_analysis')];
+  }
+  if (t.id === 'repair') return [scenarioId === 'ddos' ? entry('liu', 'traffic_defense')
+    : scenarioId === 'power' ? entry('ops', 'power_recovery') : entry('ops', 'device_recovery')];
+  if (t.id === 'technicalCheck') return [entry('ops', 'hardware_inspection'), entry('zhang', 'network_probe')];
+  if (['configuration', 'coreBoot'].includes(t.id)) return [entry('zhang', 'network_restore')];
+  if (t.id === 'application') return [scenarioId === 'power' ? entry('ops', 'device_recovery') : entry('zhang', 'network_restore')];
+  if (t.id === 'storageCheck') return [entry('liu', 'storage_integrity'), entry('ops', 'device_recovery')];
+  if (t.id === 'segmentation') return [entry('liu', 'traffic_defense'), entry('zhang', 'configuration_audit')];
+  throw new Error(`No simulated capability defined for task: ${t.id}`);
+}
+
+function configureTasks(scenarioId, configs, selectedAgentIds) {
+  const all = createTasks(scenarioId);
+  const has = (id) => selectedAgentIds.includes(id);
+  const canApprovePaid = has('finance') && has('boss');
+  const omitted = new Set();
+  if (!has('finance')) { omitted.add('quote'); omitted.add('reconcile'); }
+  if (!has('boss')) omitted.add('priority');
+  const expand = (id) => omitted.has(id) ? all.find((item) => item.id === id).dependencies.flatMap(expand) : [id];
+  const errors = [];
+  const definitions = all.filter((t) => !omitted.has(t.id)).map((original) => {
+    const t = { ...original, dependencies: [...new Set(original.dependencies.flatMap(expand))] };
+    const options = taskCapabilities(scenarioId, t);
+    const eligible = options.filter((option) => has(option.ownerId));
+    const candidate = eligible.find((option) => option.toolIds.every((toolId) => configs.find((c) => c.id === option.ownerId).tools.includes(toolId))) || eligible[0] || options[0];
+    t.ownerId = candidate.ownerId;
+    t.toolIds = candidate.toolIds;
+    t.toolId = candidate.toolIds[0];
+    t.toolName = AGENT_TOOLSETS[t.ownerId].find((tool) => tool.id === t.toolId).label;
+    if (!eligible.length) errors.push({ agentId: candidate.ownerId, message: `「${t.title}」缺少具备该技能的在场角色。`, missingSkills: [t.title], recommendedAgents: options.map((option) => option.ownerId), taskId: t.id });
+    if (!has('business') && t.id === 'impact') {
+      t.title = '用服务探针确认影响范围';
+      t.action = '检查客户、办公和财务失败探针，暂按核心业务优先；未选择业务用户验收角色。';
+      t.result = '探针已确认技术影响范围；恢复后仍需业务用户侧确认。';
+    }
+    if (!has('business') && t.id === 'businessCheck') {
+      t.title = '执行服务探针技术验收';
+      t.action = '重跑客户查询、员工登录和财务访问模拟探针，记录尚缺业务用户侧确认。';
+      t.result = '客户、办公和财务技术探针通过；尚缺业务用户侧确认。';
+    }
+    if (scenarioId === 'ddos' && t.id === 'rack' && t.ownerId === 'zhang') {
+      t.title = '核对端口与链路遥测';
+      t.action = '读取设备在线状态、物理端口和丢包遥测，排除明显链路中断；本队未派驻机房巡检人员。';
+      t.result = '端口与链路遥测正常，未见物理中断证据；未执行现场供电巡检。';
+    }
+    if (scenarioId === 'switch' && t.id === 'security' && t.ownerId === 'zhang') {
+      t.title = '核对签名配置与最近变更';
+      t.action = '比对签名配置快照与最近变更记录，核对是否存在未授权修改。';
+      t.result = '配置签名与变更记录一致，未见未授权修改；未执行安全专员流量分析。';
+    }
+    if (!canApprovePaid && t.id === 'quote') {
+      t.title = '核对本地恢复资源';
+      t.action = '核对已具备的本地资源与预算限制，不申请新增付费服务。';
+      t.result = '本地恢复资源已核对；当前团队无完整付费审批链，新增预算为 ¥0。';
+    }
+    if (!canApprovePaid && t.id === 'approval') {
+      t.title = '确认本地恢复方案';
+      t.action = '当前团队未同时选择财务和总经理，请人类确认零新增支出的本地降级方案。';
+    }
+    return t;
+  });
+  return { definitions, errors, canApprovePaid };
+}
+
 export class Simulation {
   constructor(scenarioId = 'ddos') {
     this.listeners = new Set();
@@ -118,15 +250,22 @@ export class Simulation {
     this.choice = null;
     this.spent = 0;
     this.sequence = 0;
-    this.definitions = createTasks(scenarioId);
+    const configs = clone(this.state?.agentConfigs || DEFAULT_AGENT_CONFIGS);
+    const selectedAgentIds = [...(this.state?.selectedAgentIds || AGENTS.map((agent) => agent.id))];
+    const adapted = configureTasks(scenarioId, configs, selectedAgentIds);
+    this.definitions = adapted.definitions;
+    this.skillErrors = adapted.errors;
+    this.canApprovePaid = adapted.canApprovePaid;
     this.state = {
       status: 'idle', scenarioId, elapsed: 0, speed, phase: 'detect',
       simulationMode: 'local_rule_based',
       metrics: {}, nodes: {},
-      agents: AGENTS.map((a) => ({ ...a, status: 'idle', task: '待命', action: '', result: '', nodeId: null })),
-      tasks: this.definitions.map((t) => ({ id: t.id, title: t.title, ownerId: t.ownerId, phase: t.phase, status: 'pending', dependencies: [...t.dependencies], action: t.action, result: '', progress: 0, duration: t.duration, nodeId: t.nodeId || null })),
+      selectedAgentIds, agentConfigs: configs, configurationErrors: [], canApprovePaid: this.canApprovePaid,
+      agents: AGENTS.map((a) => ({ ...a, ...configs.find((c) => c.id === a.id), selected: selectedAgentIds.includes(a.id), status: 'idle', task: selectedAgentIds.includes(a.id) ? '待命' : '未加入抢修小队', action: '', result: '', nodeId: null })),
+      tasks: this.definitions.map((t) => ({ id: t.id, title: t.title, ownerId: t.ownerId, phase: t.phase, status: 'pending', dependencies: [...t.dependencies], action: t.action, result: '', progress: 0, duration: t.duration, nodeId: t.nodeId || null, toolId: t.toolId, toolName: t.toolName, toolIds: [...t.toolIds] })),
       logs: [], approval: null, result: null, maxConcurrent: 0, handoffs: 0,
     };
+    this.state.configurationErrors = this.validateConfiguration().errors;
     this._refreshNetwork();
   }
 
@@ -140,6 +279,49 @@ export class Simulation {
   _emit() { for (const fn of this.listeners) fn(this.getState()); }
   selectScenario(id) { this._initialize(id); this._emit(); return this.getState(); }
   reset() { this._initialize(this.state.scenarioId); this._emit(); return this.getState(); }
+  configureAgent(id, patch = {}) {
+    if (this.state.status !== 'idle') throw new Error('仅待命时可配置 Agent，请先重置演练。');
+    const config = this.state.agentConfigs.find((item) => item.id === id);
+    if (!config) throw new Error(`Unknown Agent: ${id}`);
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new TypeError('Agent configuration must be an object.');
+    const next = { ...config };
+    for (const field of ['name', 'role', 'instructions']) {
+      if (patch[field] !== undefined) {
+        if (typeof patch[field] !== 'string' || !patch[field].trim()) throw new Error(`${field} 不能为空。`);
+        next[field] = patch[field].trim();
+      }
+    }
+    if (patch.tools !== undefined) {
+      if (!Array.isArray(patch.tools) || patch.tools.some((id) => !AGENT_TOOLSETS[config.id].some((tool) => tool.id === id))) throw new Error('工具必须属于当前角色的技能集合。');
+      next.tools = [...new Set(patch.tools)];
+    }
+    if (patch.collaborators !== undefined) {
+      if (!Array.isArray(patch.collaborators) || patch.collaborators.some((otherId) => otherId === id || !AGENTS.some((agent) => agent.id === otherId))) throw new Error('协作对象必须是有效的其他 Agent。');
+      next.collaborators = [...new Set(patch.collaborators)];
+    }
+    if (patch.configured !== undefined) next.configured = Boolean(patch.configured);
+    this.state.agentConfigs = this.state.agentConfigs.map((item) => item.id === id ? next : item);
+    this._initialize(this.state.scenarioId); this._emit(); return this.getState();
+  }
+  setTeam(agentIds) {
+    if (this.state.status !== 'idle') throw new Error('仅待命时可选择抢修角色，请先重置演练。');
+    if (!Array.isArray(agentIds) || agentIds.some((id) => !AGENTS.some((agent) => agent.id === id))) throw new Error('请选择有效的 Agent 角色。');
+    this.state.selectedAgentIds = [...new Set(agentIds)];
+    this._initialize(this.state.scenarioId); this._emit(); return this.getState();
+  }
+  validateConfiguration() {
+    const errors = clone(this.skillErrors || []);
+    for (const definition of this.definitions) {
+      if (!this.state.selectedAgentIds.includes(definition.ownerId)) continue;
+      const config = this.state.agentConfigs.find((item) => item.id === definition.ownerId);
+      const missingTools = definition.toolIds.filter((id) => !config.tools.includes(id));
+      if (missingTools.length) errors.push({ agentId: config.id, taskId: definition.id, message: `${config.name}执行「${definition.title}」缺少工具授权。`, missingTools });
+      const successors = this.definitions.filter((t) => t.dependencies.includes(definition.id) && t.ownerId !== config.id && this.state.selectedAgentIds.includes(t.ownerId));
+      const missingCollaborators = [...new Set(successors.map((t) => t.ownerId).filter((id) => !config.collaborators.includes(id)))];
+      if (missingCollaborators.length) errors.push({ agentId: config.id, taskId: definition.id, message: `${config.name}无法向所需下游角色交接「${definition.title}」。`, missingCollaborators });
+    }
+    return { ready: errors.length === 0, errors };
+  }
   setSpeed(n) {
     if (![1, 2, 4].includes(n)) throw new RangeError('Simulation speed must be 1, 2, or 4.');
     this.state.speed = n; this._emit(); return this.getState();
@@ -148,6 +330,9 @@ export class Simulation {
     if (this.state.status === 'paused') return this.resume();
     if (this.state.status === 'completed') this._initialize(this.state.scenarioId);
     if (this.state.status !== 'idle') return this.getState();
+    const validation = this.validateConfiguration();
+    this.state.configurationErrors = validation.errors;
+    if (!validation.ready) { this._emit(); return this.getState(); }
     this.state.status = 'running';
     this._injectIncident();
     this._log('lead', 'task', `${SCENARIOS.find((s) => s.id === this.state.scenarioId).subtitle}：P1 抢修启动。`);
@@ -187,14 +372,14 @@ export class Simulation {
   approve(approved = true) {
     if (this.state.status !== 'awaiting_approval') return this.getState();
     const t = this.state.tasks.find((t) => t.id === 'approval');
-    this.choice = Boolean(approved);
+    approved = Boolean(approved) && this.canApprovePaid;
+    this.choice = approved;
     this._configureRecovery();
     t.status = 'done'; t.progress = 1; t.finishedAt = this.state.elapsed;
-    t.result = approved ? '应急支出已批准，执行完整恢复方案。' : '支出未获批准，执行零新增支出的本地降级方案。';
-    const agent = this._agent('boss');
+    t.result = approved ? '应急支出已批准，执行完整恢复方案。' : this.canApprovePaid ? '支出未获批准，执行零新增支出的本地降级方案。' : '人类已确认零新增支出的本地降级方案。';
+    const agent = this._agent(t.ownerId);
     Object.assign(agent, { status: 'done', task: t.title, action: t.action, result: t.result, nodeId: null });
-    this._log('boss', 'approval', t.result, { targetAgentId: 'lead' });
-    this._log('lead', 'handoff', approved ? '按批准方案执行；恢复后同时进行业务、链路和费用核验。' : '切换本地降级路径；保留核心业务，并在验收时明确剩余风险。', { targetAgentId: 'ops' });
+    this._log(t.ownerId, 'approval', t.result, { taskId: t.id, toolId: t.toolId, toolName: t.toolName });
     this.state.approval = null; this.state.status = 'running';
     this._schedule(); this._refreshNetwork(); this._emit(); return this.getState();
   }
@@ -202,7 +387,8 @@ export class Simulation {
   _agent(id) { return this.state.agents.find((a) => a.id === id); }
   _log(agentId, type, text, extra = {}) {
     if (type === 'handoff') this.state.handoffs += 1;
-    this.state.logs.push({ id: `event-${++this.sequence}`, time: this.state.elapsed, agentId, type, text, ...extra });
+    const agent = this._agent(agentId);
+    this.state.logs.push({ id: `event-${++this.sequence}`, time: this.state.elapsed, agentId, agentName: agent?.name, role: agent?.role, type, text, ...extra });
   }
   _setFault(id, status, reason, propagate = true) { this.faults[id] = { status, reason, propagate }; }
   _clearFault(id) { delete this.faults[id]; }
@@ -230,20 +416,32 @@ export class Simulation {
         if (this.state.tasks.some((other) => other.status === 'running' && other.ownerId === t.ownerId)) continue;
         const d = this.definitions.find((d) => d.id === t.id);
         const agent = this._agent(t.ownerId);
+        const config = this.state.agentConfigs.find((c) => c.id === t.ownerId);
+        const predecessors = t.dependencies.map((id) => this.state.tasks.find((p) => p.id === id)).filter((p) => p.ownerId !== t.ownerId);
+        const missingTools = d.toolIds.filter((id) => !config?.tools.includes(id));
+        const blockedHandoff = predecessors.find((p) => !this.state.agentConfigs.find((c) => c.id === p.ownerId)?.collaborators.includes(t.ownerId));
+        if (!agent?.selected || missingTools.length || blockedHandoff) {
+          this.state.status = 'idle';
+          this.state.configurationErrors = this.validateConfiguration().errors;
+          return;
+        }
         t.status = 'running'; t.startedAt = this.state.elapsed;
         if (PHASES.indexOf(t.phase) > PHASES.indexOf(this.state.phase)) this.state.phase = t.phase;
-        Object.assign(agent, { status: 'working', task: t.title, action: t.action, result: '', nodeId: t.nodeId });
-        const predecessor = t.dependencies.map((id) => this.state.tasks.find((p) => p.id === id)).find((p) => p.ownerId !== t.ownerId);
-        if (predecessor) this._log(predecessor.ownerId, 'handoff', `交接「${predecessor.title}」结果，启动「${t.title}」。`, { targetAgentId: t.ownerId, nodeId: t.nodeId });
-        this._log(t.ownerId, 'task', t.title, { nodeId: t.nodeId });
-        this._log(t.ownerId, 'action', t.action, { nodeId: t.nodeId });
+        Object.assign(agent, { status: 'working', task: t.title, action: t.action, result: '', nodeId: t.nodeId, toolId: t.toolId, toolName: t.toolName });
+        for (const predecessor of predecessors) this._log(predecessor.ownerId, 'handoff', `交接「${predecessor.title}」结果，启动「${t.title}」。`, { targetAgentId: t.ownerId, nodeId: t.nodeId, taskId: t.id, sourceTaskId: predecessor.id });
+        this._log(t.ownerId, 'task', t.title, { nodeId: t.nodeId, taskId: t.id });
+        for (const toolId of d.toolIds) {
+          const toolName = AGENT_TOOLSETS[t.ownerId].find((tool) => tool.id === toolId).label;
+          this._log(t.ownerId, 'action', `调用「${toolName}」：${t.action}`, { nodeId: t.nodeId, taskId: t.id, toolId, toolName, instructions: config.instructions });
+        }
         changed = true;
         if (d.kind === 'approval') {
           const scenario = SCENARIOS.find((s) => s.id === this.state.scenarioId);
           this.state.status = 'awaiting_approval';
           agent.status = 'waiting';
-          this.state.approval = { id: 'emergency-budget', title: t.title, description: t.action, amount: scenario.budget, fromAgentId: 'finance', approverId: 'boss', fallback: this.state.scenarioId === 'ddos' ? '本地过滤与限流，保留外网拥塞风险' : this.state.scenarioId === 'power' ? '备用电池供电，暂停会议室负载' : '备用端口绕行，会议服务降级' };
-          this._log('finance', 'approval', `${t.title}，申请 ¥${scenario.budget.toLocaleString('zh-CN')}。`, { targetAgentId: 'boss' });
+          const fromAgentId = this.state.selectedAgentIds.includes('finance') ? 'finance' : 'lead';
+          this.state.approval = { id: 'emergency-budget', title: t.title, description: t.action, amount: this.canApprovePaid ? scenario.budget : 0, fromAgentId, approverId: t.ownerId, canApprovePaid: this.canApprovePaid, fallback: this.state.scenarioId === 'ddos' ? '本地过滤与限流，保留外网拥塞风险' : this.state.scenarioId === 'power' ? '备用电池供电，暂停会议室负载' : '备用端口绕行，会议服务降级' };
+          this._log(fromAgentId, 'approval', this.canApprovePaid ? `${t.title}，申请 ¥${scenario.budget.toLocaleString('zh-CN')}。` : '当前队伍仅支持零新增支出，请人类确认本地恢复方案。', { targetAgentId: t.ownerId, taskId: t.id });
           return;
         }
         this._startEffect(d);
@@ -294,7 +492,7 @@ export class Simulation {
     if (d.effect === 'accessConfig') this._clearFault('access');
     if (d.effect === 'reconcile') t.result = `实际模拟支出 ¥${this.spent.toLocaleString('zh-CN')}；${this.choice ? '与审批金额一致' : '采用本地降级方案，无新增支出'}。`;
     Object.assign(this._agent(t.ownerId), { status: 'done', task: t.title, action: t.action, result: t.result, nodeId: t.nodeId });
-    this._log(t.ownerId, 'result', t.result, { nodeId: t.nodeId });
+    this._log(t.ownerId, 'result', t.result, { nodeId: t.nodeId, taskId: t.id, toolId: t.toolId, toolName: t.toolName });
   }
 
   _configureRecovery() {
@@ -349,14 +547,16 @@ export class Simulation {
 
   _complete() {
     this.state.status = 'completed'; this.state.phase = 'complete';
-    const risk = this.choice ? '本次模拟范围内无未恢复节点；建议持续观察告警。' : {
+    let risk = this.choice ? '本次模拟范围内无未恢复节点；建议持续观察告警。' : {
       ddos: '本地过滤未消除上游链路再次饱和的风险，仍需申请正式清洗。',
       power: '会议室仍断电，备用电池模拟续航 20 分钟，必须尽快更换 UPS 输出模块。',
       switch: '核心使用临时备用端口，会议限流，仍需正式更换故障交换机。',
     }[this.state.scenarioId];
+    const businessConfirmed = this.state.selectedAgentIds.includes('business');
+    if (!businessConfirmed) risk += ' 尚缺业务用户侧确认；当前验收仅代表技术服务探针通过。';
     this.state.result = {
       title: this.choice ? '全网恢复，抢修完成' : '核心业务恢复，降级方案生效',
-      summary: this.choice ? '设备、链路与业务复测通过，应急费用已核验。' : '已恢复核心业务，保留的降级与后续处理事项已写入报告。',
+      summary: (this.choice ? '设备与服务探针复测通过，应急费用已核验。' : '已恢复核心业务，保留的降级与后续处理事项已写入报告。') + (businessConfirmed ? ' 业务用户验收通过。' : ' 尚缺业务用户侧确认。'),
       restored: true, fullyRestored: Object.values(this.state.nodes).every((n) => n.status === 'online'),
       mode: this.choice ? 'approved_recovery' : 'local_fallback', cost: this.spent, duration: this.state.elapsed,
       completedTasks: this.state.tasks.filter((t) => t.status === 'done').length,
@@ -365,6 +565,7 @@ export class Simulation {
       serialWorkSeconds: this.state.tasks.reduce((sum, t) => sum + t.duration, 0),
       verifiedChecks: this.state.tasks.filter((t) => t.phase === 'verify' && !['reconcile', 'close'].includes(t.id)).map((t) => t.result),
       remainingRisk: risk,
+      businessConfirmed, selectedAgentIds: [...this.state.selectedAgentIds],
       availability: this.state.metrics.availability,
       disclaimer: '本地规则驱动仿真；Agent、网络探针、故障、审批和费用均为模拟，未调用真实 LLM 或生产网络。',
     };
@@ -372,10 +573,11 @@ export class Simulation {
 
   exportReport() {
     const s = this.getState();
-    return { version: 1, generatedAt: new Date().toISOString(), simulationMode: s.simulationMode,
+    return { version: 2, generatedAt: new Date().toISOString(), simulationMode: s.simulationMode,
       scenario: clone(SCENARIOS.find((item) => item.id === s.scenarioId)), status: s.status,
       elapsed: s.elapsed, decision: this.choice === null ? 'pending' : this.choice ? 'approved' : 'fallback',
       metrics: s.metrics, nodes: s.nodes, agents: s.agents, tasks: s.tasks,
+      selectedAgentIds: s.selectedAgentIds, agentConfigs: s.agentConfigs, configurationErrors: s.configurationErrors, canApprovePaid: s.canApprovePaid,
       collaboration: { maxConcurrent: s.maxConcurrent, handoffs: s.handoffs, serialWorkSeconds: s.tasks.reduce((sum, t) => sum + t.duration, 0), comparisonNote: '串行工时为同组模拟任务时长之和，未计人工决策等待与真实网络执行耗时。' },
       timeline: s.logs, result: s.result,
       disclaimer: '本地规则驱动仿真；所有故障、操作、工具测量与费用均为模拟。' };

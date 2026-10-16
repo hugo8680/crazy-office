@@ -42,38 +42,19 @@
     <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 4L6 8H2v8h4l5 4zM16 9l6 6M22 9l-6 6"/></symbol>
   </defs></svg>
 
-  <header class="topbar">
-    <a href="./" class="brand" aria-label="疯狂网络实验室首页"><span class="brand-mark"><svg class="icon"><use href="#i-flask"/></svg></span><span><strong>疯狂网络实验室<span class="brand-period">.</span></strong><small>NET RESCUE LAB</small></span></a>
-    <nav class="main-nav" aria-label="主导航"><button class="nav-item active" data-view="lab"><svg class="icon"><use href="#i-grid"/></svg>演练现场</button><button class="nav-item" data-view="archive"><svg class="icon"><use href="#i-book"/></svg>行动档案<span class="nav-count" id="archive-count">0</span></button></nav>
-    <div class="topbar-right"><span class="env-pill"><span class="status-dot"></span>本地协作仿真</span><button class="icon-button" id="sound-toggle" title="开启提示音" aria-label="开启提示音"><svg class="icon"><use href="#i-mute"/></svg></button><button class="help-button" id="help-open"><svg class="icon"><use href="#i-info"/></svg><span>实验指南</span></button></div>
-  </header>
-
-  <main>
-    <section id="lab-view">
-      <div class="page-heading"><div><div class="eyebrow"><span class="tiny-spark">✳</span> MULTI-AGENT PLAYGROUND <span class="eyebrow-divider">/</span> 实验 001</div><h1>网络抢修，<span>全员就位。</span></h1><p>一个办公室，七位同事。看 Agent 如何一起把业务救回来。</p></div><button class="button button-light reset-button" id="reset"><svg class="icon"><use href="#i-reset"/></svg>重置实验</button></div>
-
-      <div class="lab-layout">
-        <section class="network-card" aria-label="办公室网络拓扑">
-          <div class="network-toolbar"><div class="scene-title"><span class="mini-icon"><svg class="icon"><use href="#i-network"/></svg></span><div><h2>星河科技 · 办公室</h2><span>OFFICE NETWORK · 2F</span></div><span class="live-pill" id="network-status"><span class="status-dot"></span>网络正常</span></div><div class="scene-tools"><button class="view-toggle active" id="topology-toggle" aria-pressed="true"><svg class="icon"><use href="#i-layers"/></svg>拓扑连线</button><span class="tool-divider"></span><button class="icon-button" id="zoom-out" aria-label="缩小拓扑"><svg class="icon"><use href="#i-minus"/></svg></button><button class="icon-button" id="zoom-in" aria-label="放大拓扑"><svg class="icon"><use href="#i-plus"/></svg></button><button class="icon-button fit-button" id="zoom-fit" aria-label="重置视图"><svg class="icon"><use href="#i-target"/></svg></button></div></div>
-          <div class="scene-container"><div id="office-scene"></div><div class="scene-corner"><span class="status-dot"></span><span id="online-count">12 / 12 节点可用</span></div><div class="scene-hint"><svg class="icon"><use href="#i-target"/></svg>点击设备，查看实时状态</div><div id="scene-alert" class="scene-alert" hidden></div><aside class="node-detail" id="node-detail" hidden></aside></div>
-          <div class="network-metrics" id="network-metrics"></div>
-          <div class="network-footer"><div class="legend"><span><i class="legend-dot online"></i>正常</span><span><i class="legend-dot warning"></i>告警</span><span><i class="legend-dot offline"></i>不可达</span><span><i class="legend-line"></i>网络链路</span><span class="power-legend"><i class="legend-line power"></i>供电</span></div><span class="map-version">TOPOLOGY v1.0</span></div>
-        </section>
-
-        <aside class="control-card" aria-label="演练控制台"><div class="control-tabs" role="tablist"><button role="tab" aria-selected="true" class="control-tab active" data-tab="mission"><svg class="icon"><use href="#i-zap"/></svg>抢修控制台</button><button role="tab" aria-selected="false" class="control-tab" data-tab="activity"><svg class="icon"><use href="#i-terminal"/></svg>协作记录<span id="log-count">0</span></button></div><div id="control-content"></div></aside>
-      </div>
-
-      <section class="team-section"><div class="section-heading"><div><h2><svg class="icon"><use href="#i-users"/></svg>你的抢修小队 <span>THE RESCUE SQUAD</span></h2><p id="team-caption">分工明确，各显身手。点击成员查看任务与交接。</p></div><span class="team-status" id="team-status"><span class="status-dot"></span>7 位 Agent 待命</span></div><div id="agent-grid" class="agent-grid"></div></section>
-
-      <section class="task-section" id="task-section" hidden><div class="section-heading"><div><h2><svg class="icon"><use href="#i-network"/></svg>协同任务板 <span>SHARED TASK BOARD</span></h2><p>前置结果就绪后再执行，独立任务并行处理。</p></div><span class="task-counter" id="task-counter"></span></div><div id="task-board" class="task-board"></div></section>
-      <footer class="page-footer"><span><span class="footer-mark">LH</span> LAISEN HORIZON <span class="footer-divider">/</span> BUILD AGENTS FOR A BRIGHTER TOMORROW</span><span>模拟故障 · 真实依赖 · 可验证协作</span></footer>
-    </section>
-
-    <section id="archive-view" hidden><div class="page-heading"><div><div class="eyebrow">INCIDENT ARCHIVE</div><h1>每次抢修，<span>都有据可查。</span></h1><p>本机保存最近 12 次演练，可查看过程或导出完整报告。</p></div><button class="button button-light" id="back-to-lab"><svg class="icon"><use href="#i-arrow"/></svg>返回实验</button></div><div id="archive-list"></div></section>
+  <main id="lab" aria-label="疯狂网络实验室，全屏办公室拓扑">
+    <div id="office-scene"></div>
+    <button id="network-hud" class="network-hud glass" data-open="metrics" aria-label="查看网络状态"><span class="status-dot"></span><span id="online-count">12 / 12 节点可用</span><span class="hud-divider"></span><span id="availability">100.0%</span></button>
+    <button id="configuration-hud" class="configuration-hud glass" data-open="team"><svg class="icon"><use href="#i-users"/></svg><span id="squad-label">配置 Agent · 选择小队</span><svg class="icon small"><use href="#i-chevron"/></svg></button>
+    <div id="incident-hud" class="incident-hud glass" hidden></div>
+    <div id="scene-cue" class="scene-cue"><span class="cue-dot"></span>点小人配置 Agent，点设备执行动作</div>
+    <button id="live-bubble" class="live-bubble" hidden></button>
+    <aside id="scene-popover" class="scene-popover glass" aria-label="场景操作面板" hidden><div id="popover-content"></div></aside>
+    <div id="action-dock" class="action-dock glass" aria-label="场景动作"></div>
+    <div class="map-controls glass"><button class="icon-button active" id="topology-toggle" aria-label="显示或隐藏拓扑连线" aria-pressed="true" title="拓扑连线"><svg class="icon"><use href="#i-layers"/></svg></button><span></span><button class="icon-button" id="zoom-in" aria-label="放大拓扑" title="放大"><svg class="icon"><use href="#i-plus"/></svg></button><button class="icon-button" id="zoom-out" aria-label="缩小拓扑" title="缩小"><svg class="icon"><use href="#i-minus"/></svg></button><button class="icon-button" id="zoom-fit" aria-label="重置视图" title="适应画面"><svg class="icon"><use href="#i-target"/></svg></button></div>
+    <div class="map-legend"><span><i class="status-dot"></i>正常</span><span><i class="status-dot warning"></i>告警</span><span><i class="status-dot offline"></i>不可达</span><span class="simulation-label">本地协作仿真</span></div>
+    <div id="toast" class="toast" role="status" hidden></div>
   </main>
-
-  <dialog id="detail-dialog" class="app-dialog"><div id="dialog-content"></div></dialog>
-  <div class="toast" id="toast" role="status" hidden></div>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
