@@ -89,8 +89,9 @@ action="tool" 时 tool 必须是 availableTools 中的名称，args_json 必须�
 action="finish" 时 tool=null，args_json="{}"，output 总结已经收到的真实工具证据。`;
 
 export class ProviderError extends Error {
-  constructor(code, message, { retryable = false } = {}) {
+  constructor(code, message, { retryable = false, toolName } = {}) {
     super(message); this.name = 'ProviderError'; this.code = code; this.retryable = retryable;
+    if(typeof toolName==='string'&&/^[a-zA-Z0-9_]{1,80}$/.test(toolName))this.toolName=toolName;
   }
 }
 
@@ -155,14 +156,15 @@ export function parseDecision(text, tools, model, usage) {
   try { raw = JSON.parse(text); } catch { throw new ProviderError('MALFORMED_OUTPUT', '模型未返回有效 JSON，任务已停止，可重新尝试。'); }
   if (!plainObject(raw) || !['tool', 'finish'].includes(raw.action) || typeof raw.summary !== 'string' || typeof raw.output !== 'string' || typeof raw.args_json !== 'string')
     throw new ProviderError('MALFORMED_OUTPUT', '模型返回字段不完整，任务已停止，可重新尝试。');
-  let args;
-  try { args = JSON.parse(raw.args_json); } catch { throw new ProviderError('MALFORMED_ARGUMENTS', '模型返回的工具参数不是有效 JSON。'); }
-  if (!plainObject(args) || ['__proto__', 'prototype', 'constructor'].some(key => Object.hasOwn(args, key)))
-    throw new ProviderError('MALFORMED_ARGUMENTS', '模型返回的工具参数必须是普通 JSON 对象。');
   if (raw.action === 'tool' && (!tools.some(tool => tool.name === raw.tool) || typeof raw.tool !== 'string'))
     throw new ProviderError('UNAUTHORIZED_TOOL', '模型选择了该员工未授权的工具，执行已阻止。');
+  const metadata=raw.action==='tool'?{toolName:raw.tool}:{};
+  let args;
+  try { args = JSON.parse(raw.args_json); } catch { throw new ProviderError('MALFORMED_ARGUMENTS', '模型返回的工具参数不是有效 JSON。',metadata); }
+  if (!plainObject(args) || ['__proto__', 'prototype', 'constructor'].some(key => Object.hasOwn(args, key)))
+    throw new ProviderError('MALFORMED_ARGUMENTS', '模型返回的工具参数必须是普通 JSON 对象。',metadata);
   if (raw.action === 'tool' && !validArguments(args, tools.find(tool => tool.name === raw.tool).parameters))
-    throw new ProviderError('MALFORMED_ARGUMENTS', '模型返回的参数不符合工具定义，执行已阻止。');
+    throw new ProviderError('MALFORMED_ARGUMENTS', '模型返回的参数不符合工具定义，执行已阻止。',metadata);
   if (raw.action === 'finish' && raw.tool !== null)
     throw new ProviderError('MALFORMED_OUTPUT', '模型完成响应含有无效工具字段。');
   return { action: raw.action, tool: raw.action === 'tool' ? raw.tool : null, args, summary: raw.summary.slice(0, 1600), output: raw.output.slice(0, 80000), model, ...(usage ? { usage } : {}) };

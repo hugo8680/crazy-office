@@ -69,3 +69,14 @@ with zipfile.ZipFile(m.path('upload.xlsx')) as z:
 test('downloadable reports format tables/code and escape untrusted active HTML',async()=>{
  await withBox({},async(box,dir)=>{const title='数据库交付';const content='# '+title+'\n\n## 验收结果\n\n| 规则 | 结果 |\n| --- | --- |\n| 外键 | 已验证 |\n\n```sql\nSELECT * FROM customers;\n```\n\n<script>alert("untrusted")</script>\n\n'+('本报告只使用本次工具返回的真实结果，不构成外部承诺。'.repeat(5));const r=await box.execute('write_report',{title,content},'lead');const html=await fs.readFile(path.join(dir,r.files.find(x=>x.endsWith('.html'))),'utf8');assert(html.includes('<table>'));assert(html.includes('<pre><code>SELECT'));assert(!html.includes('<script>'));assert(html.includes('&lt;script&gt;'));assert.equal((html.match(/<h1>/g)||[]).length,1);});
 });
+
+test('multi-table import is order independent and commit rejects missing parents without keeping bad DB',async()=>{
+ const ddl='CREATE TABLE parents(id INTEGER PRIMARY KEY,name TEXT NOT NULL); CREATE TABLE children(id INTEGER PRIMARY KEY,parent_id INTEGER NOT NULL REFERENCES parents(id));';
+ await withBox({data:{name:'child-first.json',text:JSON.stringify({children:[{id:1,parent_id:7}],parents:[{id:7,name:'parent'}]})}},async(box)=>{await box.execute('design_database',{ddl},'zhang');const built=await box.execute('build_database',{},'ops');assert.equal(built.evidence.importedRows,2);const tested=await box.execute('test_database',{queries:['SELECT p.name,c.id FROM children c JOIN parents p ON c.parent_id=p.id']},'liu');assert.equal(tested.evidence.passed,true);assert.equal(tested.evidence.queries[0].rows[0].name,'parent');});
+ await withBox({data:{name:'missing-parent.json',text:JSON.stringify({children:[{id:1,parent_id:99}],parents:[]})}},async(box,dir)=>{await box.execute('design_database',{ddl},'zhang');await assert.rejects(()=>box.execute('build_database',{},'ops'),/FOREIGN KEY constraint failed/);assert.equal(await fs.stat(path.join(dir,'database/company.sqlite')).then(()=>true,()=>false),false);assert(!box.artifacts().some(a=>a.name==='company.sqlite'));});
+});
+
+test('uploaded explicit example data stays labelled sample rather than business records',async()=>{
+ const data={name:'explicit-sample.json',text:JSON.stringify({items:[{id:1,name:'验收样本'},{id:2,name:'验收样本二'}]})};
+ for(const exampleFlag of [true,false])await withBox({data,example:exampleFlag},async box=>{await box.execute('design_database',{ddl:'CREATE TABLE items(id INTEGER PRIMARY KEY,name TEXT NOT NULL);'},'zhang');const r=await box.execute('build_database',{},'ops');assert.equal(r.evidence.importedRows,2);assert.equal(r.evidence.validationSamplesOnly,exampleFlag);assert.equal(r.evidence.importedBusinessRows,exampleFlag?0:2);assert.equal(r.evidence.validationSampleRows,exampleFlag?2:0);assert.equal(r.evidence.sampleSource,exampleFlag?'explicit_example_input':'user_upload');assert(r.summary.includes(exampleFlag?'示例/验收记录':'用户提供的记录'));});
+});

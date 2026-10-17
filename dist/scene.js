@@ -1,5 +1,6 @@
 /* The office is also the network: every visible endpoint is selectable. */
 const NODE_META = {
+  investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
   internet: { x: 651, y: 65, label: '互联网', w: 59, ly: 26 },
   firewall: { x: 553, y: 213, label: '安全网关', w: 70, ly: 29 },
   core: { x: 645, y: 314, label: '核心交换机', w: 82, ly: 24 },
@@ -15,15 +16,19 @@ const NODE_META = {
 };
 
 const AGENT_META = {
+  invest_research: { name:'沈研', role:'投资研究员', x:153, y:52, color:'#728eb4', hair:'#514333' },
+  invest_finance: { name:'顾衡', role:'财务尽调师', x:293, y:52, color:'#b7a16a', hair:'#474b45' },
+  invest_risk: { name:'何审', role:'独立风险审查', x:433, y:52, color:'#9c85a8', hair:'#493d50' },
   zhang: { name:'小张', role:'网络工程师', x:350, y:350, color:'#7299ba', hair:'#514333' },
   liu: { name:'小刘', role:'安全工程师', x:620, y:220, color:'#a692bb', hair:'#493d50' },
   lead: { name:'陈工', role:'技术组长', x:650, y:350, color:'#6fa79c', hair:'#474b45' },
   business: { name:'林悦', role:'业务组长', x:600, y:540, color:'#ce9676', hair:'#6b483d' },
   finance: { name:'许姐', role:'财务', x:870, y:540, color:'#bdac73', hair:'#5e443d' },
-  boss: { name:'周助理', role:'管理审校', x:930, y:285, color:'#9f8298', hair:'#4d4440' },
+  boss: { name:'周助理', role:'管理审校', x:953, y:302, color:'#9f8298', hair:'#4d4440' },
   ops: { name:'阿杰', role:'机房运维', x:565, y:340, color:'#8eaa76', hair:'#484b3d' },
 };
 const WORK_POSITIONS = {
+  investment:[[153,52],[293,52],[433,52]],
   internet:[[729,69],[801,69]], firewall:[[593,259],[525,269]],
   core:[[688,297],[627,271]], server:[[683,271],[762,289]],
   storage:[[778,327],[718,384]], ups:[[584,323],[582,276]],
@@ -35,7 +40,7 @@ const WORK_POSITIONS = {
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountScene(container, { onSelectNode = () => {}, onSelectAgent = () => {}, onViewChange = () => {} } = {}) {
+export function mountScene(container, { onSelectNode = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
   const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35] };
   const use = (name, x, y, scale = 1, extra = '') => {
@@ -47,6 +52,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const plant = (x, y, scale = 1) => use('plant', x, y, scale);
   const title = (x, y, text, english, color) => `<g transform="translate(${x} ${y})"><rect x="0" y="-13" width="4" height="24" rx="2" fill="${color}"/><text x="13" y="-1" class="cnl-room-title">${text}</text><text x="13" y="12" class="cnl-room-en">${english}</text></g>`;
   const paths = [
+    ['access', 'investment', 'M459 407H34V102H75V52'],
     ['internet', 'firewall', 'M651 78V120H553V213'],
     ['firewall', 'core', 'M553 213V274H645V314'],
     ['core', 'server', 'M645 314H675V232H719'],
@@ -61,7 +67,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const linkMarkup = paths.map(([a,b,d],i) => `<g class="cnl-link" data-a="${a}" data-b="${b}"><path class="cnl-cable-under" d="${d}"/><path class="cnl-cable" d="${d}"/><path class="cnl-packet" d="${d}" style="animation-delay:-${i * .61}s"/></g>`).join('');
   const hotspots = Object.entries(NODE_META).map(([id, n]) => `<g class="cnl-node" data-node="${id}" data-status="online" tabindex="0" role="button" aria-label="查看${n.label}" transform="translate(${n.x} ${n.y})"><circle class="cnl-fault-halo" r="25"/><circle class="cnl-hit-ring" r="23"/><circle class="cnl-hit-area" r="25"/><g class="cnl-node-label" transform="translate(${-n.w / 2} ${n.ly})"><rect width="${n.w}" height="19" rx="7"/><circle class="cnl-status-dot" cx="9" cy="9.5" r="3"/><text x="17" y="12.6">${n.label}</text></g><g class="cnl-alert-mark" transform="translate(16 -23)"><circle r="8"/><text y="3.5" text-anchor="middle">!</text></g></g>`).join('');
 
-  container.innerHTML = `<svg class="cnl-office-scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 650" role="group" aria-label="疯狂实验室办公室网络拓扑，设备与七位 Agent 均可点击操作，空白区域可拖动，滚轮可缩放" preserveAspectRatio="xMidYMid meet">
+  container.innerHTML = `<svg class="cnl-office-scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 650" role="group" aria-label="疯狂实验室办公室网络拓扑，设备与 AI 虚拟员工均可点击操作，空白区域可拖动，滚轮可缩放" preserveAspectRatio="xMidYMid meet">
   <defs>
     <pattern id="${uid}-grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="#48564e" stroke-opacity=".035" stroke-width="1"/></pattern>
     <pattern id="${uid}-floor" width="68" height="28" patternUnits="userSpaceOnUse"><path d="M0 28H68M34 0V28M0 0V14M68 14V28" stroke="#a79b81" stroke-opacity=".12" fill="none" stroke-width=".7"/></pattern>
@@ -86,6 +92,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-node{cursor:pointer;outline:none;--status:#71a78a}.cnl-hit-area{fill:transparent;stroke:none}.cnl-hit-ring{fill:transparent;stroke:#83bca3;stroke-width:1.8;opacity:0;transition:opacity .2s}.cnl-node:hover .cnl-hit-ring,.cnl-node:focus-visible .cnl-hit-ring,.cnl-node.is-selected .cnl-hit-ring{opacity:1}.cnl-node.is-selected .cnl-hit-ring{stroke:#3c7966;stroke-width:2.2;stroke-dasharray:3 3;animation:cnl-rotate 16s linear infinite}.cnl-node-label rect{fill:#fffef7;stroke:#abbba7;stroke-width:.65;opacity:.96}.cnl-node-label text{font-size:8.2px;fill:#52685d;font-weight:650}.cnl-status-dot{fill:var(--status);stroke:white;stroke-width:.8}.cnl-fault-halo{fill:var(--status);opacity:0;stroke:var(--status);stroke-width:1}.cnl-alert-mark{display:none}.cnl-alert-mark circle{fill:#e68c78;stroke:#fffaf0;stroke-width:1.5}.cnl-alert-mark text{fill:white;font-size:10px;font-weight:800}.cnl-node[data-status="warning"]{--status:#d4a450}.cnl-node[data-status="offline"]{--status:#df8076}.cnl-node[data-status="recovering"]{--status:#68a994}.cnl-node[data-status="offline"] .cnl-fault-halo,.cnl-node[data-status="warning"] .cnl-fault-halo{animation:cnl-faultpulse 1.8s ease-in-out infinite}.cnl-node[data-status="offline"] .cnl-alert-mark,.cnl-node[data-status="warning"] .cnl-alert-mark{display:block}.cnl-node[data-status="offline"] .cnl-node-label rect{stroke:#d68b7b;fill:#fff3e9}.cnl-node[data-status="recovering"] .cnl-hit-ring{opacity:.8;stroke:#66a38e;stroke-dasharray:3 3;animation:cnl-rotate 6s linear infinite}.cnl-device[data-status="offline"]{filter:saturate(.35)}.cnl-device[data-status="offline"] .cnl-server-led{fill:#dd8576}.cnl-device[data-status="warning"] .cnl-server-led{fill:#dfb461}.cnl-device[data-status="recovering"] .cnl-server-led{animation:cnl-ledblink .6s alternate infinite}
     .cnl-agent-badge{pointer-events:none;animation:cnl-agentpop .3s ease-out}.cnl-agent-badge .cnl-agent-face{fill:#f8e9cf;stroke:#3e6860;stroke-width:1.3}.cnl-agent-badge text{font-size:9px;fill:#3f6057;font-weight:800}.cnl-agent-badge .cnl-tool-ring{fill:#e9f1dd;stroke:#9bb39c;stroke-width:.8}.cnl-agent-badge .cnl-tool{fill:none;stroke:#547967;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.cnl-agent-badge.is-working .cnl-tool-ring{animation:cnl-toolpulse 1s ease-in-out infinite}.cnl-action-label{font-size:8px!important;font-weight:600!important;fill:#5c7568!important}.cnl-work-indicator{fill:#adcf94;animation:cnl-ledblink 1.3s alternate infinite}
     .cnl-ai-aura{fill:#8ee6d0;stroke:#47aa9b;stroke-width:.7;opacity:.24}.cnl-ai-badge rect{fill:#e5fffa;stroke:#2a9f8d;stroke-width:.6}.cnl-ai-badge text{fill:#176b60;font-size:3.8px;font-weight:900}.cnl-agent.is-working .cnl-ai-aura{opacity:.5;stroke:#28a08c}.cnl-agent{cursor:pointer;outline:none;transition:transform .65s cubic-bezier(.2,.8,.2,1),opacity .2s}.cnl-agent.is-unassigned{opacity:.55}.cnl-agent.is-unassigned:hover,.cnl-agent.is-unassigned:focus-visible{opacity:.85}.cnl-agent-hit{fill:transparent;stroke:none}.cnl-agent-ground{fill:#f7f6e9;stroke:#a8b8a0;stroke-width:.9;opacity:.9}.cnl-agent .cnl-agent-card{fill:#fffef6;stroke:#a5b69d;stroke-width:.7;stroke-dasharray:2 2}.cnl-agent.is-configured .cnl-agent-card{stroke-dasharray:none;stroke:#89a995}.cnl-agent:hover .cnl-agent-card,.cnl-agent:focus-visible .cnl-agent-card,.cnl-agent.is-selected .cnl-agent-card{stroke:#447e6a;stroke-width:1.6;fill:#f9fff4}.cnl-agent-name{fill:#38594b;font-size:8px;font-weight:800}.cnl-agent-type{fill:#248b79;font-size:5px;font-weight:700;letter-spacing:.6px}.cnl-agent-state{fill:#7c8b77;font-size:6px;font-weight:550}.cnl-agent.is-working .cnl-agent-state{fill:#46745c}.cnl-agent .cnl-config-dot{fill:#fffcf1;stroke:#a5b198;stroke-width:1}.cnl-agent.is-configured .cnl-config-dot{fill:#80aa87;stroke:#80aa87}.cnl-agent.is-configured .cnl-config-check{display:block}.cnl-config-check{display:none;fill:none;stroke:#fff;stroke-width:.9;stroke-linecap:round;stroke-linejoin:round}.cnl-agent.is-working .cnl-agent-ground{fill:#d9eacf;stroke:#8fae80;animation:cnl-toolpulse 1.5s ease-in-out infinite}.cnl-agent .cnl-tool-ring{fill:#edf4df;stroke:#95ad8e;stroke-width:.8}.cnl-agent .cnl-tool{fill:none;stroke:#507461;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.cnl-agent .cnl-role-tool{display:none}.cnl-agent.is-working .cnl-role-tool{display:block;animation:cnl-agenttool 1.2s ease-in-out infinite}.cnl-handoff-layer{pointer-events:none}.cnl-handoff-line{fill:none;stroke:#bd9c65;stroke-width:1.4;stroke-dasharray:3 4;opacity:.7;animation:cnl-handofffade 2.8s both}.cnl-handoff-envelope rect{fill:#fff6d9;stroke:#aa8b55;stroke-width:.8}.cnl-handoff-envelope path{fill:none;stroke:#aa8b55;stroke-width:.7}.cnl-handoff-envelope{filter:url(#${uid}-soft)}
+    .cnl-human-approval{display:none;cursor:pointer;outline:none}.cnl-human-approval.is-requesting{display:block}.cnl-human-halo{fill:#f0c165;stroke:#bd8536;stroke-width:1.2;opacity:.35;animation:cnl-humanpulse 1.8s ease-in-out infinite}.cnl-human-ring{fill:none;stroke:#e0a248;stroke-width:2.2;stroke-dasharray:3 3}.cnl-human-approval rect{fill:#fff4d2;stroke:#c79443;stroke-width:1}.cnl-human-approval text{fill:#996623;font-size:10px;font-weight:800}.cnl-human-approval .cnl-human-sub{font-size:6px;font-weight:600;fill:#b28a4b}.cnl-human-approval:hover rect,.cnl-human-approval:focus-visible rect{stroke:#9f6621;stroke-width:2}@keyframes cnl-humanpulse{50%{opacity:.62;r:39}}
     @keyframes cnl-agenttool{50%{transform:translateY(-2px) rotate(9deg)}}@keyframes cnl-handofffade{0%{opacity:0}12%,74%{opacity:.7}100%{opacity:0}}
     @keyframes cnl-datastream{to{stroke-dashoffset:-268}}@keyframes cnl-faultpulse{0%,100%{opacity:.03;r:24}50%{opacity:.16;r:30}}@keyframes cnl-rotate{to{transform:rotate(360deg)}}@keyframes cnl-ledblink{from{opacity:.4}to{opacity:1}}@keyframes cnl-agentpop{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes cnl-toolpulse{50%{fill:#c7e2ad}}
     @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important}}
@@ -168,7 +175,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <!-- Executive office: a lived-in room, not an isolated computer icon. -->
     ${title(833, 165, '管理办公室', 'HUMAN APPROVAL', '#c5a579')}
     <rect x="840" y="206" width="144" height="111" rx="8" fill="#e8d8b9" opacity=".6"/>
-    <g class="cnl-device" data-device="executive">${desk(857,226,'#576c72',{scale:1.03,screen:'#b8d3d6',hair:'#4e4742',cup:true})}</g>
+    <g class="cnl-device" data-device="executive">${desk(857,226,'#c88f68',{scale:1.03,screen:'#b8d3d6',hair:'#4e4742',cup:true})}</g>
     <g transform="translate(840 327)">${use('sofa',0,0,.75)}<rect x="79" y="6" width="43" height="31" rx="7" fill="#ead1ab" stroke="#9b967e" stroke-width="1"/>${use('cup',98,18,.65)}</g>
     ${plant(980, 185, .77)}${plant(984, 366, .83)}
     <g transform="translate(842 180)"><rect width="33" height="20" rx="2" fill="#f8f4e5" stroke="#baa684" stroke-width="1"/><path d="M6 15L14 6L21 12L27 9" fill="none" stroke="#c3ae7d" stroke-width="1.4"/></g>
@@ -205,9 +212,11 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <text x="98" y="410" class="cnl-small" fill="#a4af9b">NETWORK FLOOR / 01</text>
     <g transform="translate(58 584)"><rect width="57" height="18" rx="4" fill="#e2e7d6" stroke="#acb99f" stroke-width=".7"/><circle cx="9" cy="9" r="2.4" fill="#8eaf89"/><text x="16" y="12" class="cnl-tiny">LAISEN LAB</text></g>
 
+    <!-- Investment is an attached office, linked to the same working network. -->
+    <g class="cnl-investment-room"><rect x="55" y="7" width="450" height="94" rx="11" fill="#e5e9ee" stroke="#a9b9b3" stroke-width="1.2"/><path d="M56 35H504" stroke="#c9d3d0" stroke-width="1"/>${title(230,25,'投资部','INVESTMENT DUE DILIGENCE','#9baec0')}${use('desk',104,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',244,43,.60,'style="--screen:#cbd4b5"')}${use('desk',384,43,.60,'style="--screen:#cabeda"')}<path d="M68 101H489" stroke="#8da99b" stroke-width="2"/></g>
     <g class="cnl-node-layer">${hotspots}</g>
     <g class="cnl-handoff-layer"></g>
-    <g class="cnl-agent-layer"></g>
+    <g class="cnl-human-approval" transform="translate(909 286)" tabindex="0" role="button" aria-label="你，真人负责人，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" x="51" y="24" text-anchor="middle">你 · 真人负责人</text></g></g><g class="cnl-agent-layer"></g>
   </g>
   </svg>`;
 
@@ -215,6 +224,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const nodeElements = new Map([...svg.querySelectorAll('[data-node]')].map(el => [el.dataset.node, el]));
   const deviceElements = new Map([...svg.querySelectorAll('[data-device]')].map(el => [el.dataset.device, el]));
   const links = [...svg.querySelectorAll('.cnl-link')];
+  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();onSelectHuman();});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();onSelectHuman();}});
   const agentLayer = svg.querySelector('.cnl-agent-layer');
   const handoffLayer = svg.querySelector('.cnl-handoff-layer');
   const agentElements = new Map();
@@ -363,7 +373,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   function update(state = {}) {
-    const nodes = state.nodes || {};
+    const nodes = state.nodes || {};humanApproval.classList.toggle('is-requesting',!!state.humanApproval);humanApproval.setAttribute('aria-hidden',String(!state.humanApproval));
     nodeElements.forEach((el, id) => {
       const status = nodes[id]?.status || (typeof nodes[id] === 'string' ? nodes[id] : 'online');
       el.dataset.status = status;

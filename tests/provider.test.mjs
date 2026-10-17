@@ -55,6 +55,8 @@ test('model may not select an unassigned tool or invalid arguments', () => {
   assert.throws(() => parseDecision(JSON.stringify({ ...call, args_json: '{"scope":"edge","shell":"id"}' }), [tool], 'model'), { code: 'MALFORMED_ARGUMENTS' });
   assert.throws(() => parseDecision(JSON.stringify({ ...call, args_json: '{"scope":"bad"}' }), [tool], 'model'), { code: 'MALFORMED_ARGUMENTS' });
   assert.throws(() => parseDecision(JSON.stringify({ ...finish, tool: 'inspect_network' }), [], 'model'), { code: 'MALFORMED_OUTPUT' });
+  assert.throws(() => parseDecision(JSON.stringify({ ...call, args_json: '{"scope":null}' }), [tool], 'model'), error => error.code === 'MALFORMED_ARGUMENTS' && error.toolName === 'inspect_network' && !error.message.includes('scope'));
+  assert.throws(() => parseDecision(JSON.stringify({ ...call, tool: 'unassigned_admin_shell', args_json: '{broken' }), [tool], 'model'), { code: 'UNAUTHORIZED_TOOL' });
 });
 
 test('malformed output and missing credentials explicitly fail without simulated decisions', async () => {

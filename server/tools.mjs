@@ -10,6 +10,7 @@ import os from 'node:os';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {AGENTS} from './catalog.mjs';
+import {INVESTMENT_TOOL_DEFINITIONS,createInvestmentFunctions} from './investment.mjs';
 
 const projectDir=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const PYTHON=process.env.OFFICE_PYTHON || '/usr/bin/python3';
@@ -37,7 +38,7 @@ const defs=[
  ['write_report','把基于同事证据的中文正式汇报保存为可下载Markdown及HTML。content须含真实结果/限制/来源，不能伪造数据、客户承诺或生产修复。',obj({title:str('报告标题'),content:str('完整中文Markdown正文；工具返回文件不代替正文')})],
  ['list_artifacts','列出本次实际文件及相关结构化工具结果，供同事复核，不返回私密凭证或工作区外路径。',obj({})],
 ];
-export const TOOL_DEFINITIONS=defs.map(([name,description,parameters])=>({name,description,parameters}));
+export const TOOL_DEFINITIONS=[...defs.map(([name,description,parameters])=>({name,description,parameters})),...INVESTMENT_TOOL_DEFINITIONS];
 const mime={'.json':'application/json','.csv':'text/csv; charset=utf-8','.md':'text/markdown; charset=utf-8','.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.sql':'application/sql','.conf':'text/plain; charset=utf-8','.sqlite':'application/vnd.sqlite3','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
 const decode=s=>String(s).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)));
 const plain=s=>decode(String(s).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ')).trim();
@@ -50,14 +51,26 @@ export function isPublicAddress(address){
  if(type===6){ const p=ip.toLowerCase();return /^[23][0-9a-f]{0,3}:/.test(p)&&!p.startsWith('2001:db8:')&&!p.startsWith('2001:0:')&&!p.startsWith('2002:'); }
  return false;
 }
-export async function validatePublicUrl(value){
+export function isDirectlyConnectedAddress(address,interfaces=os.networkInterfaces()){
+ const value=String(address).replace(/^\[|\]$/g,'');const family=net.isIP(value);
+ const v4=s=>String(s).split('.').reduce((n,p)=>((n<<8)|Number(p))>>>0,0);
+ const normalize=s=>{try{return new URL('http://['+String(s).split('%')[0]+']/').hostname.slice(1,-1);}catch{return String(s);}};
+ for(const nic of Object.values(interfaces||{}).flat()){
+  if(!nic?.address)continue;const nicFamily=nic.family===4||nic.family==='IPv4'?4:nic.family===6||nic.family==='IPv6'?6:net.isIP(nic.address);
+  if(family!==nicFamily)continue;
+  if(family===4){if(value===nic.address)return true;if(typeof nic.netmask==='string'&&net.isIP(nic.netmask)===4){const mask=v4(nic.netmask);if(mask!==0&&(v4(value)&mask)===(v4(nic.address)&mask))return true;}}
+  if(family===6&&normalize(value)===normalize(nic.address))return true;
+ }
+ return false;
+}
+export async function validatePublicUrl(value,{networkInterfaces=os.networkInterfaces()}={}){
  let u;try{u=new URL(String(value));}catch{throw new Error('无效的互联网URL');}
  if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw new Error('仅允许无账号密码的HTTP(S)公开URL');
  if(u.port&&!['80','443'].includes(u.port))throw new Error('仅允许公开网页80/443端口');
  const host=u.hostname.replace(/^\[|\]$/g,'').toLowerCase();
  if(!host||host==='localhost'||/\.(?:localhost|local|internal|test|invalid)$/.test(host)||host==='metadata.google.internal')throw new Error('拒绝内网或本机URL');
  const addresses=net.isIP(host)?[{address:host,family:net.isIP(host)}]:await dns.lookup(host,{all:true,verbatim:true});
- if(!addresses.length||addresses.some(a=>!isPublicAddress(a.address)))throw new Error('拒绝解析到非公开地址的URL');
+ if(!addresses.length||addresses.some(a=>!isPublicAddress(a.address)||isDirectlyConnectedAddress(a.address,networkInterfaces)))throw new Error('拒绝解析到非公开地址的URL');
  return {url:u,addresses};
 }
 let proxyCache;
@@ -131,6 +144,7 @@ export async function createToolbox({runDir,input={},emit=()=>{},signal,approval
  const python=async(operation,args)=>new Promise((resolve,reject)=>{const child=spawn(PYTHON,[path.join(projectDir,'tools/office_tools.py')],{stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONIOENCODING:'utf-8'}});let stdout='',stderr='';let done=false;const timer=setTimeout(()=>{child.kill('SIGKILL');finish(new Error('数据工具执行超过45秒'));},45000);const abort=()=>{child.kill('SIGKILL');finish(new Error('任务已取消'));};signal?.addEventListener('abort',abort,{once:true});const finish=(error,value)=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener('abort',abort);error?reject(error):resolve(value);};child.on('error',e=>finish(new Error('Python工具启动失败: '+e.message)));child.stdout.on('data',c=>{stdout+=c.toString();if(stdout.length>6*1024*1024){child.kill();finish(new Error('工具输出超过安全上限'));}});child.stderr.on('data',c=>{stderr=(stderr+c.toString()).slice(-2000);});child.on('close',code=>{if(done)return;try{const value=JSON.parse(stdout);if(!value.ok)finish(new Error(value.error));else finish(null,value.result);}catch{finish(new Error('工具返回无效结果（退出码'+code+'）'+(stderr?': '+stderr:'')));}});child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify({runDir:base,input,args,operation}));});
  const rawRequirements=()=>[String(input.requirements||''),sourceText(input.data)].filter(Boolean).join('\n\n');
  const functions={
+  ...createInvestmentFunctions({input,put,outputs,approval,publicFetch:url=>publicFetch(url,{signal}),validatePublicUrl}),
   ...Object.fromEntries(['import_finance','calculate_finance','audit_finance','design_database','build_database','test_database','inspect_network','analyze_traffic','verify_network'].map(name=>[name,args=>python(name,args)])),
   async search_web(args){
    const query=String(args.query||input.query||input.requirements||'').trim().slice(0,400);if(!query)throw new Error('检索词不能为空');const limit=Math.min(8,Math.max(1,Math.trunc(args.limit||8)));const candidates=[];const attempts=[];let raw='';

@@ -6,13 +6,15 @@ import { OfficeEngine } from '../server/engine.mjs';
 import { publicCatalog, getScenario } from '../server/catalog.mjs';
 import { getProviderStatus } from '../server/provider.mjs';
 import { createNetworkPolicy } from '../server/network.mjs';
+import { createShutdown } from '../server/lifecycle.mjs';
 
 const projectRoot=fileURLToPath(new URL('../',import.meta.url));
 const root=resolve(projectRoot,'dist');
 const port=Number(process.env.PORT||4173);
 const bindHost=process.env.HOST||'0.0.0.0';
 const networkPolicy=createNetworkPolicy({port,bindHost});
-const engine=new OfficeEngine({dataDir:resolve(projectRoot,'.office-data')});
+let engine;let shuttingDown=false;
+const sseResponses=new Set(),probeController=new AbortController();
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
 async function body(req){
@@ -22,6 +24,7 @@ async function body(req){
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Object.assign(new Error('请求需要有效的JSON输入。'),{status:400});}
 }
 const server=createServer(async(req,res)=>{
+  if(shuttingDown){json(res,503,{error:'服务正在停止，暂不接受新请求。'});return;}
   const rejected=networkPolicy.validateRequest(req);
   if(rejected){json(res,rejected.status,{error:rejected.error});return;}
   if(!['GET','HEAD','POST'].includes(req.method)){res.writeHead(405).end();return;}
@@ -31,7 +34,7 @@ const server=createServer(async(req,res)=>{
     if(pathname.startsWith('/api/')){
       if(pathname==='/api/health'&&req.method==='GET')return json(res,200,{ok:true,provider:await getProviderStatus(),activeRuns:(await engine.list()).filter(r=>['queued','running','awaiting_approval'].includes(r.status)).length});
       if(pathname==='/api/catalog'&&req.method==='GET')return json(res,200,publicCatalog());
-      if(pathname==='/api/provider/check'&&req.method==='POST')return json(res,200,{provider:await getProviderStatus({refresh:true})});
+      if(pathname==='/api/provider/check'&&req.method==='POST')return json(res,200,{provider:await getProviderStatus({refresh:true,signal:probeController.signal})});
       if(pathname==='/api/runs'&&req.method==='GET')return json(res,200,{runs:await engine.list()});
       if(pathname==='/api/runs'&&req.method==='POST')return json(res,202,{run:await engine.create(await body(req))});
       const example=pathname.match(/^\/api\/examples\/([a-z]+)$/);
@@ -46,8 +49,8 @@ const server=createServer(async(req,res)=>{
         if(!action&&req.method==='GET')return json(res,200,{run:engine.publicRun(await engine.get(id))});
         if(action==='events'&&req.method==='GET'){
           const run=await engine.get(id);res.writeHead(200,{'Content-Type':'text/event-stream; charset=utf-8','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});
-          const send=state=>{if(!res.destroyed)res.write('event: state\ndata: '+JSON.stringify({run:state})+'\n\n');};send(engine.publicRun(run));engine.on('run:'+id,send);
-          const timer=setInterval(()=>{if(!res.destroyed)res.write(': heartbeat\n\n');},15000);req.on('close',()=>{clearInterval(timer);engine.off('run:'+id,send);});return;
+          sseResponses.add(res);const send=state=>{if(!res.destroyed&&!res.writableEnded)res.write('event: state\ndata: '+JSON.stringify({run:state})+'\n\n');};send(engine.publicRun(run));engine.on('run:'+id,send);
+          const timer=setInterval(()=>{if(!res.destroyed&&!res.writableEnded)res.write(': heartbeat\n\n');},15000);res.on('close',()=>{clearInterval(timer);sseResponses.delete(res);engine.off('run:'+id,send);});return;
         }
         if(action==='approval'&&req.method==='POST')return json(res,200,{run:await engine.approve(id,await body(req))});
         if(action==='cancel'&&req.method==='POST')return json(res,200,{run:await engine.cancel(id)});
@@ -66,11 +69,16 @@ const server=createServer(async(req,res)=>{
   }catch(error){if(!res.headersSent)json(res,error.status||500,{error:error.code==='ENOENT'?'文件或示例不存在。':String(error.message||'服务异常').slice(0,1600)});else res.end();}
 });
 server.requestTimeout=30000;server.headersTimeout=15000;
+const shutdown=createShutdown({server,getEngine:()=>engine,sseResponses,probeController,onStart:()=>{shuttingDown=true;}});
 server.listen(port,bindHost,()=>{
+  // Only the process that successfully owns the listener may recover/write run state.
+  engine=new OfficeEngine({dataDir:resolve(process.env.OFFICE_DATA_DIR||resolve(projectRoot,'.office-data'))});
   const urls=networkPolicy.urls();
   if(urls.local)console.log(`Office: ${urls.local}`);
   if(urls.lanName)console.log(`Office LAN name (preferred): ${urls.lanName}`);
   for(const url of urls.lan)console.log(`Office LAN: ${url}`);
   if(!urls.local&&!urls.lan.length)console.log(`Office listening on ${bindHost}:${port}`);
 });
-process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
+let exiting=false;
+const onSignal=()=>{if(exiting)return;exiting=true;shutdown().then(()=>process.exit(0),error=>{console.error('Office shutdown:',String(error.message||error).slice(0,300));process.exit(1);});};
+process.on('SIGTERM',onSignal);process.on('SIGINT',onSignal);

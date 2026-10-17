@@ -247,6 +247,10 @@ def db_build(inp,args):
     c=connect_db(); imported=0; sample=False
     try:
         for s in safe_sql(ddl.read_text(),'design'):c.execute(s)
+        # Keep schema inspection and all inserts in one transaction; otherwise an implicit
+        # statement commit can reset defer_foreign_keys before child rows are read.
+        c.execute('BEGIN')
+        c.execute('PRAGMA defer_foreign_keys=ON')
         data=source(args.get('data',inp.get('data')))
         if data not in (None,'',[]):
             if isinstance(data,list):
@@ -277,8 +281,12 @@ def db_build(inp,args):
         if target.exists():target.unlink()
         raise
     else:c.close()
-    result={'tables':counts,'importedRows':imported,'validationSamplesOnly':sample,'emptyDatabase':not any(counts.values()),'foreignKeysEnabled':True,'files':['database/company.sqlite']};save('database/build.json',result)
-    return {'summary':'已真实建立SQLite数据库，导入%d条用户记录'%imported+('；无用户数据' if imported==0 else ''),'evidence':result,'files':['database/company.sqlite','database/build.json']}
+    declared_example=bool(inp.get('example') or inp.get('isExample'))
+    validation_only=sample or (declared_example and imported>0)
+    sample_source='sample_sql' if sample else 'explicit_example_input' if declared_example and imported>0 else 'user_upload' if imported>0 else 'empty'
+    result={'tables':counts,'importedRows':imported,'importedBusinessRows':0 if validation_only else imported,'validationSampleRows':sum(counts.values()) if validation_only else 0,'validationSamplesOnly':validation_only,'sampleSource':sample_source,'sourceClassificationBasis':'用户明确选择/标记示例输入' if declared_example else '仅sampleSql为工具添加的验证样本，未擅自改变用户上传资料性质','emptyDatabase':not any(counts.values()),'foreignKeysEnabled':True,'foreignKeysValidatedAtCommit':True,'files':['database/company.sqlite']};save('database/build.json',result)
+    record_kind='明确标记的示例/验收记录' if validation_only else '用户提供的记录'
+    return {'summary':'已真实建立SQLite数据库，导入%d条%s'%(imported,record_kind)+('；无用户数据' if imported==0 else ''),'evidence':result,'files':['database/company.sqlite','database/build.json']}
 
 def db_test(inp,args):
     if not path('database/company.sqlite').exists():raise ValueError('请先建立数据库')

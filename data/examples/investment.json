@@ -1,0 +1,17 @@
+{
+  "input": {
+    "projectName": "青禾智造（虚构尽调演示项目）",
+    "projectType": "非上市公司／创业项目",
+    "projectBrief": "这是完全虚构、明确标记的投前尽调演示，不对应真实企业或真实投资机会。项目方自述：为中小制造企业提供设备数据采集与预测维护服务；已有20家付费客户，拟融资50万元。项目方声称2025年营收180万元，现金40万元，月净消耗5万元，提出投前估值450万元。我希望核查客户、收入质量、资质、知识产权、股权和融资条款。演示未提供工商登记、合同、银行流水、审计和客户访谈，请保持关键缺口，不能用公开行业资料证明这个虚构项目是真的。",
+    "currency": "CNY",
+    "plannedInvestment": 500000,
+    "preMoneyValuation": 4500000,
+    "urls": "https://www.miit.gov.cn/\nhttps://www.gov.cn/",
+    "financials": {
+      "name": "明确标记_虚构项目_财务演示.json",
+      "text": "[{\"period\":\"2024\",\"revenue\":1200000,\"gross_profit\":600000,\"net_profit\":-200000,\"cash\":300000,\"monthly_burn\":60000,\"debt\":50000},{\"period\":\"2025\",\"revenue\":1800000,\"gross_profit\":900000,\"net_profit\":-100000,\"cash\":400000,\"monthly_burn\":50000,\"debt\":80000}]"
+    },
+    "example": true,
+    "isExample": true
+  }
+}

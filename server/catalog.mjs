@@ -4,12 +4,34 @@ export const AGENTS = [
   { id:'liu', name:'小刘', role:'安全与质量审校', color:'#9b88b6', nodeId:'firewall', instructions:'独立检查上游证据和产物，主动指出缺失、差异与风险。未经工具验证，不宣称通过。', tools:['audit_finance','analyze_traffic','verify_network','test_database','review_delivery','list_artifacts'] },
   { id:'zhang', name:'小张', role:'网络与数据库工程师', color:'#7198c7', nodeId:'server', instructions:'根据现场证据设计和执行局部技术方案。仅操作本次任务工作区，变更前等待真人审批，完成后交给独立角色验收。', tools:['inspect_network','apply_defense','design_database','build_database','compare_quotes','list_artifacts'] },
   { id:'business', name:'林悦', role:'采购与业务分析师', color:'#7f9f83', nodeId:'reception', instructions:'把业务目标拆成可核验需求。获取真实报价时保留来源、配置、币种和抓取时间，无法公开报价的项目标记待询价。', tools:['search_web','fetch_quote','extract_requirements','estimate_delivery','compare_quotes','list_artifacts'] },
-  { id:'lead', name:'陈工', role:'任务协调与报告主笔', color:'#719d9e', nodeId:'core', instructions:'合并同事的真实工具结果，核对相互依赖，生成面向业务负责人的正式交付报告。区分已验证事实、待确认事项和建议。', tools:['write_report','list_artifacts','review_delivery','compare_quotes'] },
+  { id:'lead', name:'陈工', role:'任务协调与报告主笔', color:'#719d9e', nodeId:'core', instructions:'合并同事的真实工具结果，核对相互依赖，生成面向业务负责人的正式交付报告。区分已验证事实、待确认事项和建议。', tools:['write_report','list_artifacts','review_delivery','compare_quotes','build_investment_memo'] },
   { id:'boss', name:'周助理', role:'管理审校', color:'#7b877f', nodeId:'executive', instructions:'从业务目标、验收范围和预算依据审查结论，不冒充人类审批人，不擅自采购、付款或向外部发送内容。', tools:['write_report','review_delivery','compare_quotes','audit_finance','list_artifacts'] },
+  { id:'invest_research', name:'沈研', role:'投资研究员', color:'#8e9ebd', nodeId:'investment', instructions:'整理项目方说法并真实检索公开资料。逐项保留原文、来源URL、时间和主体匹配情况。区分项目自述、新闻与官方披露；未找到证据不等于没有风险，不把同名公司混为同一主体。', tools:['prepare_investment','research_investment','list_artifacts'] },
+  { id:'invest_finance', name:'顾衡', role:'财务尽调师', color:'#bfaa70', nodeId:'investment', instructions:'只用用户提供的财务数据做确定性核算，缺失不补零。核对币种、期间、单位、现金与融资条款。区分计算一致与财务真实，不承诺收益或估算未知公允价值。', tools:['analyze_investment_financials','list_artifacts'] },
+  { id:'invest_risk', name:'何审', role:'独立风险审查', color:'#a493b5', nodeId:'investment', instructions:'独立挑战项目说法与研究结论，逐字核验引文和来源，指出主体、财务、股权、资质及交易条款缺口。来源支持不等于审计认证。请求老板审阅后等待真人决定，不能替老板选择，也不执行投资或支付。', tools:['review_investment','request_investment_review','list_artifacts'] },
 ];
 
 const task = (id,title,agentId,nodeId,dependencies,tools,goal) => ({id,title,agentId,nodeId,dependencies,tools,requiredTools:tools.filter(t=>t!=='list_artifacts'),goal});
 export const SCENARIOS = [
+  { id:'investment', title:'投前尽职调查', description:'核查项目说法、公开来源与财务依据，向老板提交决策简报。', icon:'layers', room:'投资部', nodeId:'investment', outputs:['来源与证据清单','财务核算','独立风险审查','投前决策简报','老板审阅记录'], agents:['invest_research','invest_finance','invest_risk','lead'], exampleLabel:'虚构项目的投前尽调演示', fields:[
+    {name:'projectName',label:'项目或公司准确名称',type:'text',required:true,placeholder:'尽量填写法定主体全称，避免混淆同名公司'},
+    {name:'projectType',label:'研究对象',type:'select',defaultValue:'非上市公司／创业项目',options:['非上市公司／创业项目','上市公司研究']},
+    {name:'projectBrief',label:'项目介绍与投资关注点',type:'textarea',required:true,placeholder:'项目做什么、客户是谁、项目方怎么说、融资条件、你最关心的问题'},
+    {name:'data',label:'项目补充资料（可选）',type:'file',placeholder:'TXT / JSON / CSV，总正文最多24000字符'},
+    {name:'financials',label:'历史财务资料（可选）',type:'file',placeholder:'JSON / CSV：period,revenue,gross_profit,net_profit,cash,monthly_burn,debt；金额单位元'},
+    {name:'urls',label:'官网或公开资料链接（可选）',type:'textarea',placeholder:'每行一个，最多8个；被网站阻止或无法解析会保留缺口'},
+    {name:'currency',label:'金额币种',type:'select',defaultValue:'CNY',options:['CNY','USD']},
+    {name:'plannedInvestment',label:'拟投金额（可选，元）',type:'number'},
+    {name:'preMoneyValuation',label:'项目方提出的投前估值（可选，元）',type:'number'},
+  ],tasks:[
+    task('scope','提取项目说法与尽调问题','invest_research','investment',[],['prepare_investment'],'先从项目简介与补充原文提取有逐字引用的待核查说法，明确主体、范围和缺失资料。不要把项目方自述写成事实，不要求用户重复服务器已持有的材料。'),
+    task('research','真实联网取证与主体核对','invest_research','investment',['scope'],['research_investment'],'用完整主体名称和重点问题真实检索并抓取公开来源，覆盖用户指定URL，区分官网自述、第三方报道、官方披露和不相关同名主体。网页未找到、403或PDF不可读都保留缺口，不能宣称无风险或查遍互联网。'),
+    task('financial','核算财务与融资条款','invest_finance','finance',['scope'],['analyze_investment_financials'],'读取本次financials原始资料核算指标和融资条款的数学关系。缺少资料也要执行工具并返回缺口；不造收入、估值和收益，不把计算正确说成财务已审计。可与联网研究并行。'),
+    task('risk','独立质疑与证据审查','invest_risk','investment',['research','financial'],['review_investment'],'逐项审查全部C编号说法。findings引用实际U/W来源ID与逐字quote；只引用确有正文的来源，不相关网页不能证明本项目。对无法独立证实的项目方说法使用issuer_claim或unverified，明确主体、股权、合同、客户、审计、监管及退出条款等关键缺口。未查到诉讼不代表无诉讼。'),
+    task('memo','生成老板投前决策简报','lead','meeting',['scope','research','financial','risk'],['build_investment_memo'],'合并同事的来源、核算和独立风险审查，生成可支持老板下一步行动的中文简报。判断只能是进入下一轮尽调、补材料或暂缓，关键缺口必须突出，不生成确定性投资收益或无证据的建议投钱。'),
+    task('owner','请老板审阅并决定后续方向','invest_risk','executive',['memo'],['request_investment_review'],'调用request_investment_review向真人老板提交已完成简报并等待决定。AI不能批准自己；继续尽调或暂缓只记录研究方向，不签约不投资不打款。'),
+    task('handover','交付尽调成果与老板决定','lead','investment',['memo','owner'],['write_report'],'据已生成简报和老板实际审阅回执保存最终投前研究交付报告，写明关键发现、可追溯来源、财务口径、资料缺口、下一步与老板选择。没有完成线下审计/法律核验必须如实说明；不能把继续尽调解释为已批准投资。'),
+  ]},
   { id:'finance', title:'年度财务汇报', description:'导入财务数据，建账计算、独立审校并生成年度报表。', icon:'book', room:'财务办公室', nodeId:'finance', outputs:['财务明细数据库','年度指标与报表','审校结果','年度汇报'], agents:['ops','finance','liu','lead'], exampleLabel:'示例公司的两年财务数据', fields:[
     {name:'company',label:'公司名称',type:'text',required:true,defaultValue:'示例科技有限公司'},
     {name:'year',label:'汇报年度',type:'number',required:true,defaultValue:2025},
