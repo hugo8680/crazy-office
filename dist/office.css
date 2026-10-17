@@ -19,6 +19,8 @@
 .finance-format{margin-top:-5px}.finance-format>.button{font-size:11px;padding:8px 10px}.finance-format .workflow-preview{margin:10px 0 0}.finance-format details>p{font-size:11px;line-height:1.8;color:#8a9e7a;margin:10px 0}.finance-format dl{display:grid;grid-template-columns:1fr 1fr;gap:5px 14px;margin:10px 0}.finance-format dl>div{display:flex;justify-content:space-between;gap:7px;padding:6px 0;border-bottom:1px solid #e7eddc;font-size:10px}.finance-format dt{font-family:var(--mono);color:#769168;overflow-wrap:anywhere}.finance-format dd{margin:0;color:#a0af90;white-space:nowrap}.finance-format .workflow-preview>summary{font-size:11px}.finance-format .workflow-preview>div{display:block}
 @media(max-width:520px){.finance-format dl{grid-template-columns:1fr}.finance-format dl>div{font-size:11px;padding:5px 0}}
 /* Preserve the action dock and one-card notice limit on small LAN devices. */
+@media(max-width:720px){.dock-fullscreen>span{display:none}.dock-fullscreen{min-width:32px}}
+@media(max-width:380px){.action-dock [data-open=logs]>span{display:none}.action-dock .dock-primary{min-width:96px}.action-dock{padding:4px}}
 .employee-notice{max-height:calc(100dvh - 205px);overflow:auto}
 @media(max-width:380px){.action-dock .dock-divider{display:none}.dock-action{font-size:9px;padding:10px 6px}.dock-primary{min-width:100px;padding:11px 8px}.dock-more{padding:9px 6px}.network-hud #availability{max-width:105px}}
 /* A human decision is a distinct, persistent interruption in the office. */
