@@ -4,10 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#f7f8f2">
-  <meta name="description" content="在卡通办公室的真实拓扑关系中，指挥七位模拟 Agent 协同完成 DDoS、机房断电与核心交换机故障抢修。">
-  <title>疯狂网络实验室 · NET RESCUE LAB</title>
+  <meta name="description" content="在全屏办公室中，派遣 AI 虚拟员工协作完成财务汇报、真实采购比价、网络诊断、数据库搭建与交付计划。">
+  <title>疯狂办公室 · AI OFFICE LAB</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./office.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true"><defs>
@@ -42,19 +43,19 @@
     <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 4L6 8H2v8h4l5 4zM16 9l6 6M22 9l-6 6"/></symbol>
   </defs></svg>
 
-  <main id="lab" aria-label="疯狂网络实验室，全屏办公室拓扑">
+  <main id="lab" aria-label="疯狂办公室，全屏 AI 员工协作场景">
     <div id="office-scene"></div>
-    <button id="network-hud" class="network-hud glass" data-open="metrics" aria-label="查看网络状态"><span class="status-dot"></span><span id="online-count">12 / 12 节点可用</span><span class="hud-divider"></span><span id="availability">100.0%</span></button>
-    <button id="configuration-hud" class="configuration-hud glass" data-open="team"><svg class="icon"><use href="#i-users"/></svg><span id="squad-label">配置 Agent · 选择小队</span><svg class="icon small"><use href="#i-chevron"/></svg></button>
+    <button id="network-hud" class="network-hud glass" data-open="connection" aria-label="查看模型连接"><span class="status-dot"></span><span id="online-count">正在连接模型</span><span class="hud-divider"></span><span id="availability">Codex</span></button>
+    <button id="configuration-hud" class="configuration-hud glass" data-open="employees"><svg class="icon"><use href="#i-users"/></svg><span id="squad-label">7 位 AI 员工 · 点人配置</span><svg class="icon small"><use href="#i-chevron"/></svg></button>
     <div id="incident-hud" class="incident-hud glass" hidden></div>
-    <div id="scene-cue" class="scene-cue"><span class="cue-dot"></span>点小人配置 Agent，点设备执行动作</div>
+    <div id="scene-cue" class="scene-cue"><span class="cue-dot"></span>点 AI 员工配置职责，点设备或「派发任务」开始</div>
     <button id="live-bubble" class="live-bubble" hidden></button>
     <aside id="scene-popover" class="scene-popover glass" aria-label="场景操作面板" hidden><div id="popover-content"></div></aside>
     <div id="action-dock" class="action-dock glass" aria-label="场景动作"></div>
     <div class="map-controls glass"><button class="icon-button active" id="topology-toggle" aria-label="显示或隐藏拓扑连线" aria-pressed="true" title="拓扑连线"><svg class="icon"><use href="#i-layers"/></svg></button><span></span><button class="icon-button" id="zoom-in" aria-label="放大拓扑" title="放大"><svg class="icon"><use href="#i-plus"/></svg></button><button class="icon-button" id="zoom-out" aria-label="缩小拓扑" title="缩小"><svg class="icon"><use href="#i-minus"/></svg></button><button class="icon-button" id="zoom-fit" aria-label="重置视图" title="适应画面"><svg class="icon"><use href="#i-target"/></svg></button></div>
-    <div class="map-legend"><span><i class="status-dot"></i>正常</span><span><i class="status-dot warning"></i>告警</span><span><i class="status-dot offline"></i>不可达</span><span class="simulation-label">本地协作仿真</span></div>
+    <div class="map-legend"><span><i class="status-dot"></i>正常</span><span><i class="status-dot warning"></i>告警</span><span><i class="status-dot offline"></i>不可达</span><span class="simulation-label">青绿胸牌 · AI 员工　普通小人 · 真人</span></div>
     <div id="toast" class="toast" role="status" hidden></div>
   </main>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./office.js"></script>
 </body>
 </html>

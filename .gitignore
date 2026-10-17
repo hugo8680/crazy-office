@@ -4,3 +4,8 @@ node_modules/
 .openai/*.tar.gz
 .openai/*.tgz
 artifacts/
+deliverables/real-office/
+.office-data/
+.env
+.env.*
+!.env.example

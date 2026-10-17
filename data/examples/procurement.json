@@ -1,0 +1,10 @@
+{
+  "input": {
+    "requirements": "采购用于内部数据库的塔式服务器，目标至少32GB内存、1TB SSD。检索公开整机价并核实配置；起售价若不满足需求须标明，不能把云主机和内存配件当成整机。",
+    "budget": 5000,
+    "currency": "USD",
+    "query": "Dell PowerEdge T160 Lenovo ThinkSystem tower server public price",
+    "urls": "https://www.dell.com/en-us/shop/servers-storage-and-networking/poweredge-t160-tower-server/spd/poweredge-t160/pe_t160_tm_vi_vp_sb\nhttps://www.dell.com/en-us/shop/servers-storage-and-networking/poweredge-t360-tower-server/spd/poweredge-t360/pe_t360_tm_vi_vp_sb\nhttps://www.lenovo.com/us/en/c/servers-storage/servers/towers/\nhttps://buy.hpe.com/us/en/compute/proliant-tower-servers/proliant-ml10-servers/hpe-proliant-ml30-gen11/p/1014708634",
+    "isExample": true
+  }
+}

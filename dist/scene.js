@@ -9,7 +9,7 @@ const NODE_META = {
   access: { x: 459, y: 407, label: '接入交换机', w: 82, ly: 22 },
   workstations: { x: 268, y: 334, label: '员工终端', w: 70, ly: -37 },
   meeting: { x: 208, y: 516, label: '会议系统', w: 70, ly: 27 },
-  executive: { x: 913, y: 250, label: '总裁终端', w: 70, ly: -37 },
+  executive: { x: 913, y: 250, label: '管理工作台', w: 70, ly: -37 },
   reception: { x: 529, y: 521, label: '访客网络', w: 70, ly: 27 },
   finance: { x: 845, y: 516, label: '财务终端', w: 70, ly: -36 },
 };
@@ -20,7 +20,7 @@ const AGENT_META = {
   lead: { name:'陈工', role:'技术组长', x:650, y:350, color:'#6fa79c', hair:'#474b45' },
   business: { name:'林悦', role:'业务组长', x:600, y:540, color:'#ce9676', hair:'#6b483d' },
   finance: { name:'许姐', role:'财务', x:870, y:540, color:'#bdac73', hair:'#5e443d' },
-  boss: { name:'周总', role:'总经理', x:930, y:285, color:'#9f8298', hair:'#4d4440' },
+  boss: { name:'周助理', role:'管理审校', x:930, y:285, color:'#9f8298', hair:'#4d4440' },
   ops: { name:'阿杰', role:'机房运维', x:565, y:340, color:'#8eaa76', hair:'#484b3d' },
 };
 const WORK_POSITIONS = {
@@ -85,7 +85,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-links{transition:opacity .25s}.cnl-topology-off .cnl-links{opacity:0}.cnl-link.is-offline .cnl-cable{stroke:#e78b80;stroke-dasharray:4 5;opacity:.85}.cnl-link.is-offline .cnl-packet{display:none}.cnl-link.is-warning .cnl-cable{stroke:#d6ad57}.cnl-link.is-recovering .cnl-cable{stroke:#67a58b}.cnl-link.is-recovering .cnl-packet{stroke:#c7ec9c;animation-duration:2.7s}
     .cnl-node{cursor:pointer;outline:none;--status:#71a78a}.cnl-hit-area{fill:transparent;stroke:none}.cnl-hit-ring{fill:transparent;stroke:#83bca3;stroke-width:1.8;opacity:0;transition:opacity .2s}.cnl-node:hover .cnl-hit-ring,.cnl-node:focus-visible .cnl-hit-ring,.cnl-node.is-selected .cnl-hit-ring{opacity:1}.cnl-node.is-selected .cnl-hit-ring{stroke:#3c7966;stroke-width:2.2;stroke-dasharray:3 3;animation:cnl-rotate 16s linear infinite}.cnl-node-label rect{fill:#fffef7;stroke:#abbba7;stroke-width:.65;opacity:.96}.cnl-node-label text{font-size:8.2px;fill:#52685d;font-weight:650}.cnl-status-dot{fill:var(--status);stroke:white;stroke-width:.8}.cnl-fault-halo{fill:var(--status);opacity:0;stroke:var(--status);stroke-width:1}.cnl-alert-mark{display:none}.cnl-alert-mark circle{fill:#e68c78;stroke:#fffaf0;stroke-width:1.5}.cnl-alert-mark text{fill:white;font-size:10px;font-weight:800}.cnl-node[data-status="warning"]{--status:#d4a450}.cnl-node[data-status="offline"]{--status:#df8076}.cnl-node[data-status="recovering"]{--status:#68a994}.cnl-node[data-status="offline"] .cnl-fault-halo,.cnl-node[data-status="warning"] .cnl-fault-halo{animation:cnl-faultpulse 1.8s ease-in-out infinite}.cnl-node[data-status="offline"] .cnl-alert-mark,.cnl-node[data-status="warning"] .cnl-alert-mark{display:block}.cnl-node[data-status="offline"] .cnl-node-label rect{stroke:#d68b7b;fill:#fff3e9}.cnl-node[data-status="recovering"] .cnl-hit-ring{opacity:.8;stroke:#66a38e;stroke-dasharray:3 3;animation:cnl-rotate 6s linear infinite}.cnl-device[data-status="offline"]{filter:saturate(.35)}.cnl-device[data-status="offline"] .cnl-server-led{fill:#dd8576}.cnl-device[data-status="warning"] .cnl-server-led{fill:#dfb461}.cnl-device[data-status="recovering"] .cnl-server-led{animation:cnl-ledblink .6s alternate infinite}
     .cnl-agent-badge{pointer-events:none;animation:cnl-agentpop .3s ease-out}.cnl-agent-badge .cnl-agent-face{fill:#f8e9cf;stroke:#3e6860;stroke-width:1.3}.cnl-agent-badge text{font-size:9px;fill:#3f6057;font-weight:800}.cnl-agent-badge .cnl-tool-ring{fill:#e9f1dd;stroke:#9bb39c;stroke-width:.8}.cnl-agent-badge .cnl-tool{fill:none;stroke:#547967;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.cnl-agent-badge.is-working .cnl-tool-ring{animation:cnl-toolpulse 1s ease-in-out infinite}.cnl-action-label{font-size:8px!important;font-weight:600!important;fill:#5c7568!important}.cnl-work-indicator{fill:#adcf94;animation:cnl-ledblink 1.3s alternate infinite}
-    .cnl-agent{cursor:pointer;outline:none;transition:transform .65s cubic-bezier(.2,.8,.2,1),opacity .2s}.cnl-agent.is-unassigned{opacity:.55}.cnl-agent.is-unassigned:hover,.cnl-agent.is-unassigned:focus-visible{opacity:.85}.cnl-agent-hit{fill:transparent;stroke:none}.cnl-agent-ground{fill:#f7f6e9;stroke:#a8b8a0;stroke-width:.9;opacity:.9}.cnl-agent .cnl-agent-card{fill:#fffef6;stroke:#a5b69d;stroke-width:.7;stroke-dasharray:2 2}.cnl-agent.is-configured .cnl-agent-card{stroke-dasharray:none;stroke:#89a995}.cnl-agent:hover .cnl-agent-card,.cnl-agent:focus-visible .cnl-agent-card,.cnl-agent.is-selected .cnl-agent-card{stroke:#447e6a;stroke-width:1.6;fill:#f9fff4}.cnl-agent-name{fill:#38594b;font-size:8px;font-weight:800}.cnl-agent-type{fill:#8b9b87;font-size:5px;font-weight:700;letter-spacing:.6px}.cnl-agent-state{fill:#7c8b77;font-size:6px;font-weight:550}.cnl-agent.is-working .cnl-agent-state{fill:#46745c}.cnl-agent .cnl-config-dot{fill:#fffcf1;stroke:#a5b198;stroke-width:1}.cnl-agent.is-configured .cnl-config-dot{fill:#80aa87;stroke:#80aa87}.cnl-agent.is-configured .cnl-config-check{display:block}.cnl-config-check{display:none;fill:none;stroke:#fff;stroke-width:.9;stroke-linecap:round;stroke-linejoin:round}.cnl-agent.is-working .cnl-agent-ground{fill:#d9eacf;stroke:#8fae80;animation:cnl-toolpulse 1.5s ease-in-out infinite}.cnl-agent .cnl-tool-ring{fill:#edf4df;stroke:#95ad8e;stroke-width:.8}.cnl-agent .cnl-tool{fill:none;stroke:#507461;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.cnl-agent .cnl-role-tool{display:none}.cnl-agent.is-working .cnl-role-tool{display:block;animation:cnl-agenttool 1.2s ease-in-out infinite}.cnl-handoff-layer{pointer-events:none}.cnl-handoff-line{fill:none;stroke:#bd9c65;stroke-width:1.4;stroke-dasharray:3 4;opacity:.7;animation:cnl-handofffade 2.8s both}.cnl-handoff-envelope rect{fill:#fff6d9;stroke:#aa8b55;stroke-width:.8}.cnl-handoff-envelope path{fill:none;stroke:#aa8b55;stroke-width:.7}.cnl-handoff-envelope{filter:url(#${uid}-soft)}
+    .cnl-ai-aura{fill:#8ee6d0;stroke:#47aa9b;stroke-width:.7;opacity:.24}.cnl-ai-badge rect{fill:#e5fffa;stroke:#2a9f8d;stroke-width:.6}.cnl-ai-badge text{fill:#176b60;font-size:3.8px;font-weight:900}.cnl-agent.is-working .cnl-ai-aura{opacity:.5;stroke:#28a08c}.cnl-agent{cursor:pointer;outline:none;transition:transform .65s cubic-bezier(.2,.8,.2,1),opacity .2s}.cnl-agent.is-unassigned{opacity:.55}.cnl-agent.is-unassigned:hover,.cnl-agent.is-unassigned:focus-visible{opacity:.85}.cnl-agent-hit{fill:transparent;stroke:none}.cnl-agent-ground{fill:#f7f6e9;stroke:#a8b8a0;stroke-width:.9;opacity:.9}.cnl-agent .cnl-agent-card{fill:#fffef6;stroke:#a5b69d;stroke-width:.7;stroke-dasharray:2 2}.cnl-agent.is-configured .cnl-agent-card{stroke-dasharray:none;stroke:#89a995}.cnl-agent:hover .cnl-agent-card,.cnl-agent:focus-visible .cnl-agent-card,.cnl-agent.is-selected .cnl-agent-card{stroke:#447e6a;stroke-width:1.6;fill:#f9fff4}.cnl-agent-name{fill:#38594b;font-size:8px;font-weight:800}.cnl-agent-type{fill:#248b79;font-size:5px;font-weight:700;letter-spacing:.6px}.cnl-agent-state{fill:#7c8b77;font-size:6px;font-weight:550}.cnl-agent.is-working .cnl-agent-state{fill:#46745c}.cnl-agent .cnl-config-dot{fill:#fffcf1;stroke:#a5b198;stroke-width:1}.cnl-agent.is-configured .cnl-config-dot{fill:#80aa87;stroke:#80aa87}.cnl-agent.is-configured .cnl-config-check{display:block}.cnl-config-check{display:none;fill:none;stroke:#fff;stroke-width:.9;stroke-linecap:round;stroke-linejoin:round}.cnl-agent.is-working .cnl-agent-ground{fill:#d9eacf;stroke:#8fae80;animation:cnl-toolpulse 1.5s ease-in-out infinite}.cnl-agent .cnl-tool-ring{fill:#edf4df;stroke:#95ad8e;stroke-width:.8}.cnl-agent .cnl-tool{fill:none;stroke:#507461;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.cnl-agent .cnl-role-tool{display:none}.cnl-agent.is-working .cnl-role-tool{display:block;animation:cnl-agenttool 1.2s ease-in-out infinite}.cnl-handoff-layer{pointer-events:none}.cnl-handoff-line{fill:none;stroke:#bd9c65;stroke-width:1.4;stroke-dasharray:3 4;opacity:.7;animation:cnl-handofffade 2.8s both}.cnl-handoff-envelope rect{fill:#fff6d9;stroke:#aa8b55;stroke-width:.8}.cnl-handoff-envelope path{fill:none;stroke:#aa8b55;stroke-width:.7}.cnl-handoff-envelope{filter:url(#${uid}-soft)}
     @keyframes cnl-agenttool{50%{transform:translateY(-2px) rotate(9deg)}}@keyframes cnl-handofffade{0%{opacity:0}12%,74%{opacity:.7}100%{opacity:0}}
     @keyframes cnl-datastream{to{stroke-dashoffset:-268}}@keyframes cnl-faultpulse{0%,100%{opacity:.03;r:24}50%{opacity:.16;r:30}}@keyframes cnl-rotate{to{transform:rotate(360deg)}}@keyframes cnl-ledblink{from{opacity:.4}to{opacity:1}}@keyframes cnl-agentpop{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes cnl-toolpulse{50%{fill:#c7e2ad}}
     @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important}}
@@ -166,7 +166,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g transform="translate(756 153)" stroke="#9db6aa" stroke-width="1"><rect width="31" height="15" rx="2" fill="#eaf0e3"/><path d="M4 4H27M4 7H27M4 10H27"/></g>
 
     <!-- Executive office: a lived-in room, not an isolated computer icon. -->
-    ${title(833, 165, '总裁办公室', 'EXECUTIVE OFFICE', '#c5a579')}
+    ${title(833, 165, '管理办公室', 'HUMAN APPROVAL', '#c5a579')}
     <rect x="840" y="206" width="144" height="111" rx="8" fill="#e8d8b9" opacity=".6"/>
     <g class="cnl-device" data-device="executive">${desk(857,226,'#576c72',{scale:1.03,screen:'#b8d3d6',hair:'#4e4742',cup:true})}</g>
     <g transform="translate(840 327)">${use('sofa',0,0,.75)}<rect x="79" y="6" width="43" height="31" rx="7" fill="#ead1ab" stroke="#9b967e" stroke-width="1"/>${use('cup',98,18,.65)}</g>
@@ -280,8 +280,9 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       const action = agent.task || agent.currentTask || agent.action || '执行任务';
       return String(action).replace(/[「」“”\s]/g, '').slice(0, 8);
     }
-    if (['waiting', 'blocked', 'queued'].includes(agent.status)) return agent.id === 'boss' ? '待审批' : '等待交接';
+    if (['waiting', 'blocked', 'queued'].includes(agent.status)) return '等待证据交接';
     if (['done', 'completed'].includes(agent.status)) return '任务已交付';
+    if (agent.status === 'error') return '任务失败，查看原因';
     return `${String(agent.role || '成员').slice(0, 6)}待命`;
   }
 
@@ -325,17 +326,17 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       el.classList.toggle('is-configured', !!agent.configured);
       el.classList.toggle('is-selected', id === selectedAgent);
       const phrase = statusPhrase(agent);
-      el.setAttribute('aria-label', `${agent.name}，${agent.role} Agent，${phrase}，${agent.configured ? '已配置' : '点击配置'}，查看任务与配置`);
+      el.setAttribute('aria-label', `${agent.name}，${agent.role} AI 虚拟员工，${phrase}，${agent.configured ? '已配置' : '点击配置'}，查看任务与配置`);
       const signature = JSON.stringify([agent.name, agent.role, agent.color, agent.hair, agent.configured, agent.selected, phrase, working]);
       if (signature !== agentSignatures.get(id)) {
         agentSignatures.set(id, signature);
-        el.innerHTML = `<title>${esc(agent.name)} · ${esc(agent.role)} Agent · ${esc(phrase)}；点击查看任务与配置</title>
+        el.innerHTML = `<title>${esc(agent.name)} · ${esc(agent.role)} AI 虚拟员工 · ${esc(phrase)}；点击查看任务与配置</title>
           <rect class="cnl-agent-hit" x="-37" y="-20" width="74" height="70" rx="8"/>
-          <ellipse class="cnl-agent-ground" cy="18" rx="18" ry="6"/>
-          ${person(0, -1, agent.color, meta.hair, .56)}
+          <ellipse class="cnl-ai-aura" cy="-1" rx="17" ry="22"/><ellipse class="cnl-agent-ground" cy="18" rx="18" ry="6"/>
+          ${person(0, -1, agent.color, meta.hair, .56)}<g class="cnl-ai-badge" transform="translate(-3 3)"><rect width="7" height="5" rx="1"/><text x="3.5" y="3.8" text-anchor="middle">AI</text></g>
           <g class="cnl-role-tool" transform="translate(14 4)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g>
           <g transform="translate(-36 25)"><rect class="cnl-agent-card" width="72" height="24" rx="6"/>
-            <text class="cnl-agent-name" x="8" y="10">${esc(String(agent.name).slice(0,5))}</text><text class="cnl-agent-type" x="39" y="9">AGENT</text>
+            <text class="cnl-agent-name" x="8" y="10">${esc(String(agent.name).slice(0,5))}</text><text class="cnl-agent-type" x="39" y="9">AI 员工</text>
             <text class="cnl-agent-state" x="8" y="19">${esc(phrase)}</text><circle class="cnl-config-dot" cx="64" cy="18" r="3.3"/><path class="cnl-config-check" d="M62.2 18l1.2 1.2 2-2.5"/>
           </g>`;
       }
