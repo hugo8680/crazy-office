@@ -1,4 +1,6 @@
 /* The office is also the network: every visible endpoint is selectable. */
+import { HUMAN_EMPLOYEES } from './people.js';
+import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy } from './scene-motion.js';
 const NODE_META = {
   investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
   internet: { x: 651, y: 65, label: '互联网', w: 59, ly: 26 },
@@ -16,31 +18,32 @@ const NODE_META = {
 };
 
 const AGENT_META = {
-  invest_research: { name:'沈研', role:'投资研究员', x:153, y:52, color:'#728eb4', hair:'#514333' },
-  invest_finance: { name:'顾衡', role:'财务尽调师', x:293, y:52, color:'#b7a16a', hair:'#474b45' },
-  invest_risk: { name:'何审', role:'独立风险审查', x:433, y:52, color:'#9c85a8', hair:'#493d50' },
-  zhang: { name:'小张', role:'网络工程师', x:350, y:350, color:'#7299ba', hair:'#514333' },
-  liu: { name:'小刘', role:'安全工程师', x:620, y:220, color:'#a692bb', hair:'#493d50' },
-  lead: { name:'陈工', role:'技术组长', x:650, y:350, color:'#6fa79c', hair:'#474b45' },
-  business: { name:'林悦', role:'业务组长', x:600, y:540, color:'#ce9676', hair:'#6b483d' },
-  finance: { name:'许姐', role:'财务', x:870, y:540, color:'#bdac73', hair:'#5e443d' },
-  boss: { name:'周助理', role:'管理审校', x:953, y:302, color:'#9f8298', hair:'#4d4440' },
-  ops: { name:'阿杰', role:'机房运维', x:565, y:340, color:'#8eaa76', hair:'#484b3d' },
+  invest_research: { name:'沈研', role:'投资研究员', x:122, y:87, color:'#728eb4', hair:'#514333' },
+  invest_finance: { name:'顾衡', role:'财务尽调师', x:234, y:87, color:'#b7a16a', hair:'#474b45' },
+  invest_risk: { name:'何审', role:'独立风险审查', x:346, y:87, color:'#9c85a8', hair:'#493d50' },
+  zhang: { name:'小张', role:'网络工程师', x:464, y:350, color:'#7299ba', hair:'#514333' },
+  liu: { name:'小刘', role:'安全工程师', x:650, y:286, color:'#a692bb', hair:'#493d50' },
+  lead: { name:'陈工', role:'技术组长', x:650, y:373, color:'#6fa79c', hair:'#474b45' },
+  business: { name:'林悦', role:'业务组长', x:477, y:575, color:'#ce9676', hair:'#6b483d' },
+  finance: { name:'许姐', role:'财务', x:910, y:579, color:'#bdac73', hair:'#5e443d' },
+  boss: { name:'周助理', role:'管理审校', x:977, y:315, color:'#9f8298', hair:'#4d4440' },
+  ops: { name:'阿杰', role:'机房运维', x:589, y:373, color:'#8eaa76', hair:'#484b3d' },
 };
+// Sprite positions are feet on the floor, not centres inside devices.
 const WORK_POSITIONS = {
-  investment:[[153,52],[293,52],[433,52]],
-  internet:[[729,69],[801,69]], firewall:[[593,259],[525,269]],
-  core:[[688,297],[627,271]], server:[[683,271],[762,289]],
-  storage:[[778,327],[718,384]], ups:[[584,323],[582,276]],
-  access:[[421,397],[492,397]], workstations:[[313,290],[387,290]],
-  meeting:[[298,552],[123,560]], executive:[[951,313],[861,335]],
-  reception:[[612,555],[447,557]], finance:[[909,551],[784,567]],
+  investment:[[122,87],[234,87],[346,87]],
+  internet:[[787,286],[757,390]], firewall:[[590,260],[590,286]],
+  core:[[650,345],[590,345]], server:[[700,286],[768,286]],
+  storage:[[787,373],[787,390]], ups:[[579,373],[590,345]],
+  access:[[421,411],[492,411]], workstations:[[313,300],[387,300]],
+  meeting:[[322,479],[207,479]], executive:[[951,315],[861,315]],
+  reception:[[600,575],[477,575]], finance:[[909,579],[760,579]],
 };
 
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountScene(container, { onSelectNode = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onViewChange = () => {} } = {}) {
+export function mountScene(container, { onSelectNode = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
   const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35] };
   const use = (name, x, y, scale = 1, extra = '') => {
@@ -67,7 +70,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const linkMarkup = paths.map(([a,b,d],i) => `<g class="cnl-link" data-a="${a}" data-b="${b}"><path class="cnl-cable-under" d="${d}"/><path class="cnl-cable" d="${d}"/><path class="cnl-packet" d="${d}" style="animation-delay:-${i * .61}s"/></g>`).join('');
   const hotspots = Object.entries(NODE_META).map(([id, n]) => `<g class="cnl-node" data-node="${id}" data-status="online" tabindex="0" role="button" aria-label="查看${n.label}" transform="translate(${n.x} ${n.y})"><circle class="cnl-fault-halo" r="25"/><circle class="cnl-hit-ring" r="23"/><circle class="cnl-hit-area" r="25"/><g class="cnl-node-label" transform="translate(${-n.w / 2} ${n.ly})"><rect width="${n.w}" height="19" rx="7"/><circle class="cnl-status-dot" cx="9" cy="9.5" r="3"/><text x="17" y="12.6">${n.label}</text></g><g class="cnl-alert-mark" transform="translate(16 -23)"><circle r="8"/><text y="3.5" text-anchor="middle">!</text></g></g>`).join('');
 
-  container.innerHTML = `<svg class="cnl-office-scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 650" role="group" aria-label="疯狂实验室办公室网络拓扑，设备与 AI 虚拟员工均可点击操作，空白区域可拖动，滚轮可缩放" preserveAspectRatio="xMidYMid meet">
+  container.innerHTML = `<svg class="cnl-office-scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 650" role="group" aria-label="疯狂实验室办公室网络拓扑，设备、虚拟员工与真实员工均可点击操作，空白区域可拖动，滚轮可缩放" preserveAspectRatio="xMidYMid meet">
   <defs>
     <pattern id="${uid}-grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="#48564e" stroke-opacity=".035" stroke-width="1"/></pattern>
     <pattern id="${uid}-floor" width="68" height="28" patternUnits="userSpaceOnUse"><path d="M0 28H68M34 0V28M0 0V14M68 14V28" stroke="#a79b81" stroke-opacity=".12" fill="none" stroke-width=".7"/></pattern>
@@ -91,11 +94,14 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-links{transition:opacity .25s}.cnl-topology-off .cnl-links{opacity:0}.cnl-link.is-offline .cnl-cable{stroke:#e78b80;stroke-dasharray:4 5;opacity:.85}.cnl-link.is-offline .cnl-packet{display:none}.cnl-link.is-warning .cnl-cable{stroke:#d6ad57}.cnl-link.is-recovering .cnl-cable{stroke:#67a58b}.cnl-link.is-recovering .cnl-packet{stroke:#c7ec9c;animation-duration:2.7s}
     .cnl-node{cursor:pointer;outline:none;--status:#71a78a}.cnl-hit-area{fill:transparent;stroke:none}.cnl-hit-ring{fill:transparent;stroke:#83bca3;stroke-width:1.8;opacity:0;transition:opacity .2s}.cnl-node:hover .cnl-hit-ring,.cnl-node:focus-visible .cnl-hit-ring,.cnl-node.is-selected .cnl-hit-ring{opacity:1}.cnl-node.is-selected .cnl-hit-ring{stroke:#3c7966;stroke-width:2.2;stroke-dasharray:3 3;animation:cnl-rotate 16s linear infinite}.cnl-node-label rect{fill:#fffef7;stroke:#abbba7;stroke-width:.65;opacity:.96}.cnl-node-label text{font-size:8.2px;fill:#52685d;font-weight:650}.cnl-status-dot{fill:var(--status);stroke:white;stroke-width:.8}.cnl-fault-halo{fill:var(--status);opacity:0;stroke:var(--status);stroke-width:1}.cnl-alert-mark{display:none}.cnl-alert-mark circle{fill:#e68c78;stroke:#fffaf0;stroke-width:1.5}.cnl-alert-mark text{fill:white;font-size:10px;font-weight:800}.cnl-node[data-status="warning"]{--status:#d4a450}.cnl-node[data-status="offline"]{--status:#df8076}.cnl-node[data-status="recovering"]{--status:#68a994}.cnl-node[data-status="offline"] .cnl-fault-halo,.cnl-node[data-status="warning"] .cnl-fault-halo{animation:cnl-faultpulse 1.8s ease-in-out infinite}.cnl-node[data-status="offline"] .cnl-alert-mark,.cnl-node[data-status="warning"] .cnl-alert-mark{display:block}.cnl-node[data-status="offline"] .cnl-node-label rect{stroke:#d68b7b;fill:#fff3e9}.cnl-node[data-status="recovering"] .cnl-hit-ring{opacity:.8;stroke:#66a38e;stroke-dasharray:3 3;animation:cnl-rotate 6s linear infinite}.cnl-device[data-status="offline"]{filter:saturate(.35)}.cnl-device[data-status="offline"] .cnl-server-led{fill:#dd8576}.cnl-device[data-status="warning"] .cnl-server-led{fill:#dfb461}.cnl-device[data-status="recovering"] .cnl-server-led{animation:cnl-ledblink .6s alternate infinite}
     .cnl-agent-badge{pointer-events:none;animation:cnl-agentpop .3s ease-out}.cnl-agent-badge .cnl-agent-face{fill:#f8e9cf;stroke:#3e6860;stroke-width:1.3}.cnl-agent-badge text{font-size:9px;fill:#3f6057;font-weight:800}.cnl-agent-badge .cnl-tool-ring{fill:#e9f1dd;stroke:#9bb39c;stroke-width:.8}.cnl-agent-badge .cnl-tool{fill:none;stroke:#547967;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.cnl-agent-badge.is-working .cnl-tool-ring{animation:cnl-toolpulse 1s ease-in-out infinite}.cnl-action-label{font-size:8px!important;font-weight:600!important;fill:#5c7568!important}.cnl-work-indicator{fill:#adcf94;animation:cnl-ledblink 1.3s alternate infinite}
-    .cnl-ai-aura{fill:#8ee6d0;stroke:#47aa9b;stroke-width:.7;opacity:.24}.cnl-ai-badge rect{fill:#e5fffa;stroke:#2a9f8d;stroke-width:.6}.cnl-ai-badge text{fill:#176b60;font-size:3.8px;font-weight:900}.cnl-agent.is-working .cnl-ai-aura{opacity:.5;stroke:#28a08c}.cnl-agent{cursor:pointer;outline:none;transition:transform .65s cubic-bezier(.2,.8,.2,1),opacity .2s}.cnl-agent.is-unassigned{opacity:.55}.cnl-agent.is-unassigned:hover,.cnl-agent.is-unassigned:focus-visible{opacity:.85}.cnl-agent-hit{fill:transparent;stroke:none}.cnl-agent-ground{fill:#f7f6e9;stroke:#a8b8a0;stroke-width:.9;opacity:.9}.cnl-agent .cnl-agent-card{fill:#fffef6;stroke:#a5b69d;stroke-width:.7;stroke-dasharray:2 2}.cnl-agent.is-configured .cnl-agent-card{stroke-dasharray:none;stroke:#89a995}.cnl-agent:hover .cnl-agent-card,.cnl-agent:focus-visible .cnl-agent-card,.cnl-agent.is-selected .cnl-agent-card{stroke:#447e6a;stroke-width:1.6;fill:#f9fff4}.cnl-agent-name{fill:#38594b;font-size:8px;font-weight:800}.cnl-agent-type{fill:#248b79;font-size:5px;font-weight:700;letter-spacing:.6px}.cnl-agent-state{fill:#7c8b77;font-size:6px;font-weight:550}.cnl-agent.is-working .cnl-agent-state{fill:#46745c}.cnl-agent .cnl-config-dot{fill:#fffcf1;stroke:#a5b198;stroke-width:1}.cnl-agent.is-configured .cnl-config-dot{fill:#80aa87;stroke:#80aa87}.cnl-agent.is-configured .cnl-config-check{display:block}.cnl-config-check{display:none;fill:none;stroke:#fff;stroke-width:.9;stroke-linecap:round;stroke-linejoin:round}.cnl-agent.is-working .cnl-agent-ground{fill:#d9eacf;stroke:#8fae80;animation:cnl-toolpulse 1.5s ease-in-out infinite}.cnl-agent .cnl-tool-ring{fill:#edf4df;stroke:#95ad8e;stroke-width:.8}.cnl-agent .cnl-tool{fill:none;stroke:#507461;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.cnl-agent .cnl-role-tool{display:none}.cnl-agent.is-working .cnl-role-tool{display:block;animation:cnl-agenttool 1.2s ease-in-out infinite}.cnl-handoff-layer{pointer-events:none}.cnl-handoff-line{fill:none;stroke:#bd9c65;stroke-width:1.4;stroke-dasharray:3 4;opacity:.7;animation:cnl-handofffade 2.8s both}.cnl-handoff-envelope rect{fill:#fff6d9;stroke:#aa8b55;stroke-width:.8}.cnl-handoff-envelope path{fill:none;stroke:#aa8b55;stroke-width:.7}.cnl-handoff-envelope{filter:url(#${uid}-soft)}
+    .cnl-ai-aura{fill:#8ee6d0;stroke:#47aa9b;stroke-width:.7;opacity:.24}.cnl-ai-badge rect{fill:#e5fffa;stroke:#2a9f8d;stroke-width:.6}.cnl-ai-badge text{fill:#176b60;font-size:3.6px;font-weight:900}.cnl-agent.is-working .cnl-ai-aura{opacity:.5;stroke:#28a08c}.cnl-agent{cursor:pointer;outline:none;transition:opacity .2s}.cnl-agent.is-unassigned{opacity:.55}.cnl-agent.is-unassigned:hover,.cnl-agent.is-unassigned:focus-visible{opacity:.85}.cnl-agent-hit{fill:transparent;stroke:none}.cnl-agent-ground{fill:#f7f6e9;stroke:#a8b8a0;stroke-width:.9;opacity:.9}.cnl-agent .cnl-agent-card{fill:#fffef6;stroke:#a5b69d;stroke-width:.7;stroke-dasharray:2 2}.cnl-agent.is-configured .cnl-agent-card{stroke-dasharray:none;stroke:#89a995}.cnl-agent:hover .cnl-agent-card,.cnl-agent:focus-visible .cnl-agent-card,.cnl-agent.is-selected .cnl-agent-card{stroke:#447e6a;stroke-width:1.6;fill:#f9fff4}.cnl-agent-name{fill:#38594b;font-size:8px;font-weight:800}.cnl-agent-type{fill:#248b79;font-size:5px;font-weight:700;letter-spacing:.6px}.cnl-agent-state{fill:#7c8b77;font-size:6px;font-weight:550}.cnl-agent.is-working .cnl-agent-state{fill:#46745c}.cnl-agent .cnl-config-dot{fill:#fffcf1;stroke:#a5b198;stroke-width:1}.cnl-agent.is-configured .cnl-config-dot{fill:#80aa87;stroke:#80aa87}.cnl-agent.is-configured .cnl-config-check{display:block}.cnl-config-check{display:none;fill:none;stroke:#fff;stroke-width:.9;stroke-linecap:round;stroke-linejoin:round}.cnl-agent.is-working .cnl-agent-ground{fill:#d9eacf;stroke:#8fae80;animation:cnl-toolpulse 1.5s ease-in-out infinite}.cnl-agent .cnl-tool-ring{fill:#edf4df;stroke:#95ad8e;stroke-width:.8}.cnl-agent .cnl-tool{fill:none;stroke:#507461;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}.cnl-agent .cnl-role-tool{display:none}.cnl-agent.is-working .cnl-role-tool{display:block;animation:cnl-agenttool 1.2s ease-in-out infinite}.cnl-handoff-layer{pointer-events:none}.cnl-handoff-line{fill:none;stroke:#bd9c65;stroke-width:1.4;stroke-dasharray:3 4;opacity:.7;animation:cnl-handofffade 2.8s both}.cnl-handoff-envelope rect{fill:#fff6d9;stroke:#aa8b55;stroke-width:.8}.cnl-handoff-envelope path{fill:none;stroke:#aa8b55;stroke-width:.7}.cnl-handoff-envelope{filter:url(#${uid}-soft)}
+    .cnl-agent.is-walking .cnl-walk-sprite{animation:cnl-walkbob .25s ease-in-out infinite alternate;transform-origin:0 -7px}.cnl-agent.is-walking .cnl-stride{display:block}.cnl-stride{display:none;fill:none;stroke:#485c60;stroke-width:2;stroke-linecap:round}.cnl-stride-one{animation:cnl-stepone .3s ease-in-out infinite alternate}.cnl-stride-two{animation:cnl-steptwo .3s ease-in-out infinite alternate}.cnl-agent.is-walking .cnl-role-tool{display:none}.cnl-agent.is-delivering .cnl-agent-card{fill:#fff0ca;stroke:#b88e47}.cnl-agent .cnl-carry-document{display:none;fill:#fff3d0;stroke:#ac8a50;stroke-width:.8}.cnl-agent.is-carrying .cnl-carry-document{display:block}.cnl-agent-motion-text{font-size:6px!important;fill:#8f703a!important;font-weight:750!important}
+    .cnl-human{cursor:pointer;outline:none}.cnl-human-halo-static{fill:#f0c165;opacity:.12;stroke:#c28b43;stroke-width:1}.cnl-human-person{pointer-events:none}.cnl-human-card{fill:#fff6e3;stroke:#c19a64;stroke-width:.8}.cnl-human-name{font-size:7px;fill:#805d31;font-weight:800}.cnl-human-type{font-size:5px;fill:#a1773c;font-weight:700}.cnl-human-state{font-size:5.5px;fill:#8a795f}.cnl-human:hover .cnl-human-card,.cnl-human:focus-visible .cnl-human-card,.cnl-human.is-selected .cnl-human-card{stroke:#9f692a;stroke-width:1.6}.cnl-human.is-awaiting .cnl-human-halo-static{animation:cnl-humanpulse 1.8s ease-in-out infinite;opacity:.45}.cnl-human.is-handoff .cnl-human-card{fill:#ffe9b2;stroke:#bb8735}.cnl-delivery-feedback{pointer-events:none}.cnl-delivery-feedback rect{fill:#fff8df;stroke:#b2955c;stroke-width:.9}.cnl-delivery-title{font-size:8px;fill:#85602f;font-weight:800}.cnl-delivery-summary{font-size:6.5px;fill:#776954}.cnl-delivery-path{fill:none;stroke:#cba769;stroke-width:1.4;stroke-dasharray:2 5;opacity:.45;pointer-events:none}
+    @keyframes cnl-walkbob{from{transform:translateY(0) rotate(-2deg)}to{transform:translateY(-1.7px) rotate(2deg)}}@keyframes cnl-stepone{from{transform:translateX(-2px)}to{transform:translateX(2px)}}@keyframes cnl-steptwo{from{transform:translateX(2px)}to{transform:translateX(-2px)}}
     .cnl-human-approval{display:none;cursor:pointer;outline:none}.cnl-human-approval.is-requesting{display:block}.cnl-human-halo{fill:#f0c165;stroke:#bd8536;stroke-width:1.2;opacity:.35;animation:cnl-humanpulse 1.8s ease-in-out infinite}.cnl-human-ring{fill:none;stroke:#e0a248;stroke-width:2.2;stroke-dasharray:3 3}.cnl-human-approval rect{fill:#fff4d2;stroke:#c79443;stroke-width:1}.cnl-human-approval text{fill:#996623;font-size:10px;font-weight:800}.cnl-human-approval .cnl-human-sub{font-size:6px;font-weight:600;fill:#b28a4b}.cnl-human-approval:hover rect,.cnl-human-approval:focus-visible rect{stroke:#9f6621;stroke-width:2}@keyframes cnl-humanpulse{50%{opacity:.62;r:39}}
     @keyframes cnl-agenttool{50%{transform:translateY(-2px) rotate(9deg)}}@keyframes cnl-handofffade{0%{opacity:0}12%,74%{opacity:.7}100%{opacity:0}}
     @keyframes cnl-datastream{to{stroke-dashoffset:-268}}@keyframes cnl-faultpulse{0%,100%{opacity:.03;r:24}50%{opacity:.16;r:30}}@keyframes cnl-rotate{to{transform:rotate(360deg)}}@keyframes cnl-ledblink{from{opacity:.4}to{opacity:1}}@keyframes cnl-agentpop{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes cnl-toolpulse{50%{fill:#c7e2ad}}
-    @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important}}
+    @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important;transition:none!important}}
   </style>
 
   <g class="cnl-world">
@@ -103,6 +109,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <rect x="0" y="0" width="1060" height="650" fill="url(#${uid}-grid)"/>
     <g opacity=".55" stroke="#c9d4c2" stroke-width="1" fill="none"><path d="M24 66h16m-8-8v16M1017 68h16m-8-8v16M24 629h16m-8-8v16M1017 629h16m-8-8v16"/><circle cx="278" cy="66" r="2"/><circle cx="831" cy="52" r="2"/></g>
 
+    <!-- Visible route from the investment annex to the main building's left door. -->
+    <path d="M82 99V107H32V411H60" fill="none" stroke="#a8b9a7" stroke-width="26" stroke-linejoin="round"/><path d="M82 99V107H32V411H60" fill="none" stroke="#f8f3df" stroke-width="23" stroke-linejoin="round"/>
     <!-- Internet remains outside the office boundary. -->
     <g class="cnl-device" data-device="internet" transform="translate(651 62)">
       <ellipse cy="19" rx="49" ry="6" fill="#bacac0" opacity=".2"/>
@@ -144,6 +152,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       <g stroke="#a2b29b" stroke-width=".8" fill="none"><path d="M169 430V396Q207 396 207 430M491 430V395Q528 395 528 430M810 430V395Q845 395 845 430" opacity=".5"/></g>
     </g>
 
+    <!-- Main entrance: opening in the left wall aligns with the outside walkway. -->
+    <rect x="42" y="394" width="15" height="31" fill="#f8f3df"/><path d="M43 393H56M43 425H56" stroke="#82937f" stroke-width="1.2"/><path d="M44 395H65V416" fill="none" stroke="#b5bda5" stroke-width=".8" opacity=".7"/>
     <!-- The actual topology lives on the office floor, below the furniture. -->
     <g class="cnl-links">${linkMarkup}<path class="cnl-power-wire" d="M544 350V375H780V351H745M645 375V314M719 375V232"/><g transform="translate(594 378)"><path d="M3-5L-2 1H3L0 7L8-1H3L7-5Z" fill="#bd9d52"/><text x="14" y="3" class="cnl-tiny" fill="#ac9257">供电</text></g></g>
 
@@ -175,7 +185,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <!-- Executive office: a lived-in room, not an isolated computer icon. -->
     ${title(833, 165, '管理办公室', 'HUMAN APPROVAL', '#c5a579')}
     <rect x="840" y="206" width="144" height="111" rx="8" fill="#e8d8b9" opacity=".6"/>
-    <g class="cnl-device" data-device="executive">${desk(857,226,'#c88f68',{scale:1.03,screen:'#b8d3d6',hair:'#4e4742',cup:true})}</g>
+    <g class="cnl-device" data-device="executive">${use('desk',857,226,1.03,'style="--screen:#b8d3d6"')}${use('cup',947,252,.8)}</g>
     <g transform="translate(840 327)">${use('sofa',0,0,.75)}<rect x="79" y="6" width="43" height="31" rx="7" fill="#ead1ab" stroke="#9b967e" stroke-width="1"/>${use('cup',98,18,.65)}</g>
     ${plant(980, 185, .77)}${plant(984, 366, .83)}
     <g transform="translate(842 180)"><rect width="33" height="20" rx="2" fill="#f8f4e5" stroke="#baa684" stroke-width="1"/><path d="M6 15L14 6L21 12L27 9" fill="none" stroke="#c3ae7d" stroke-width="1.4"/></g>
@@ -196,7 +206,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     ${person(431,518,'#749b96','#5e4a3f',.69)}${person(601,518,'#b49a80','#463e3e',.69)}
     <g transform="translate(486 512)"><ellipse cx="43" cy="31" rx="47" ry="7" fill="#8d8b70" opacity=".1"/><path d="M10 18V35M73 18V35" stroke="#a89e80" stroke-width="4"/><rect y="3" width="86" height="26" rx="12" fill="#d7c1a0" stroke="#9b9780" stroke-width="1"/><rect width="86" height="25" rx="12" fill="#fbf1da" stroke="#9b9780" stroke-width="1"/>${use('cup',16,9,.65)}${use('cup',69,10,.65)}<rect x="30" y="8" width="22" height="12" rx="1" fill="#d5d5b4" transform="rotate(-7 30 8)"/></g>
     <g class="cnl-device" data-device="reception" transform="translate(529 520)"><rect x="-11" y="-5" width="22" height="10" rx="4" fill="#f1f2e5" stroke="#7e9b8e" stroke-width="1"/><path d="M-5-9Q0-14 5-9M-3-6Q0-9 3-6" fill="none" stroke="#85aa96" stroke-width="1.3" stroke-linecap="round"/><circle cy="1" r="1.4" fill="#8ab18b"/></g>
-    ${plant(390,586,.82)}${plant(653,582,.7)}
+    ${plant(390,586,.82)}${plant(665,590,.7)}
     <g transform="translate(483 579)"><rect width="83" height="12" rx="4" fill="#f9ecda" stroke="#c6b79b" stroke-width=".8"/><text x="41.5" y="8.5" text-anchor="middle" class="cnl-tiny">GUEST Wi-Fi</text></g>
 
     <!-- Finance team: locked drawers, files, accounts and two real desks. -->
@@ -213,10 +223,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g transform="translate(58 584)"><rect width="57" height="18" rx="4" fill="#e2e7d6" stroke="#acb99f" stroke-width=".7"/><circle cx="9" cy="9" r="2.4" fill="#8eaf89"/><text x="16" y="12" class="cnl-tiny">LAISEN LAB</text></g>
 
     <!-- Investment is an attached office, linked to the same working network. -->
-    <g class="cnl-investment-room"><rect x="55" y="7" width="450" height="94" rx="11" fill="#e5e9ee" stroke="#a9b9b3" stroke-width="1.2"/><path d="M56 35H504" stroke="#c9d3d0" stroke-width="1"/>${title(230,25,'投资部','INVESTMENT DUE DILIGENCE','#9baec0')}${use('desk',104,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',244,43,.60,'style="--screen:#cbd4b5"')}${use('desk',384,43,.60,'style="--screen:#cabeda"')}<path d="M68 101H489" stroke="#8da99b" stroke-width="2"/></g>
+    <g class="cnl-investment-room"><rect x="55" y="7" width="450" height="94" rx="11" fill="#e5e9ee" stroke="#a9b9b3" stroke-width="1.2"/><path d="M56 35H504" stroke="#c9d3d0" stroke-width="1"/>${title(230,25,'投资部','INVESTMENT DUE DILIGENCE','#9baec0')}${use('desk',90,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',202,43,.60,'style="--screen:#cbd4b5"')}${use('desk',314,43,.60,'style="--screen:#cabeda"')}${use('desk',426,43,.55,'style="--screen:#e1c29e"')}<path d="M55 101H68M96 101H505" stroke="#8da99b" stroke-width="2"/><rect x="69" y="98" width="26" height="6" fill="#f8f3df"/><path d="M69 99V82H86" fill="none" stroke="#a7b7a2" stroke-width=".8"/></g>
     <g class="cnl-node-layer">${hotspots}</g>
-    <g class="cnl-handoff-layer"></g>
-    <g class="cnl-human-approval" transform="translate(909 286)" tabindex="0" role="button" aria-label="你，真人负责人，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" x="51" y="24" text-anchor="middle">你 · 真人负责人</text></g></g><g class="cnl-agent-layer"></g>
+    <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g>
+    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
   </g>
   </svg>`;
 
@@ -224,14 +234,26 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const nodeElements = new Map([...svg.querySelectorAll('[data-node]')].map(el => [el.dataset.node, el]));
   const deviceElements = new Map([...svg.querySelectorAll('[data-device]')].map(el => [el.dataset.device, el]));
   const links = [...svg.querySelectorAll('.cnl-link')];
-  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();onSelectHuman();});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();onSelectHuman();}});
+  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();onSelectHuman('owner');});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();onSelectHuman('owner');}});
   const agentLayer = svg.querySelector('.cnl-agent-layer');
   const handoffLayer = svg.querySelector('.cnl-handoff-layer');
+  const humanLayer = svg.querySelector('.cnl-human-layer');
+  const humanElements = new Map();
+  const humanPositions = new Map(HUMAN_EMPLOYEES.map(h => [h.id,{x:h.x,y:h.y}]));
   const agentElements = new Map();
   const agentPositions = new Map();
   const agentSignatures = new Map();
-  const seenHandoffs = new Set();
+  const deliveryQueue = createDeliveryQueue();
   const handoffTimers = new Set();
+  const desiredPositions = new Map();
+  const motions = new Map();
+  const agentState = new Map();
+  const reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
+  let motionFrame = 0;
+  let motionEpoch = 0;
+  let activeRunId;
+  let hasUpdated = false;
+  let selectedHuman = null;
   let scale = 1;
   let panX = 0;
   let panY = 0;
@@ -257,6 +279,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   function setSelectedNode(id) {
     selected = id;
+    if (id) setSelectedHuman(null);
     nodeElements.forEach((el, key) => {
       el.classList.toggle('is-selected', key === id);
       el.setAttribute('aria-pressed', String(key === id));
@@ -266,6 +289,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   function setSelectedAgent(id) {
     selectedAgent = id;
+    if (id) setSelectedHuman(null);
     agentElements.forEach((el, key) => {
       el.classList.toggle('is-selected', key === id);
       el.setAttribute('aria-pressed', String(key === id));
@@ -296,101 +320,196 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     return `${String(agent.role || '成员').slice(0, 6)}待命`;
   }
 
-  function renderAgents(agents) {
-    const perNode = {};
-    Object.entries(AGENT_META).forEach(([id, meta]) => {
-      const data = agents.find(agent => agent.id === id) || {};
-      const agent = { ...meta, ...data, id };
-      const working = agent.selected !== false && !!NODE_META[agent.nodeId] && agent.status === 'working';
-      let point = [meta.x, meta.y];
-      if (working) {
-        const offset = perNode[agent.nodeId] || 0;
-        perNode[agent.nodeId] = offset + 1;
-        const positions = WORK_POSITIONS[agent.nodeId];
-        point = positions[offset % positions.length];
-        if (offset >= positions.length) point = [point[0], point[1] + Math.floor(offset / positions.length) * 49];
+  function setSelectedHuman(id) {
+    selectedHuman=id;
+    humanElements.forEach((el,key)=>{el.classList.toggle('is-selected',key===id);el.setAttribute('aria-pressed',String(key===id));});
+    if(id) { setSelectedNode(null);setSelectedAgent(null); }
+  }
+
+  function renderHumans(humans=[]) {
+    for(const meta of HUMAN_EMPLOYEES) {
+      const human={...meta,...humans.find(h=>h.id===meta.id)};
+      let el=humanElements.get(meta.id);
+      if(!el) {
+        el=document.createElementNS('http://www.w3.org/2000/svg','g');
+        el.classList.add('cnl-human');el.dataset.human=meta.id;
+        el.setAttribute('tabindex','0');el.setAttribute('role','button');
+        const select=e=>{e.stopPropagation();if(performance.now()<suppressClickUntil)return;setSelectedHuman(meta.id);onSelectHuman(meta.id);};
+        el.addEventListener('click',select);
+        el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});
+        humanLayer.append(el);humanElements.set(meta.id,el);
       }
-      agentPositions.set(id, { x:point[0], y:point[1] });
-      let el = agentElements.get(id);
-      if (!el) {
-        el = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        el.classList.add('cnl-agent');
-        el.dataset.agent = id;
-        el.setAttribute('tabindex', '0');
-        el.setAttribute('role', 'button');
-        el.setAttribute('aria-pressed', 'false');
-        el.addEventListener('click', e => {
-          e.stopPropagation();
-          if (performance.now() < suppressClickUntil) return;
-          setSelectedAgent(id); onSelectAgent(id);
-        });
-        el.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setSelectedAgent(id); onSelectAgent(id); }
-        });
-        agentLayer.append(el);
-        agentElements.set(id, el);
+      el.setAttribute('transform',`translate(${meta.x} ${meta.y})`);
+      el.classList.toggle('is-awaiting',human.status==='awaiting_approval');
+      el.dataset.status=human.status||'idle';
+      const phrase=human.status==='awaiting_approval'?'请你审阅方案':human.status==='waiting'?'已派工 · 等待成果':human.status==='delivery'?'成果待查阅':human.status==='files_available'?'证据已保留 · 可查阅':'点击提供资料／接收成果';
+      el.setAttribute('aria-label',`${human.name}，真实员工，${human.role}，${phrase}`);
+      el.innerHTML=`<title>${esc(human.name)} · 真实员工 · ${esc(human.role)}；${esc(phrase)}</title><circle class="cnl-human-halo-static" cy="-14" r="19"/><g class="cnl-human-person">${person(0,-22,human.color,human.hair,.56)}</g><rect x="-35" y="-35" width="70" height="61" fill="transparent"/><g transform="translate(-36 5)"><rect class="cnl-human-card" width="72" height="26" rx="6"/><text class="cnl-human-name" x="36" y="9" text-anchor="middle">${esc(human.name)}</text><text class="cnl-human-type" x="36" y="17" text-anchor="middle">真实员工 · ${esc(human.role)}</text><text class="cnl-human-state" x="36" y="23" text-anchor="middle">${esc(phrase)}</text></g>`;
+    }
+  }
+
+  function setAgentPoint(id,point) {
+    agentPositions.set(id,{x:point.x,y:point.y});
+    const el=agentElements.get(id);if(!el)return;
+    el.style.transform=`translate(${point.x}px, ${point.y}px)`;
+    el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
+    if(point.facing) el.style.setProperty('--facing',String(point.facing));
+  }
+
+  function motionPhrase(id) {
+    const el=agentElements.get(id);if(!el)return;
+    const motion=motions.get(id),isLocked=deliveryQueue.locked(id);
+    el.classList.toggle('is-walking',!!motion);
+    el.classList.toggle('is-carrying',!!motion?.event || el.dataset.motionPhase==='delivering');
+    if(motion) el.dataset.motionPhase=motion.kind;
+    const phrase=motion?.event?(deliveryParticipants(motion.event)?.collecting?'走去领取资料':'携成果前往交付'):motion?'前往工作位置':isLocked?'当面交接中':null;
+    if(phrase) { const text=el.querySelector('.cnl-agent-state');if(text)text.textContent=phrase; }
+  }
+
+  function renderAgents(agents,{snap=false}={}) {
+    const perNode={};
+    Object.entries(AGENT_META).forEach(([id,meta])=>{
+      const data=agents.find(agent=>agent.id===id)||{};
+      const agent={...meta,...data,id};agentState.set(id,agent);
+      const working=agent.selected!==false && !!NODE_META[agent.nodeId] && agent.status==='working';
+      let point=[meta.x,meta.y];
+      if(working) { const offset=perNode[agent.nodeId]||0;perNode[agent.nodeId]=offset+1;const positions=WORK_POSITIONS[agent.nodeId];point=positions[offset%positions.length]; }
+      desiredPositions.set(id,{x:point[0],y:point[1]});
+      let el=agentElements.get(id);
+      if(!el) {
+        el=document.createElementNS('http://www.w3.org/2000/svg','g');
+        el.classList.add('cnl-agent');el.dataset.agent=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');el.setAttribute('aria-pressed','false');
+        el.addEventListener('click',e=>{e.stopPropagation();if(performance.now()<suppressClickUntil)return;setSelectedHuman(null);setSelectedAgent(id);onSelectAgent(id);});
+        el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();setSelectedHuman(null);setSelectedAgent(id);onSelectAgent(id);}});
+        agentLayer.append(el);agentElements.set(id,el);
       }
-      el.style.transform = `translate(${point[0]}px, ${point[1]}px)`;
-      el.classList.toggle('is-working', working);
-      el.classList.toggle('is-unassigned', agent.selected === false);
-      el.classList.toggle('is-configured', !!agent.configured);
-      el.classList.toggle('is-selected', id === selectedAgent);
-      const phrase = statusPhrase(agent);
-      el.setAttribute('aria-label', `${agent.name}，${agent.role} AI 虚拟员工，${phrase}，${agent.configured ? '已配置' : '点击配置'}，查看任务与配置`);
-      const signature = JSON.stringify([agent.name, agent.role, agent.color, agent.hair, agent.configured, agent.selected, phrase, working]);
-      if (signature !== agentSignatures.get(id)) {
-        agentSignatures.set(id, signature);
-        el.innerHTML = `<title>${esc(agent.name)} · ${esc(agent.role)} AI 虚拟员工 · ${esc(phrase)}；点击查看任务与配置</title>
-          <rect class="cnl-agent-hit" x="-37" y="-20" width="74" height="70" rx="8"/>
-          <ellipse class="cnl-ai-aura" cy="-1" rx="17" ry="22"/><ellipse class="cnl-agent-ground" cy="18" rx="18" ry="6"/>
-          ${person(0, -1, agent.color, meta.hair, .56)}<g class="cnl-ai-badge" transform="translate(-3 3)"><rect width="7" height="5" rx="1"/><text x="3.5" y="3.8" text-anchor="middle">AI</text></g>
-          <g class="cnl-role-tool" transform="translate(14 4)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g>
-          <g transform="translate(-36 25)"><rect class="cnl-agent-card" width="72" height="24" rx="6"/>
-            <text class="cnl-agent-name" x="8" y="10">${esc(String(agent.name).slice(0,5))}</text><text class="cnl-agent-type" x="39" y="9">AI 员工</text>
-            <text class="cnl-agent-state" x="8" y="19">${esc(phrase)}</text><circle class="cnl-config-dot" cx="64" cy="18" r="3.3"/><path class="cnl-config-check" d="M62.2 18l1.2 1.2 2-2.5"/>
-          </g>`;
+      if(snap||!agentPositions.has(id)) { setAgentPoint(id,desiredPositions.get(id));el.dataset.motionPhase=working?'working':'idle'; }
+      el.classList.toggle('is-working',working);el.classList.toggle('is-unassigned',agent.selected===false);el.classList.toggle('is-configured',!!agent.configured);el.classList.toggle('is-selected',id===selectedAgent);
+      const phrase=statusPhrase(agent);
+      el.setAttribute('aria-label',`${agent.name}，${agent.role}，虚拟员工，${phrase}，${agent.configured?'已配置':'点击配置'}，查看任务与配置`);
+      const signature=JSON.stringify([agent.name,agent.role,agent.color,agent.hair,agent.configured,agent.selected,phrase,working]);
+      if(signature!==agentSignatures.get(id)) {
+        agentSignatures.set(id,signature);
+        el.innerHTML=`<title>${esc(agent.name)} · ${esc(agent.role)} · 虚拟员工 · ${esc(phrase)}；点击查看任务与配置</title><rect class="cnl-agent-hit" x="-37" y="-37" width="74" height="70" rx="8"/><ellipse class="cnl-ai-aura" cy="-15" rx="17" ry="22"/><ellipse class="cnl-agent-ground" cy="-1" rx="18" ry="5"/><g class="cnl-facing" style="transform:scaleX(var(--facing,1));transform-origin:0 -12px"><g class="cnl-walk-sprite">${person(0,-22,agent.color,meta.hair,.56)}<path class="cnl-stride cnl-stride-one" d="M-5-3L-7 0"/><path class="cnl-stride cnl-stride-two" d="M5-3L7 0"/><g class="cnl-carry-document" transform="translate(12 -12)"><rect x="-4" y="-5" width="9" height="11" rx="1"/><path d="M-2-2H3M-2 0H3M-2 2H2" fill="none" stroke="#b39257" stroke-width=".6"/></g></g></g><g class="cnl-ai-badge" transform="translate(-5 -18)"><rect width="10" height="5" rx="1"/><text x="5" y="3.7" text-anchor="middle">虚拟</text></g><g class="cnl-role-tool" transform="translate(14 -16)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g><g transform="translate(-36 5)"><rect class="cnl-agent-card" width="72" height="24" rx="6"/><text class="cnl-agent-name" x="8" y="10">${esc(String(agent.name).slice(0,5))}</text><text class="cnl-agent-type" x="39" y="9">虚拟员工</text><text class="cnl-agent-state" x="8" y="19">${esc(phrase)}</text><circle class="cnl-config-dot" cx="64" cy="18" r="3.3"/><path class="cnl-config-check" d="M62.2 18l1.2 1.2 2-2.5"/></g>`;
       }
+      motionPhrase(id);
     });
   }
 
-  function animateHandoffs(logs) {
-    logs.filter(log => log.type === 'handoff').forEach(log => {
-      const key = log.id || `${log.time}-${log.agentId}-${log.targetAgentId}-${log.text}`;
-      if (seenHandoffs.has(key)) return;
-      seenHandoffs.add(key);
-      const from = agentPositions.get(log.sourceAgentId || log.agentId);
-      const to = agentPositions.get(log.targetAgentId);
-      if (!from || !to || (from.x === to.x && from.y === to.y)) return;
-      const dx = to.x - from.x, dy = to.y - from.y;
-      const bend = Math.min(38, Math.hypot(dx, dy) * .18);
-      const d = `M${from.x} ${from.y - 12} Q${(from.x + to.x) / 2} ${(from.y + to.y) / 2 - bend - 12} ${to.x} ${to.y - 12}`;
-      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      group.innerHTML = `<path class="cnl-handoff-line" d="${d}"/><g class="cnl-handoff-envelope"><rect x="-7" y="-5" width="14" height="10" rx="2"/><path d="M-6-4L0 1L6-4"/><animateMotion dur="2.5s" path="${d}" fill="freeze"/></g>`;
-      handoffLayer.append(group);
-      const timer = setTimeout(() => { group.remove(); handoffTimers.delete(timer); }, 2800);
-      handoffTimers.add(timer);
-    });
+  function stopWalk(id) {
+    motions.delete(id);const el=agentElements.get(id);el?.classList.remove('is-walking');
   }
 
-  function update(state = {}) {
-    const nodes = state.nodes || {};humanApproval.classList.toggle('is-requesting',!!state.humanApproval);humanApproval.setAttribute('aria-hidden',String(!state.humanApproval));
-    nodeElements.forEach((el, id) => {
-      const status = nodes[id]?.status || (typeof nodes[id] === 'string' ? nodes[id] : 'online');
-      el.dataset.status = status;
-      el.setAttribute('aria-label', `查看${NODE_META[id].label}，${({online:'运行正常',warning:'存在异常',offline:'已离线',recovering:'正在恢复'})[status] || status}`);
-      if (deviceElements.get(id)) deviceElements.get(id).dataset.status = status;
-    });
-    links.forEach(link => {
-      const statuses = [nodes[link.dataset.a]?.status || nodes[link.dataset.a], nodes[link.dataset.b]?.status || nodes[link.dataset.b]];
-      ['offline','warning','recovering'].forEach(status => link.classList.toggle(`is-${status}`, statuses.includes(status)));
-    });
-    const agents = Array.isArray(state.agents) ? state.agents : Object.values(state.agents || {});
-    renderAgents(agents);
-    if (!state.logs?.length) { seenHandoffs.clear(); handoffLayer.innerHTML = ''; }
-    else animateHandoffs(state.logs);
-    if (state.selectedNode !== undefined && state.selectedNode !== selected) setSelectedNode(state.selectedNode);
-    if (state.selectedAgent !== undefined && state.selectedAgent !== selectedAgent) setSelectedAgent(state.selectedAgent);
-    scheduleViewChange(700);
+  function ensureMotionFrame() {
+    if(motionFrame||destroyed||!motions.size)return;
+    motionFrame=requestAnimationFrame(tickMotions);
+  }
+
+  function tickMotions(now) {
+    motionFrame=0;if(destroyed)return;
+    for(const [id,motion] of [...motions]) {
+      const progress=Math.max(0,Math.min(1,(now-motion.started)/motion.duration));
+      setAgentPoint(id,pointAlongRoute(motion.route,progress));
+      if(progress>=1) { motions.delete(id);agentElements.get(id)?.classList.remove('is-walking');motion.onArrive?.(); }
+    }
+    onViewChange();ensureMotionFrame();
+  }
+
+  function walkTo(id,target,{kind='walking',event,onArrive}={}) {
+    const from=agentPositions.get(id);if(!from||!target){onArrive?.();return;}
+    stopWalk(id);
+    const route=routeBetweenPoints(from,target),length=routeLength(route),el=agentElements.get(id);
+    if(event) { el.dataset.deliveryId=deliveryKey(event);el.dataset.deliveryKind=event.deliveryKind||'evidence';el.dataset.targetPerson=deliveryParticipants(event)?.recipient||''; }
+    el.dataset.motionPhase=kind;
+    const epoch=motionEpoch;
+    if(reducedMotion||length<1) { setAgentPoint(id,target);queueMicrotask(()=>{if(!destroyed&&epoch===motionEpoch)onArrive?.();});return; }
+    const duration=Math.max(650,Math.min(5800,length/145*1000));
+    motions.set(id,{route,started:performance.now(),duration,onArrive,kind,event});motionPhrase(id);ensureMotionFrame();
+  }
+
+  function resumeWork(id) {
+    if(deliveryQueue.locked(id)||motions.get(id)?.event)return;
+    const target=desiredPositions.get(id),current=agentPositions.get(id),el=agentElements.get(id);
+    if(!target||!current||!el)return;
+    const existing=motions.get(id);
+    if(existing && Math.hypot(existing.route.at(-1).x-target.x,existing.route.at(-1).y-target.y)<1)return;
+    if(Math.hypot(target.x-current.x,target.y-current.y)<1) { el.dataset.motionPhase=agentState.get(id)?.status==='working'?'working':'idle';el.classList.remove('is-delivering','is-carrying');return; }
+    walkTo(id,target,{kind:'returning',onArrive:()=>{el.dataset.motionPhase=agentState.get(id)?.status==='working'?'working':'idle';el.classList.remove('is-carrying');renderMotionStatus(id);}});
+  }
+
+  function renderMotionStatus(id) {
+    const el=agentElements.get(id);if(!el)return;
+    const text=el.querySelector('.cnl-agent-state');if(text)text.textContent=statusPhrase(agentState.get(id)||{});motionPhrase(id);
+  }
+
+  function deliveryFeedback(event,point) {
+    const group=document.createElementNS('http://www.w3.org/2000/svg','g');
+    group.classList.add('cnl-delivery-feedback');group.dataset.deliveryId=deliveryKey(event);group.dataset.motionPhase='delivered';
+    const x=Math.max(62,Math.min(843,point.x-100)),y=Math.max(3,point.y-81);
+    group.setAttribute('transform',`translate(${x} ${y})`);
+    const title=event.deliveryTitle||((event.sourceHumanId)?'资料已当面交接':'成果已当面交付');
+    const summary=String(event.deliverySummary||event.summary||event.text||'').replace(/\s+/g,' ');
+    group.innerHTML=`<rect width="205" height="42" rx="7"/><text class="cnl-delivery-title" x="9" y="13">${esc(title.slice(0,25))}</text><text class="cnl-delivery-summary" x="9" y="25">${esc(summary.slice(0,29))}</text><text class="cnl-delivery-summary" x="9" y="35">${esc(summary.slice(29,58))}</text>`;
+    handoffLayer.append(group);return group;
+  }
+
+  function startDeliveries() {
+    if(destroyed)return;
+    const ready=deliveryQueue.startReady();
+    for(const event of ready) {
+      const epoch=motionEpoch;
+      const pair=deliveryParticipants(event),recipient=pair.recipientHuman?humanPositions.get(pair.recipient):agentPositions.get(pair.recipient);
+      const mover=agentPositions.get(pair.mover);
+      if(!mover||!recipient) { deliveryQueue.finish(event._deliveryKey);continue; }
+      // Lock the actual receiver, including a colleague in transit, until exchange is complete.
+      if(!pair.recipientHuman) { stopWalk(pair.recipient);const receiving=agentElements.get(pair.recipient);if(receiving){receiving.dataset.motionPhase='receiving';receiving.classList.add('is-delivering');motionPhrase(pair.recipient);} }
+      const receiver=pair.recipientHuman?humanElements.get(pair.recipient):agentElements.get(pair.recipient);
+      receiver?.classList.add('is-handoff');
+      const route=routeBetweenPoints(mover,recipient),length=routeLength(route);
+      const near=pointAlongRoute(route,length>25?(length-25)/length:0);
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.classList.add('cnl-delivery-path');path.dataset.deliveryId=event._deliveryKey;path.setAttribute('d',route.map((p,i)=>`${i?'L':'M'}${p.x} ${p.y}`).join(' '));handoffLayer.append(path);
+      walkTo(pair.mover,near,{kind:pair.collecting?'collecting':'delivering_walk',event,onArrive:()=>{
+        if(destroyed||epoch!==motionEpoch)return;
+        const el=agentElements.get(pair.mover);el.dataset.motionPhase='delivering';el.classList.add('is-delivering');motionPhrase(pair.mover);path.remove();
+        const feedback=deliveryFeedback(event,recipient);
+        // This is only a visual acknowledgement of a real event; it never approves a workflow.
+        onDelivery(event);
+        if(destroyed||epoch!==motionEpoch)return;
+        const timer=setTimeout(()=>{
+          handoffTimers.delete(timer);feedback.remove();receiver?.classList.remove('is-handoff','is-delivering');el.classList.remove('is-delivering','is-carrying');
+          deliveryQueue.finish(event._deliveryKey);startDeliveries();resumeWork(pair.mover);if(!pair.recipientHuman)resumeWork(pair.recipient);syncMotionCounts();
+        },reducedMotion?1500:1100);handoffTimers.add(timer);
+      }});
+    }
+    syncMotionCounts();
+  }
+
+  function syncMotionCounts() { svg.dataset.deliveryPending=String(deliveryQueue.pendingCount);svg.dataset.deliveryActive=String(deliveryQueue.activeCount); }
+
+  function resetMotions() {
+    motionEpoch++;
+    cancelAnimationFrame(motionFrame);motionFrame=0;motions.clear();deliveryQueue.clear();handoffTimers.forEach(clearTimeout);handoffTimers.clear();handoffLayer.innerHTML='';
+    agentElements.forEach(el=>{el.classList.remove('is-walking','is-delivering','is-carrying','is-handoff');el.dataset.motionPhase='idle';delete el.dataset.deliveryId;delete el.dataset.deliveryKind;delete el.dataset.targetPerson;});
+    humanElements.forEach(el=>el.classList.remove('is-handoff'));syncMotionCounts();
+  }
+
+  function update(state={}) {
+    const runId=state.runId??null;
+    const {runChanged,animate,reset,halted}=motionUpdatePolicy({hasUpdated,previousRunId:activeRunId,runId,animateEvents:state.animateEvents,runStatus:state.runStatus||state.status});
+    if(reset) resetMotions();
+    activeRunId=runId;
+    const nodes=state.nodes||{};
+    humanApproval.classList.toggle('is-requesting',!!state.humanApproval);humanApproval.setAttribute('aria-hidden',String(!state.humanApproval));
+    nodeElements.forEach((el,id)=>{const status=nodes[id]?.status||(typeof nodes[id]==='string'?nodes[id]:'online');el.dataset.status=status;el.setAttribute('aria-label',`查看${NODE_META[id].label}，${({online:'运行正常',warning:'存在异常',offline:'已离线',recovering:'正在恢复'})[status]||status}`);if(deviceElements.get(id))deviceElements.get(id).dataset.status=status;});
+    links.forEach(link=>{const statuses=[nodes[link.dataset.a]?.status||nodes[link.dataset.a],nodes[link.dataset.b]?.status||nodes[link.dataset.b]];['offline','warning','recovering'].forEach(status=>link.classList.toggle(`is-${status}`,statuses.includes(status)));});
+    const agents=Array.isArray(state.agents)?state.agents:Object.values(state.agents||{});
+    renderHumans(state.humans||[]);renderAgents(agents,{snap:!animate&&(runChanged||!hasUpdated)});
+    deliveryQueue.ingest(state.logs||[],{animate});startDeliveries();
+    if(animate) for(const id of agentElements.keys())resumeWork(id);
+    if(halted)agentElements.forEach(el=>{el.dataset.motionPhase=state.runStatus||state.status;});
+    if(state.selectedNode!==undefined&&state.selectedNode!==selected)setSelectedNode(state.selectedNode);
+    if(state.selectedAgent!==undefined&&state.selectedAgent!==selectedAgent)setSelectedAgent(state.selectedAgent);
+    hasUpdated=true;scheduleViewChange(700);
   }
 
   function applyView() {
@@ -425,7 +544,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   const onPointerDown = e => {
-    if (e.button !== 0 || e.target.closest('[data-node], [data-agent]')) return;
+    if (e.button !== 0 || e.target.closest('[data-node], [data-agent], [data-human], .cnl-human-approval')) return;
     drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false };
   };
   const onPointerMove = e => {
@@ -461,13 +580,17 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   svg.addEventListener('wheel', onWheel, { passive:false });
   const resizeObserver = new ResizeObserver(() => scheduleViewChange());
   resizeObserver.observe(container);
-  renderAgents([]);
+  renderHumans([]);
+  renderAgents([],{snap:true});
 
   return {
     update,
     setTopology(visible) { svg.classList.toggle('cnl-topology-off', !visible); },
     setSelectedNode,
     setSelectedAgent,
+    setSelectedHuman,
+    getHumanAnchor(id='owner') { const el=humanElements.get(id);return el?projectPoint({x:0,y:-15},el):null; },
+    focusHuman(id='owner') { const point=humanPositions.get(id);if(!point)return false;panX=point.x-530;panY=point.y-325+52/scale;applyView();return true; },
     getNodeAnchor(id) { const n = NODE_META[id]; return n ? projectPoint(n) : null; },
     getAgentAnchor(id) { const el = agentElements.get(id); return el ? projectPoint({ x:0, y:-13 }, el) : null; },
     focusAgent(id) {
@@ -488,7 +611,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       destroyed = true;
       resizeObserver.disconnect();
       cancelAnimationFrame(viewFrame);
-      handoffTimers.forEach(clearTimeout);
+      resetMotions();
       container.innerHTML = '';
     },
   };

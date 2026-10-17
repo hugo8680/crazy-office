@@ -72,9 +72,10 @@ test('交付记录写入期间取消，不能随后被覆盖成完成',async()=>
  engine.saveTranscript=async(run,status)=>{if(status==='completed'){atFinal(run.id);await held;}return original(run,status);};
  try{
   const run=await engine.create({scenarioId:'finance',input:{company:'test',year:2025,data:'csv'}});
-  await entered;await engine.cancel(run.id);release();await wait(80);
-  assert.equal((await engine.get(run.id)).status,'cancelled');
-  assert.ok(!(await engine.get(run.id)).events.some(e=>e.text==='协作任务已结束，交付文件与过程记录已保存。'));
+  await entered;assert.equal((await engine.get(run.id)).events.some(e=>e.deliveryKind==='final_delivery'),false);await engine.cancel(run.id);release();await wait(80);
+  const current=await engine.get(run.id);assert.equal(current.status,'cancelled');
+  assert.ok(!current.events.some(e=>e.text==='协作任务已结束，交付文件与过程记录已保存。'||e.deliveryKind==='final_delivery'));
+  const record=JSON.parse(await readFile((await engine.artifact(run.id,'execution-evidence')).path,'utf8'));assert.equal(record.status,'cancelled');assert.equal(record.events.some(e=>e.deliveryKind==='final_delivery'),false);
  }finally{release();await wait(30);await clean();}
 });
 test('取消后晚到的工具文件登记不会丢失可下载执行记录',async()=>{
@@ -117,6 +118,7 @@ test('模型真实失败后执行记录持久化，第二个引擎重载仍可�
   const artifact=await recovered.artifact(started.id,'execution-evidence');
   const record=JSON.parse(await readFile(artifact.path,'utf8'));
   assert.equal(record.id,started.id);assert.equal(record.status,'failed');assert.match(record.error,/explicit model failure/);
+  assert.equal(record.events.some(e=>e.deliveryKind==='final_delivery'),false);assert.equal(run.events.some(e=>e.deliveryKind==='final_delivery'),false);
   assert.ok(run.tasks.every(t=>t.status==='failed'));
  }finally{await clean();}
 });
@@ -236,5 +238,82 @@ test('投资审批保留标题与kind，明确老板继续尽调或暂缓，不�
   const accepted=engine.requestApproval(run,{kind:'investment',title:'第二次尽调审批'});assert.equal(run.approval.agentId,'ops');
   await engine.approve(run.id,{approved:true,approvalId:run.approval.id});assert.equal((await accepted).approved,true);assert.match(run.events.findLast(e=>e.actor==='human').text,/老板决定继续尽调/);
   await assert.rejects(engine.approve(run.id,{approved:true,approvalId:firstId}),/失效/);
+ }finally{await engine.shutdown();await clean();}
+});
+
+test('六个场景在真实任务入口交接真人资料，模型开始前不产生审批决定或最终交付',async()=>{
+ const sources={finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner'};
+ const inputs={finance:{company:'input handoff',year:2025,data:'provided test data'},procurement:{requirements:'provided server requirements',budget:1000},ddos:{requirements:'provided isolated replay',logs:'provided test logs'},database:{requirements:'provided schema requirements'},delivery:{company:'provided customer',requirements:'provided acceptance criteria'},investment:{projectName:'provided legal name',projectBrief:'provided project brief'}};
+ for(const [scenarioId,sourceHumanId] of Object.entries(sources)){
+  let entered;const active=new Promise(resolve=>{entered=resolve;});const {engine,clean}=await setup({modelCall:async({signal})=>new Promise((resolve,reject)=>{entered();const stop=()=>reject(signal.reason);if(signal.aborted)stop();else signal.addEventListener('abort',stop,{once:true});})});
+  try{
+   const started=await engine.create({scenarioId,input:inputs[scenarioId]});await active;const run=await engine.get(started.id),first=run.tasks[0],handoffs=run.events.filter(e=>e.deliveryKind==='task_input');
+   assert.equal(handoffs.length,1);const entry=handoffs[0];assert.equal(entry.runId,run.id);assert.equal(entry.sourceHumanId,sourceHumanId);assert.equal(entry.targetAgentId,first.agentId);assert.equal(entry.targetNodeId,first.nodeId);assert.equal(entry.taskId,first.id);assert.deepEqual(entry.artifactIds,[]);assert.ok(entry.deliveryTitle&&entry.summary);assert.equal(entry.actor,undefined);assert.equal(first.status,'running');
+   assert.ok(run.events.indexOf(entry)<run.events.findIndex(e=>e.type==='model'));assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'||e.deliveryKind==='final_delivery'),false);
+   await engine.cancel(run.id);await engine.shutdown();assert.equal(run.events.some(e=>e.deliveryKind==='final_delivery'),false);
+  }finally{await engine.shutdown();await clean();}
+ }
+});
+
+test('并行产物按实际工具归属交接，完成事件及真实文件引用写入下载记录',async()=>{
+ let markBoth,started=0;const both=new Promise(resolve=>{markBoth=resolve;});
+ const {engine,clean}=await setup({toolboxFactory:async({runDir,emit})=>{
+  const artifacts=[];return {definitions:allNames.map(name=>({name})),artifacts:()=>artifacts,publicState:()=>({}),execute:async name=>{
+   if(['calculate_finance','audit_finance'].includes(name)){if(++started===2)markBoth();await both;if(name==='audit_finance')await wait(8);}
+   const item={id:name,name:name+'.txt',path:name+'.txt',bytes:Buffer.byteLength(name),mimeType:'text/plain'};await writeFile(path.join(runDir,item.path),name);artifacts.push(item);emit({type:'artifact',text:'实际写入测试产物',artifact:item});
+   if(name==='calculate_finance')await wait(20);
+   // Receipt IDs that are not in the registry must never become delivered files.
+   return {summary:'actual receipt for '+name,artifacts:[{id:'not-registered'}]};
+  }};
+ }});
+ try{
+  const started=await engine.create({scenarioId:'finance',input:{company:'parallel provenance',year:2025,data:'explicit provided data'}});await until(()=>engine.runs.get(started.id).status==='completed');const run=await engine.get(started.id);
+  const analysis=run.tasks.find(t=>t.id==='analysis'),audit=run.tasks.find(t=>t.id==='audit');assert.deepEqual(analysis.artifactIds,['calculate_finance']);assert.deepEqual(audit.artifactIds,['audit_finance']);
+  const transfers=run.events.filter(e=>e.deliveryKind==='evidence');
+  for(const e of transfers){const source=run.tasks.find(t=>t.id===e.sourceTaskId),target=run.tasks.find(t=>t.id===e.taskId);assert.equal(e.runId,run.id);assert.equal(e.agentId,source.agentId);assert.equal(e.sourceAgentId,source.agentId);assert.equal(e.targetAgentId,target.agentId);assert.equal(e.sourceNodeId,source.nodeId);assert.equal(e.targetNodeId,target.nodeId);assert.equal(e.deliveryTitle,source.title);assert.equal(e.summary,source.output);assert.deepEqual(e.artifactIds,source.artifactIds);assert.ok(Date.parse(e.createdAt)>=Date.parse(source.finishedAt));}
+  assert.deepEqual(transfers.find(e=>e.sourceTaskId==='analysis').artifactIds,['calculate_finance']);assert.deepEqual(transfers.find(e=>e.sourceTaskId==='audit').artifactIds,['audit_finance']);
+  const final=run.events.filter(e=>e.deliveryKind==='final_delivery');assert.equal(final.length,1);assert.equal(final[0].targetHumanId,'finance_owner');assert.equal(final[0].sourceAgentId,'lead');assert.equal(final[0].sourceTaskId,'report');assert.equal(final[0].summary,run.summary);assert.deepEqual(new Set(final[0].artifactIds),new Set(['import_finance','calculate_finance','audit_finance','write_report']));assert.ok(!final[0].artifactIds.includes('execution-evidence'));
+  for(const id of final[0].artifactIds)assert.ok((await readFile((await engine.artifact(run.id,id)).path,'utf8')).length>0);
+  const record=JSON.parse(await readFile((await engine.artifact(run.id,'execution-evidence')).path,'utf8'));assert.equal(record.status,'completed');assert.ok(record.events.some(e=>e.id===final[0].id&&e.deliveryKind==='final_delivery'));assert.equal(record.events.some(e=>e.artifactIds?.includes('not-registered')),false);
+ }finally{await engine.shutdown();await clean();}
+});
+
+test('并行审批准确找到请求员工，先交方案而仅真人有效选择后交回审批结果',async()=>{
+ let releaseAnalysis;const analysisHold=new Promise(resolve=>{releaseAnalysis=resolve;});
+ const {engine,clean}=await setup({toolboxFactory:async({runDir,emit,approval})=>{
+  const artifacts=[];return {definitions:allNames.map(name=>({name})),artifacts:()=>artifacts,publicState:()=>({}),execute:async name=>{
+   const id=name==='audit_finance'?'audit-proposal':name,item={id,name:id+'.txt',path:id+'.txt',bytes:2,mimeType:'text/plain'};await writeFile(path.join(runDir,item.path),'ok');artifacts.push(item);emit({type:'artifact',text:'actual test artifact',artifact:item});
+   if(name==='calculate_finance')await analysisHold;
+   if(name==='audit_finance'){await wait(10);const answer=await approval({agentId:'liu',kind:'investment',title:'并行岗位真实审批请求',description:'等待真人选择，不代替决定'});releaseAnalysis();return {summary:'actual human choice '+answer.approved,artifacts:[item]};}
+   return {summary:'actual test receipt',artifacts:[item]};
+  }};
+ }});
+ try{
+  const started=await engine.create({scenarioId:'finance',input:{company:'parallel approval',year:2025,data:'explicit provided data'}});const run=await until(()=>{const r=engine.runs.get(started.id);return r.status==='awaiting_approval'&&r;});const approvalId=run.approval.id;
+  assert.equal(run.tasks.filter(t=>t.status==='running').length,2);assert.equal(run.approval.agentId,'liu');assert.equal(run.approval.taskId,'audit');
+  const request=run.events.find(e=>e.deliveryKind==='approval_request');assert.equal(request.approvalId,approvalId);assert.equal(request.taskId,'audit');assert.equal(request.sourceAgentId,'liu');assert.equal(request.targetHumanId,'owner');assert.equal(request.targetNodeId,'executive');assert.equal(request.sourceNodeId,'finance');assert.ok(request.artifactIds.includes('audit-proposal'));assert.ok(!request.artifactIds.includes('calculate_finance'));assert.equal(request.approved,undefined);assert.equal(request.decision,undefined);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'||e.deliveryKind==='final_delivery'),false);
+  await assert.rejects(engine.approve(run.id,{approved:true,approvalId:'stale'}),/失效/);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'),false);
+  await assert.rejects(engine.approve(run.id,{approved:'true',approvalId}),/批准或拒绝/);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'),false);
+  await engine.approve(run.id,{approved:false,approvalId,note:'真人暂缓'});const decisions=run.events.filter(e=>e.deliveryKind==='approval_decision');assert.equal(decisions.length,1);assert.equal(decisions[0].sourceHumanId,'owner');assert.equal(decisions[0].targetAgentId,'liu');assert.equal(decisions[0].taskId,'audit');assert.equal(decisions[0].approvalId,approvalId);assert.equal(decisions[0].approved,false);assert.equal(decisions[0].decision,'declined');assert.match(decisions[0].summary,/真人暂缓/);
+  await until(()=>run.status==='completed');await assert.rejects(engine.approve(run.id,{approved:true,approvalId}),/失效/);assert.equal(run.events.filter(e=>e.deliveryKind==='approval_decision').length,1);
+ }finally{releaseAnalysis();await engine.shutdown();await clean();}
+});
+
+test('等待审批时取消不会伪造真人决定或最终成果交付',async()=>{
+ const {engine,clean}=await setup();
+ try{
+  const started=await engine.create({scenarioId:'ddos',input:{requirements:'isolated cancellation test',logs:'provided test logs'}});const run=await until(()=>{const r=engine.runs.get(started.id);return r.status==='awaiting_approval'&&r;}),approvalId=run.approval.id;
+  assert.ok(run.events.some(e=>e.deliveryKind==='approval_request'&&e.approvalId===approvalId));await engine.cancel(run.id);await until(()=>!engine.controls.has(run.id));
+  assert.equal(run.status,'cancelled');assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'||e.deliveryKind==='final_delivery'||e.actor==='human'),false);await assert.rejects(engine.approve(run.id,{approved:true,approvalId}),/失效/);
+  const record=JSON.parse(await readFile((await engine.artifact(run.id,'execution-evidence')).path,'utf8'));assert.equal(record.status,'cancelled');assert.equal(record.events.some(e=>e.deliveryKind==='approval_decision'||e.deliveryKind==='final_delivery'),false);
+ }finally{await engine.shutdown();await clean();}
+});
+
+test('最终记录写入失败不发布最终交付，仍保留真实产物与失败证据',async()=>{
+ const {engine,clean}=await setup(),save=engine.saveTranscript.bind(engine);engine.saveTranscript=async(run,status)=>{if(status==='completed')throw new Error('unit-test final transcript write failure');return save(run,status);};
+ try{
+  const started=await engine.create({scenarioId:'finance',input:{company:'completion failure',year:2025,data:'provided test data'}});await until(()=>{const r=engine.runs.get(started.id);return r.status==='failed'&&r.artifacts.some(a=>a.id==='execution-evidence');});const run=await engine.get(started.id);
+  assert.match(run.error,/final transcript write failure/);assert.ok(run.artifacts.some(a=>a.id==='report'));assert.equal(run.events.some(e=>e.deliveryKind==='final_delivery'),false);
+  const record=JSON.parse(await readFile((await engine.artifact(run.id,'execution-evidence')).path,'utf8'));assert.equal(record.status,'failed');assert.equal(record.events.some(e=>e.deliveryKind==='final_delivery'),false);
  }finally{await engine.shutdown();await clean();}
 });

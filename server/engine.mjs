@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile, readdir, rename, rm } from 'node:fs/promise
 import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { AGENTS, getScenario } from './catalog.mjs';
 import { getProviderStatus, decide } from './provider.mjs';
 import { createToolbox } from './tools.mjs';
@@ -9,6 +10,8 @@ import { createToolbox } from './tools.mjs';
 const DATA = resolve(process.env.OFFICE_DATA_DIR || '.office-data');
 const MAX_STEPS = 9;
 const MAX_EVENTS = 400;
+const HUMAN_FOR_SCENARIO={finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner'};
+const HUMAN_NODES={owner:'executive',finance_owner:'finance',purchasing_owner:'reception',it_owner:'server',business_owner:'meeting',investment_owner:'investment'};
 const compact = value => {
   const s=typeof value==='string'?value:JSON.stringify(value);
   return s.length>18000?s.slice(0,18000)+'\n[内容过长，参见已登记产物]':s;
@@ -33,6 +36,19 @@ function modelEvidence(value,key='',depth=0){
   return Object.fromEntries(Object.entries(value).slice(0,70).map(([k,v])=>[k,modelEvidence(v,k,depth+1)]));
 }
 function apiError(message,status=400){return Object.assign(new Error(message),{status});}
+function eventRecord(run,type,text,extra={}){
+  const e={...extra,id:randomUUID(),time:Math.round((Date.now()-Date.parse(run.createdAt))/1000),createdAt:new Date().toISOString(),type,text:String(text).slice(0,2200)};
+  if(e.data)e.data=JSON.parse(compact(e.data).startsWith('{')&&JSON.stringify(e.data).length<12000?JSON.stringify(e.data):JSON.stringify({summary:compact(e.data).slice(0,10000)}));
+  return e;
+}
+function registeredArtifactIds(run,ids){
+  const registered=new Set((run.artifacts||[]).filter(a=>a.id!=='execution-evidence').map(a=>a.id));
+  return [...new Set(ids)].filter(id=>registered.has(id));
+}
+function taskArtifactIds(run,task){return registeredArtifactIds(run,task?.artifactIds||[]);}
+function handoffMetadata(run,deliveryKind,extra){
+  return {runId:run.id,deliveryKind,...extra,artifactIds:registeredArtifactIds(run,extra.artifactIds||[]),summary:String(extra.summary||'').slice(0,2200)};
+}
 function textInput(value,label){
   if(value===undefined||value===null)return '';
   if(typeof value==='string')return value;
@@ -47,7 +63,7 @@ function requestedUrls(input){
 export class OfficeEngine extends EventEmitter {
   constructor({ dataDir=DATA, modelCall=decide, providerStatus=getProviderStatus, toolboxFactory=createToolbox }={}) {
     super();this.dataDir=resolve(dataDir);this.modelCall=modelCall;this.providerStatus=providerStatus;this.toolboxFactory=toolboxFactory;
-    this.runs=new Map();this.controls=new Map();this.persistChains=new Map();this.executions=new Map();this.creationQueue=Promise.resolve();this.stopping=false;this.shutdownPromise=null;this.ready=this.load();
+    this.runs=new Map();this.controls=new Map();this.persistChains=new Map();this.executions=new Map();this.toolContext=new AsyncLocalStorage();this.creationQueue=Promise.resolve();this.stopping=false;this.shutdownPromise=null;this.ready=this.load();
   }
   async load(){
     await mkdir(this.dataDir,{recursive:true,mode:0o700});
@@ -86,8 +102,7 @@ export class OfficeEngine extends EventEmitter {
     this.emit(`run:${run.id}`,this.publicRun(run));
   }
   event(run,type,text,extra={}){
-    const e={...extra,id:randomUUID(),time:Math.round((Date.now()-Date.parse(run.createdAt))/1000),createdAt:new Date().toISOString(),type,text:String(text).slice(0,2200)};
-    if(e.data)e.data=JSON.parse(compact(e.data).startsWith('{')&&JSON.stringify(e.data).length<12000?JSON.stringify(e.data):JSON.stringify({summary:compact(e.data).slice(0,10000)}));
+    const e=eventRecord(run,type,text,extra);
     run.events.push(e);if(run.events.length>MAX_EVENTS)run.events.splice(0,run.events.length-MAX_EVENTS);this.publish(run);return e;
   }
   validateInput(scenario,input){
@@ -144,7 +159,14 @@ export class OfficeEngine extends EventEmitter {
     run.status='running';
     this.event(run,'task','已建立任务工作区，按岗位技能分派给虚拟员工。');
     let toolbox;
-    toolbox=await this.toolboxFactory({runDir:run.runDir,input:run.input,signal,emit:e=>{this.syncArtifacts(run,toolbox);this.event(run,e.type||'tool',e.text||'工具返回结果',e);},approval:details=>this.requestApproval(run,details)});
+    toolbox=await this.toolboxFactory({runDir:run.runDir,input:run.input,signal,emit:e=>{
+      this.syncArtifacts(run,toolbox);
+      const context=this.toolContext.getStore(),task=context?.runId===run.id?run.tasks.find(t=>t.id===context.taskId):null;
+      // Only an explicit artifact receipt from this execution establishes ownership.
+      // A registry scan also contains other, concurrently running employees' files.
+      if(task&&e.type==='artifact'&&e.artifact?.id)task.artifactIds=registeredArtifactIds(run,[...(task.artifactIds||[]),e.artifact.id]);
+      this.event(run,e.type||'tool',e.text||'工具返回结果',{...(task?{agentId:task.agentId,taskId:task.id}:{}),...e});
+    },approval:details=>this.requestApproval(run,details)});
     const running=new Map();let firstError=null;
     while(!run.tasks.every(t=>t.status==='done')){
       if(signal.aborted)throw signal.reason||new Error('任务已取消');
@@ -160,14 +182,20 @@ export class OfficeEngine extends EventEmitter {
     }
     this.syncArtifacts(run,toolbox);if(!run.artifacts.length)throw new Error('任务未生成实际交付文件，不能标记完成。');
     run.finishedAt=new Date().toISOString();run.summary=run.tasks.at(-1)?.output||'工作文件已生成，请查看产物与审校结果。';run.approval=null;
-    await this.saveTranscript(run,'completed');
-    if(signal.aborted||run.status==='cancelled')return;
-    run.status='completed';this.event(run,'result','协作任务已结束，交付文件与过程记录已保存。');this.controls.delete(run.id);this.publish(run);
+    const last=run.tasks.at(-1),targetHumanId=HUMAN_FOR_SCENARIO[run.scenarioId];
+    const finalDelivery=handoffMetadata(run,'final_delivery',{agentId:last.agentId,sourceAgentId:last.agentId,targetHumanId,sourceNodeId:last.nodeId,targetNodeId:HUMAN_NODES[targetHumanId],sourceTaskId:last.id,taskId:last.id,deliveryTitle:run.title+'成果交付',summary:run.summary,artifactIds:run.artifacts.map(a=>a.id)});
+    // Stage completion events in the actual downloadable transcript first. A cancellation
+    // during this write must never publish a final delivery or overwrite cancelled state.
+    const completed={...run,status:'completed',events:[...run.events,eventRecord(run,'result','协作任务已结束，交付文件与过程记录已保存。'),eventRecord(run,'handoff','已将实际生成的成果交付给任务负责人。',finalDelivery)].slice(-MAX_EVENTS)};
+    await this.saveTranscript(completed,'completed');
+    if(signal.aborted||run.status==='cancelled'){await this.saveTranscript(run).catch(()=>{});this.controls.delete(run.id);this.publish(run);return;}
+    run.status='completed';run.events=completed.events;run.artifacts=completed.artifacts;this.controls.delete(run.id);this.publish(run);
   }
   async performTask(run,task,toolbox,signal){
     const spec=getScenario(run.scenarioId).tasks.find(t=>t.id===task.id),role=AGENTS.find(a=>a.id===task.agentId),config=run.configs[role.id];
     task.status='running';task.startedAt=new Date().toISOString();task.action='读取任务与上游证据，等待模型选择工具';
-    for(const id of task.dependencies){const upstream=run.tasks.find(t=>t.id===id);if(upstream.agentId!==role.id)this.event(run,'handoff',`交付“${upstream.title}”的工具结果，供“${task.title}”使用。`,{agentId:upstream.agentId,targetAgentId:role.id,taskId:task.id,sourceTaskId:id});}
+    if(task.id===run.tasks[0].id){const sourceHumanId=HUMAN_FOR_SCENARIO[run.scenarioId];this.event(run,'handoff','任务资料已交给首位虚拟员工处理。',handoffMetadata(run,'task_input',{sourceHumanId,targetAgentId:role.id,sourceNodeId:HUMAN_NODES[sourceHumanId],targetNodeId:task.nodeId,taskId:task.id,deliveryTitle:run.title+'任务资料',summary:run.inputSummary+'；开始处理“'+task.title+'”。'}));}
+    for(const id of task.dependencies){const upstream=run.tasks.find(t=>t.id===id);if(upstream.agentId!==role.id)this.event(run,'handoff',`交付“${upstream.title}”的工具结果，供“${task.title}”使用。`,handoffMetadata(run,'evidence',{agentId:upstream.agentId,sourceAgentId:upstream.agentId,targetAgentId:role.id,sourceNodeId:upstream.nodeId,targetNodeId:task.nodeId,taskId:task.id,sourceTaskId:id,deliveryTitle:upstream.title,summary:upstream.output||upstream.result||'上游任务已有成功工具回执，供下游继续核对。',artifactIds:taskArtifactIds(run,upstream)}));}
     this.event(run,'task',task.title,{agentId:role.id,taskId:task.id});
     const available=toolbox.definitions.filter(d=>spec.tools.includes(d.name)&&config.tools.includes(d.name));
     if(available.length!==spec.tools.length)throw new Error(`岗位工具未就绪：${task.title}`);
@@ -209,13 +237,13 @@ export class OfficeEngine extends EventEmitter {
       task.action=summary;task.toolCalls++;this.event(run,'tool',summary,{agentId:role.id,taskId:task.id,tool:decision.tool,args:decision.args});
       messages.push({role:'assistant',content:JSON.stringify(decision)});
       try{
-        const result=await toolbox.execute(decision.tool,decision.args||{},role);
+        const result=await this.toolContext.run({runId:run.id,taskId:task.id},()=>toolbox.execute(decision.tool,decision.args||{},role));
         if(signal.aborted)throw signal.reason||new Error('任务已取消');
         if(result?.error||result?.ok===false)throw new Error(result.error||result.message||'工具未成功');
         used.add(decision.tool);lastToolError=null;
         const entry={tool:decision.tool,result};task.toolResults||=[];task.toolResults.push(entry);task.result=compact(result).slice(0,1600);
         this.updateNetwork(run,decision.tool,result);
-        this.syncArtifacts(run,toolbox);this.event(run,'tool',result?.summary||result?.message||`${decision.tool} 已返回可核对结果`,{agentId:role.id,taskId:task.id,tool:decision.tool,data:result});
+        this.syncArtifacts(run,toolbox);task.artifactIds=registeredArtifactIds(run,[...(task.artifactIds||[]),...(result?.artifacts||[]).map(a=>typeof a==='string'?a:a.id)]);this.event(run,'tool',result?.summary||result?.message||`${decision.tool} 已返回可核对结果`,{agentId:role.id,taskId:task.id,tool:decision.tool,data:result});
         messages.push({role:'tool',content:compact(modelEvidence(result))});context.workspace=modelEvidence(toolbox.publicState());
       }catch(error){
         lastToolError=cleanError(error);messages.push({role:'tool',content:JSON.stringify({ok:false,error:lastToolError})});this.event(run,'error',`工具未完成：${lastToolError}`,{agentId:role.id,taskId:task.id,tool:decision.tool});
@@ -235,8 +263,10 @@ export class OfficeEngine extends EventEmitter {
   async requestApproval(run,details){
     const control=this.controls.get(run.id);if(!control||control.abort.signal.aborted)throw new Error('任务已经取消');
     if(control.approval)throw new Error('已有方案等待审批');
-    const active=run.tasks.find(t=>t.status==='running'),agentId=details.agentId||active?.agentId||(run.scenarioId==='ddos'?'zhang':undefined);
-    run.status='awaiting_approval';run.approval={...details,kind:details.kind||(run.scenarioId==='investment'?'investment':'ddos'),agentId,id:randomUUID()};this.event(run,'approval',run.approval.title,{agentId,taskId:active?.id,data:details});
+    const context=this.toolContext.getStore(),active=details.agentId?run.tasks.find(t=>t.status==='running'&&t.agentId===details.agentId):run.tasks.find(t=>t.status==='running'&&t.id===context?.taskId)||run.tasks.find(t=>t.status==='running');
+    const agentId=details.agentId||active?.agentId||(run.scenarioId==='ddos'?'zhang':undefined),sourceNodeId=active?.nodeId||AGENTS.find(a=>a.id===agentId)?.nodeId;
+    run.status='awaiting_approval';run.approval={...details,kind:details.kind||(run.scenarioId==='investment'?'investment':'ddos'),agentId,taskId:active?.id,nodeId:sourceNodeId,id:randomUUID()};this.event(run,'approval',run.approval.title,{agentId,taskId:active?.id,approvalId:run.approval.id,data:details});
+    this.event(run,'handoff','待审方案已交给老板，等待真人选择。',handoffMetadata(run,'approval_request',{agentId,sourceAgentId:agentId,targetHumanId:'owner',sourceNodeId,targetNodeId:HUMAN_NODES.owner,taskId:active?.id,sourceTaskId:active?.id,approvalId:run.approval.id,kind:run.approval.kind,deliveryTitle:run.approval.title,summary:details.description||'请真人负责人审阅本次方案。',artifactIds:[...taskArtifactIds(run,active),...(active?.dependencies||[]).flatMap(id=>taskArtifactIds(run,run.tasks.find(t=>t.id===id)))]}));
     return new Promise((resolve,reject)=>{
       const onAbort=()=>{control.approval=null;reject(new Error('任务取消，审批已作废'));};
       control.abort.signal.addEventListener('abort',onAbort,{once:true});
@@ -249,7 +279,9 @@ export class OfficeEngine extends EventEmitter {
     if(typeof approved!=='boolean')throw apiError('请选择批准或拒绝。');
     const pending=control.approval,approval=run.approval;control.approval=null;run.approval=null;run.status='running';
     const text=approval.kind==='investment'?`${approval.title}：${approved?'老板决定继续尽调。':'老板决定暂缓项目。'}`:approved?'真人负责人批准了隔离工作区变更。':'真人负责人拒绝变更，保留诊断与配置建议。';
-    this.event(run,'approval',text,{actor:'human',agentId:approval.agentId,data:{title:approval.title,kind:approval.kind,approved,note:String(note).slice(0,500)}});pending.resolve({approved,note:String(note).slice(0,500),kind:approval.kind,title:approval.title});return this.publicRun(run);
+    this.event(run,'approval',text,{actor:'human',agentId:approval.agentId,taskId:approval.taskId,approvalId:approval.id,data:{title:approval.title,kind:approval.kind,approved,note:String(note).slice(0,500)}});
+    this.event(run,'handoff',text,handoffMetadata(run,'approval_decision',{sourceHumanId:'owner',targetAgentId:approval.agentId,sourceNodeId:HUMAN_NODES.owner,targetNodeId:approval.nodeId,taskId:approval.taskId,approvalId:approval.id,kind:approval.kind,approved,decision:approved?'approved':'declined',deliveryTitle:approval.title+'审批结果',summary:text+(note?' '+String(note).slice(0,500):'')}));
+    pending.resolve({approved,note:String(note).slice(0,500),kind:approval.kind,title:approval.title});return this.publicRun(run);
   }
   async cancel(id,{reason='用户取消任务',message='任务已取消，已生成的文件与证据仍可下载。'}={}){
     const run=await this.get(id);if(!['queued','running','awaiting_approval'].includes(run.status))throw apiError('任务已经结束。',409);
