@@ -18,6 +18,7 @@ const NODE_META = {
 };
 
 const AGENT_META = {
+  hr: { name:'小禾', role:'入职登记专员', x:464, y:235, color:'#c79a82', hair:'#51453d' },
   invest_research: { name:'沈研', role:'投资研究员', x:122, y:87, color:'#728eb4', hair:'#514333' },
   invest_finance: { name:'顾衡', role:'财务尽调师', x:234, y:87, color:'#b7a16a', hair:'#474b45' },
   invest_risk: { name:'何审', role:'独立风险审查', x:346, y:87, color:'#9c85a8', hair:'#493d50' },
@@ -35,7 +36,7 @@ const WORK_POSITIONS = {
   internet:[[787,286],[757,390]], firewall:[[590,260],[590,286]],
   core:[[650,345],[590,345]], server:[[700,286],[768,286]],
   storage:[[787,373],[787,390]], ups:[[579,373],[590,345]],
-  access:[[421,411],[492,411]], workstations:[[313,300],[387,300]],
+  access:[[421,411],[492,411]], workstations:[[313,300],[387,300],[464,300]],
   meeting:[[322,479],[207,479]], executive:[[951,315],[861,315]],
   reception:[[600,575],[477,575]], finance:[[909,579],[760,579]],
 };
@@ -159,6 +160,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
     <!-- Open workspace: six complete workstations, six coworkers. -->
     ${title(77, 165, '开放办公区', 'TEAM WORKSPACE · 48 CLIENTS', '#8fa885')}
+    <g transform="translate(83 184)"><rect width="119" height="17" rx="5" fill="#f9edda" stroke="#d0ae88" stroke-width=".8"/><text x="59.5" y="11.5" text-anchor="middle" class="cnl-tiny" fill="#a57c52">人事登记工位</text></g>
     <g opacity=".58"><rect x="85" y="196" width="347" height="180" rx="12" fill="#dce4cf"/><path d="M95 285H423" stroke="#c9d5bc" stroke-width="1" stroke-dasharray="4 5"/></g>
     ${desk(90, 207, '#d29878', {cup:true,screen:'#b2d9d2'})}
     ${desk(214, 207, '#91a9cd', {hair:'#6b4a37',screen:'#bad6df'})}
@@ -226,7 +228,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g class="cnl-investment-room"><rect x="55" y="7" width="450" height="94" rx="11" fill="#e5e9ee" stroke="#a9b9b3" stroke-width="1.2"/><path d="M56 35H504" stroke="#c9d3d0" stroke-width="1"/>${title(230,25,'投资部','INVESTMENT DUE DILIGENCE','#9baec0')}${use('desk',90,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',202,43,.60,'style="--screen:#cbd4b5"')}${use('desk',314,43,.60,'style="--screen:#cabeda"')}${use('desk',426,43,.55,'style="--screen:#e1c29e"')}<path d="M55 101H68M96 101H505" stroke="#8da99b" stroke-width="2"/><rect x="69" y="98" width="26" height="6" fill="#f8f3df"/><path d="M69 99V82H86" fill="none" stroke="#a7b7a2" stroke-width=".8"/></g>
     <g class="cnl-node-layer">${hotspots}</g>
     <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g>
-    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
+    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
   </g>
   </svg>`;
 
@@ -234,7 +236,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const nodeElements = new Map([...svg.querySelectorAll('[data-node]')].map(el => [el.dataset.node, el]));
   const deviceElements = new Map([...svg.querySelectorAll('[data-device]')].map(el => [el.dataset.device, el]));
   const links = [...svg.querySelectorAll('.cnl-link')];
-  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();onSelectHuman('owner');});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();onSelectHuman('owner');}});
+  let approvalHumanId='owner';
+  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();onSelectHuman(approvalHumanId);});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();onSelectHuman(approvalHumanId);}});
   const agentLayer = svg.querySelector('.cnl-agent-layer');
   const handoffLayer = svg.querySelector('.cnl-handoff-layer');
   const humanLayer = svg.querySelector('.cnl-human-layer');
@@ -499,6 +502,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     if(reset) resetMotions();
     activeRunId=runId;
     const nodes=state.nodes||{};
+    const approvalTarget=HUMAN_EMPLOYEES.find(h=>h.id===state.approvalHumanId)||HUMAN_EMPLOYEES.find(h=>h.id==='owner');approvalHumanId=approvalTarget.id;
+    humanApproval.setAttribute('transform',`translate(${approvalTarget.x} ${approvalTarget.y-21})`);humanApproval.setAttribute('aria-label',`${approvalTarget.name}，真实员工，需要审批`);humanApproval.querySelector('[data-approval-human-name]').textContent=`${approvalTarget.name} · 真实员工`;
     humanApproval.classList.toggle('is-requesting',!!state.humanApproval);humanApproval.setAttribute('aria-hidden',String(!state.humanApproval));
     nodeElements.forEach((el,id)=>{const status=nodes[id]?.status||(typeof nodes[id]==='string'?nodes[id]:'online');el.dataset.status=status;el.setAttribute('aria-label',`查看${NODE_META[id].label}，${({online:'运行正常',warning:'存在异常',offline:'已离线',recovering:'正在恢复'})[status]||status}`);if(deviceElements.get(id))deviceElements.get(id).dataset.status=status;});
     links.forEach(link=>{const statuses=[nodes[link.dataset.a]?.status||nodes[link.dataset.a],nodes[link.dataset.b]?.status||nodes[link.dataset.b]];['offline','warning','recovering'].forEach(status=>link.classList.toggle(`is-${status}`,statuses.includes(status)));});

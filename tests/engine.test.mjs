@@ -53,7 +53,7 @@ test('取消会阻止剩余任务，失败保留可下载证据，不能执行�
  const run=await engine.create({scenarioId:'finance',input:{company:'test',year:2025,data:'csv'}});await engine.cancel(run.id);await wait(150);const current=await engine.get(run.id);assert.equal(current.status,'cancelled');assert.equal(current.tasks.some(t=>t.status==='done'),false);
  }finally{await clean();}
 });
-test('五个场景的任务权限、依赖和角色定义一致',()=>{
+test('全部场景的任务权限、依赖和角色定义一致',()=>{
  for(const s of SCENARIOS){const ids=new Set(s.tasks.map(t=>t.id));for(const t of s.tasks){const role=AGENTS.find(a=>a.id===t.agentId);assert.ok(role);for(const tool of t.tools)assert.ok(role.tools.includes(tool),`${s.id}/${t.id}/${tool}`);for(const d of t.dependencies)assert.ok(ids.has(d)&&d!==t.id);}}
 });
 test('两个同时派工请求不会在异步模型状态检查间创建重复活跃任务',async()=>{
@@ -316,4 +316,76 @@ test('最终记录写入失败不发布最终交付，仍保留真实产物与�
   assert.match(run.error,/final transcript write failure/);assert.ok(run.artifacts.some(a=>a.id==='report'));assert.equal(run.events.some(e=>e.deliveryKind==='final_delivery'),false);
   const record=JSON.parse(await readFile((await engine.artifact(run.id,'execution-evidence')).path,'utf8'));assert.equal(record.status,'failed');assert.equal(record.events.some(e=>e.deliveryKind==='final_delivery'),false);
  }finally{await engine.shutdown();await clean();}
+});
+
+
+const onboardingInput=()=>({employeeNumber:'UNIT-ONBOARDING-001',employeeName:'测试姓名勿发模型',department:'产品研发部',position:'应用开发工程师',startDate:'2026-10-19',workEmail:'private-unit@example.test',manager:'测试负责人勿发模型',resourceRequirements:'笔记本电脑；工作邮箱与代码库只读权限待办理。',employmentConfirmed:true});
+
+test('入职登记严格核验工号、日期、文本长度、邮箱和已确认录用，不接受多余隐私字段',async()=>{
+ const {engine,clean}=await setup();const scenario=SCENARIOS.find(s=>s.id==='onboarding'),base=onboardingInput();
+ try{
+  engine.validateInput(scenario,base);
+  engine.validateInput(scenario,{...base,startDate:'2028-02-29',workEmail:'',manager:'',resourceRequirements:''});
+  const invalid=[
+   ['employeeNumber','有中文'],['employeeNumber','x'.repeat(41)],['employeeNumber',' bad-space'],['employeeNumber',123],
+   ['employeeName',' '],['employeeName','x'.repeat(81)],['employeeName',{text:'wrong type'}],
+   ['department','x'.repeat(81)],['position','x'.repeat(81)],['manager','x'.repeat(81)],['manager','hidden\nline'],
+   ['resourceRequirements','x'.repeat(3001)],['workEmail','x'.repeat(255)],['workEmail','not-an-email'],['workEmail','a b@example.test'],
+   ['startDate','0000-01-01'],['startDate','2026-02-29'],['startDate','2026-04-31'],['startDate','2026-13-01'],['startDate','2026-10-00'],['startDate','2026-1-09'],['startDate',20261019],
+   ['employmentConfirmed',false],['employmentConfirmed','true'],['employmentConfirmed',1],['employmentConfirmed',null],
+   ['nationalId','123'],['salary',1234],['bankAccount','123'],['health','anything'],
+  ];
+  for(const [key,value]of invalid)assert.throws(()=>engine.validateInput(scenario,{...base,[key]:value}),undefined,`${key}=${value}`);
+  for(const key of ['employeeNumber','employeeName','department','position','startDate','employmentConfirmed']){const missing={...base};delete missing[key];assert.throws(()=>engine.validateInput(scenario,missing),undefined,key);}
+ }finally{await clean();}
+});
+
+test('入职模型输入只保留匿名员工引用、岗位与准备需求，不泄露本地个人字段或额外字段',()=>{
+ const input={...onboardingInput(),nationalId:'should-not-leak',privateNote:'do-not-forward'};
+ const visible=modelInput(input,'onboarding'),serialized=JSON.stringify(visible);
+ for(const key of ['employeeNumber','employeeName','startDate','workEmail','manager'])assert.ok(!serialized.includes(input[key]),key);
+ assert.ok(!serialized.includes('should-not-leak'));assert.ok(!serialized.includes('do-not-forward'));
+ assert.equal(visible.employeeRef,'本次待登记员工');assert.equal(visible.department,input.department);assert.equal(visible.position,input.position);assert.equal(visible.resourceRequirements,input.resourceRequirements);assert.equal(visible.employmentConfirmed,true);
+ assert.deepEqual(visible.providedFields,{employeeNumber:true,employeeName:true,startDate:true,workEmail:true,manager:true});
+ assert.equal(modelInput({...input,workEmail:'',manager:''},'onboarding').providedFields.workEmail,false);
+});
+
+test('入职审批交给真实人事负责人，非法目标拒绝且旧场景仍默认为老板',async()=>{
+ let entered;const startedModel=new Promise(resolve=>{entered=resolve;});
+ const {engine,clean}=await setup({modelCall:async({signal})=>new Promise((resolve,reject)=>{entered();const stop=()=>reject(signal.reason);if(signal.aborted)stop();else signal.addEventListener('abort',stop,{once:true});})});
+ try{
+  const started=await engine.create({scenarioId:'onboarding',input:onboardingInput()});await startedModel;const run=await engine.get(started.id);
+  await assert.rejects(engine.requestApproval(run,{targetHumanId:'unregistered_human',title:'invalid'}),/负责人无效/);
+  assert.equal(run.approval,null);assert.equal(run.status,'running');
+  const hrPromise=engine.requestApproval(run,{agentId:'hr',kind:'onboarding',targetHumanId:'hr_owner',title:'本次入职登记',description:'请真实人事负责人核查本地资料'});
+  assert.equal(run.approval.targetHumanId,'hr_owner');assert.equal(run.approval.targetNodeId,'workstations');assert.equal(run.approval.taskId,'intake');
+  const request=run.events.findLast(e=>e.deliveryKind==='approval_request');assert.equal(request.targetHumanId,'hr_owner');assert.equal(request.targetNodeId,'workstations');assert.equal(request.sourceAgentId,'hr');
+  await engine.approve(run.id,{approved:true,approvalId:run.approval.id});const actual=await hrPromise;assert.equal(actual.targetHumanId,'hr_owner');assert.ok(actual.approvalId);
+  const decision=run.events.findLast(e=>e.deliveryKind==='approval_decision');assert.equal(decision.sourceHumanId,'hr_owner');assert.equal(decision.sourceNodeId,'workstations');assert.match(decision.summary,/真实人事负责人批准本次入职登记/);assert.ok(!decision.summary.includes('隔离'));
+  const oldPromise=engine.requestApproval(run,{kind:'ddos',title:'旧隔离审批'});assert.equal(run.approval.targetHumanId,'owner');assert.equal(run.approval.targetNodeId,'executive');await engine.approve(run.id,{approved:false,approvalId:run.approval.id});await oldPromise;assert.equal(run.events.findLast(e=>e.deliveryKind==='approval_decision').sourceHumanId,'owner');assert.match(run.events.findLast(e=>e.actor==='human').text,/拒绝变更/);
+ }finally{await engine.shutdown();await clean();}
+});
+
+test('入职六阶段依赖图真实等待人事审批后交付，独立核查与资源规划并行且模型上下文匿名',async()=>{
+ for(const approved of [true,false]){
+  const snapshots=[],calls=[];let markBoth,parallelCount=0;const both=new Promise(resolve=>{markBoth=resolve;});
+  const {engine,clean}=await setup({modelCall:async request=>{snapshots.push(JSON.stringify({context:request.context,messages:request.messages}));return model(request);},toolboxFactory:async({runDir,approval})=>{
+   const artifacts=[];return {definitions:allNames.map(name=>({name})),publicState:()=>({employeeRef:'本次待登记员工',privateInputStoredLocally:true}),artifacts:()=>artifacts,execute:async name=>{
+    calls.push(name);
+    if(['review_onboarding','plan_onboarding_resources'].includes(name)){if(++parallelCount===2)markBoth();await both;}
+    let evidence={employeeRef:'本次待登记员工',action:name,accountsProvisioned:false,equipmentDelivered:false};
+    if(name==='request_onboarding_approval'){const answer=await approval({agentId:'hr',kind:'onboarding',targetHumanId:'hr_owner',title:'本次入职登记审阅',description:'待真人审批；账号和设备仍待办理'});evidence={...evidence,approved:answer.approved};}
+    if(name==='register_onboarding')evidence={...evidence,registered:approved};
+    if(name==='write_report'){const filename='anonymous-onboarding-report.txt';await writeFile(path.join(runDir,filename),'本次待登记员工：本地登记及待办回执');artifacts.push({id:'onboarding-report',name:filename,path:filename,mimeType:'text/plain',bytes:Buffer.byteLength('本次待登记员工：本地登记及待办回执')});}
+    return {summary:'本地工具已返回匿名登记证据',evidence};
+   }};
+  }});
+  try{
+   const input=onboardingInput(),started=await engine.create({scenarioId:'onboarding',input});const run=await until(()=>{const r=engine.runs.get(started.id);return r.status==='awaiting_approval'&&r;});
+   assert.equal(run.tasks.length,6);assert.equal(parallelCount,2);assert.equal(run.approval.taskId,'approval');assert.equal(run.approval.agentId,'hr');assert.equal(run.approval.targetHumanId,'hr_owner');assert.ok(!calls.includes('register_onboarding'));assert.equal(run.events.filter(e=>e.deliveryKind==='task_input')[0].sourceHumanId,'hr_owner');
+   await engine.approve(run.id,{approved,approvalId:run.approval.id});await until(()=>run.status==='completed');assert.ok(run.tasks.every(t=>t.status==='done'));assert.equal(calls.length,6);assert.equal(calls.filter(n=>n==='register_onboarding').length,1);
+   const final=run.events.find(e=>e.deliveryKind==='final_delivery');assert.equal(final.targetHumanId,'hr_owner');assert.equal(final.targetNodeId,'workstations');assert.equal(final.sourceAgentId,'lead');assert.equal(run.events.find(e=>e.deliveryKind==='approval_decision').approved,approved);
+   const sent=snapshots.join('\n');for(const key of ['employeeNumber','employeeName','startDate','workEmail','manager'])assert.ok(!sent.includes(input[key]),key);assert.ok(sent.includes(input.department));assert.ok((await engine.artifact(run.id,'onboarding-report')).bytes>0);
+  }finally{await engine.shutdown();await clean();}
+ }
 });

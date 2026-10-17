@@ -1,7 +1,8 @@
 export const AGENTS = [
-  { id:'ops', name:'阿杰', role:'数据与系统工程师', color:'#60979a', nodeId:'storage', instructions:'导入用户数据，检查格式并建立可复核的数据与工作文件。工具失败时报告具体原因，不猜测缺失数据。', tools:['import_finance','build_database','test_database','inspect_network','extract_requirements','list_artifacts'] },
+  { id:'hr', name:'小禾', role:'入职登记专员', color:'#c79a82', nodeId:'workstations', instructions:'仅为公司已经确认录用的员工整理入职登记，不判断录用资格。个人姓名、工号、邮箱、负责人和入职日期由本地专用工具处理；不向模型重复传递，不收集身份证、银行卡、健康或薪资数据。登记前等待真实人事负责人审批。区分本地已登记与尚待开通的账号和待交付设备。', tools:['prepare_onboarding','request_onboarding_approval','register_onboarding','list_artifacts'] },
+  { id:'ops', name:'阿杰', role:'数据与系统工程师', color:'#60979a', nodeId:'storage', instructions:'导入用户数据，检查格式并建立可复核的数据与工作文件。工具失败时报告具体原因，不猜测缺失数据。', tools:['import_finance','build_database','test_database','inspect_network','extract_requirements','plan_onboarding_resources','list_artifacts'] },
   { id:'finance', name:'许姐', role:'财务分析师', color:'#d7aa57', nodeId:'finance', instructions:'使用计算工具核对金额、同比和预算。每个数字必须有输入与计算结果依据，区分含税、币种和未知项目。', tools:['calculate_finance','audit_finance','compare_quotes','estimate_delivery','list_artifacts'] },
-  { id:'liu', name:'小刘', role:'安全与质量审校', color:'#9b88b6', nodeId:'firewall', instructions:'独立检查上游证据和产物，主动指出缺失、差异与风险。未经工具验证，不宣称通过。', tools:['audit_finance','analyze_traffic','verify_network','test_database','review_delivery','list_artifacts'] },
+  { id:'liu', name:'小刘', role:'安全与质量审校', color:'#9b88b6', nodeId:'firewall', instructions:'独立检查上游证据和产物，主动指出缺失、差异与风险。未经工具验证，不宣称通过。', tools:['audit_finance','analyze_traffic','verify_network','test_database','review_delivery','review_onboarding','list_artifacts'] },
   { id:'zhang', name:'小张', role:'网络与数据库工程师', color:'#7198c7', nodeId:'server', instructions:'根据现场证据设计和执行局部技术方案。仅操作本次任务工作区，变更前等待真人审批，完成后交给独立角色验收。', tools:['inspect_network','apply_defense','design_database','build_database','compare_quotes','list_artifacts'] },
   { id:'business', name:'林悦', role:'采购与业务分析师', color:'#7f9f83', nodeId:'reception', instructions:'把业务目标拆成可核验需求。获取真实报价时保留来源、配置、币种和抓取时间，无法公开报价的项目标记待询价。', tools:['search_web','fetch_quote','extract_requirements','estimate_delivery','compare_quotes','list_artifacts'] },
   { id:'lead', name:'陈工', role:'任务协调与报告主笔', color:'#719d9e', nodeId:'core', instructions:'合并同事的真实工具结果，核对相互依赖，生成面向业务负责人的正式交付报告。区分已验证事实、待确认事项和建议。', tools:['write_report','list_artifacts','review_delivery','compare_quotes','build_investment_memo'] },
@@ -13,6 +14,24 @@ export const AGENTS = [
 
 const task = (id,title,agentId,nodeId,dependencies,tools,goal) => ({id,title,agentId,nodeId,dependencies,tools,requiredTools:tools.filter(t=>t!=='list_artifacts'),goal});
 export const SCENARIOS = [
+  { id:'onboarding', title:'员工入职登记', description:'整理已确认录用员工的登记资料，协作核查并审批后写入本地员工台账。', icon:'users', room:'人事登记工位', nodeId:'workstations', outputs:['入职资料核查','岗位资源准备清单','人事审批记录','员工登记台账','入职交付报告'], agents:['hr','liu','ops','lead'], exampleLabel:'虚构员工的入职登记演示', fields:[
+    {name:'employeeNumber',label:'工号',type:'text',required:true,placeholder:'1—40位英文字母、数字、下划线或短横线'},
+    {name:'employeeName',label:'员工姓名',type:'text',required:true,placeholder:'最多80个字符，个人资料仅由本地登记工具处理'},
+    {name:'department',label:'入职部门',type:'text',required:true,placeholder:'例如：产品研发部'},
+    {name:'position',label:'工作岗位',type:'text',required:true,placeholder:'例如：应用开发工程师'},
+    {name:'startDate',label:'入职日期',type:'date',required:true},
+    {name:'workEmail',label:'工作邮箱（可选）',type:'text',placeholder:'已分配的工作邮箱；填写不会自动开通账号'},
+    {name:'manager',label:'直属负责人（可选）',type:'text',placeholder:'仅在本地入职登记与人事审阅中显示'},
+    {name:'resourceRequirements',label:'岗位设备与权限准备需求（可选）',type:'textarea',placeholder:'例如：笔记本电脑、工作邮箱、项目代码库只读权限；登记为待办理，不会直接开通'},
+    {name:'employmentConfirmed',label:'公司已确认录用，此流程仅办理入职登记',type:'checkbox',required:true,defaultValue:false},
+  ],tasks:[
+    task('intake','整理本次入职登记资料','hr','workstations',[],['prepare_onboarding'],'调用本地工具读取入职资料，生成缺项与字段检查证据。公司已确认录用，不能由模型判断是否录用；不请求或复述姓名、工号、邮箱、直属负责人及入职日期。工具持有完整原始资料。'),
+    task('review','独立核查登记字段与重复风险','liu','workstations',['intake'],['review_onboarding'],'独立调用工具复核本次登记字段、必需项与本地台账中的工号及邮箱冲突。只检查登记完整性与一致性，不能进行背景调查或录用资格判断。与岗位资源准备并行。'),
+    task('resources','编制岗位设备与账号待办','ops','workstations',['intake'],['plan_onboarding_resources'],'基于岗位与已提供工作需求生成设备、账号及权限待办，使用最小必要权限。明确负责人、办理顺序和验收方法；不得宣称已创建企业账号、授予权限或交付设备。不要补充个人隐私字段。'),
+    task('approval','请人事负责人审批本次登记','hr','workstations',['review','resources'],['request_onboarding_approval'],'提交本地登记资料核查与资源待办，调用request_onboarding_approval等待真实人事负责人确认是否登记。不能替真人审批，不能把登记审批解释为录用决策。'),
+    task('register','依据真实审批写入员工台账','hr','workstations',['approval'],['register_onboarding'],'仅依据本次实际人事审批回执调用register_onboarding。批准且无冲突时写入本地员工台账；拒绝保留资料不登记；重复同一内容幂等返回，冲突不可覆盖。资源待办仍是待办理。'),
+    task('report','交付入职登记结果与待办清单','lead','workstations',['register','review','resources'],['write_report'],'根据真实核查、审批与本地登记工具回执交付中文入职登记结果，明确已登记或未登记原因，列出设备、账号、权限待办和真实负责人后续操作。仅使用工具提供的匿名员工标识；不向模型或报告补入个人资料，不能声称账号开通或录用资格确认。'),
+  ]},
   { id:'investment', title:'投前尽职调查', description:'核查项目说法、公开来源与财务依据，向老板提交决策简报。', icon:'layers', room:'投资部', nodeId:'investment', outputs:['来源与证据清单','财务核算','独立风险审查','投前决策简报','老板审阅记录'], agents:['invest_research','invest_finance','invest_risk','lead'], exampleLabel:'虚构项目的投前尽调演示', fields:[
     {name:'projectName',label:'项目或公司准确名称',type:'text',required:true,placeholder:'尽量填写法定主体全称，避免混淆同名公司'},
     {name:'projectType',label:'研究对象',type:'select',defaultValue:'非上市公司／创业项目',options:['非上市公司／创业项目','上市公司研究']},

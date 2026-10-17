@@ -1,0 +1,15 @@
+{
+  "input": {
+    "employeeNumber": "EXAMPLE-20261017-001",
+    "employeeName": "林小禾（虚构员工）",
+    "department": "产品研发部",
+    "position": "应用开发工程师",
+    "startDate": "2026-10-19",
+    "workEmail": "onboarding-demo@example.test",
+    "manager": "陈负责人（虚构角色）",
+    "resourceRequirements": "开发用笔记本电脑一台，待IT负责人分配并验收。\n工作邮箱，待IT负责人开通并验证可用。\n项目代码库只读权限，待业务负责人确认范围并由IT负责人授予。",
+    "employmentConfirmed": true,
+    "example": true,
+    "isExample": true
+  }
+}

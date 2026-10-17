@@ -10,8 +10,8 @@ import { createToolbox } from './tools.mjs';
 const DATA = resolve(process.env.OFFICE_DATA_DIR || '.office-data');
 const MAX_STEPS = 9;
 const MAX_EVENTS = 400;
-const HUMAN_FOR_SCENARIO={finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner'};
-const HUMAN_NODES={owner:'executive',finance_owner:'finance',purchasing_owner:'reception',it_owner:'server',business_owner:'meeting',investment_owner:'investment'};
+const HUMAN_FOR_SCENARIO={finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner',onboarding:'hr_owner'};
+const HUMAN_NODES={owner:'executive',finance_owner:'finance',purchasing_owner:'reception',it_owner:'server',business_owner:'meeting',investment_owner:'investment',hr_owner:'workstations'};
 const compact = value => {
   const s=typeof value==='string'?value:JSON.stringify(value);
   return s.length>18000?s.slice(0,18000)+'\n[内容过长，参见已登记产物]':s;
@@ -19,6 +19,12 @@ const compact = value => {
 const cleanError = error => String(error?.message||error||'任务执行失败').replace(/(?:sk-[A-Za-z0-9_-]+|Bearer\s+[A-Za-z0-9._-]+)/g,'[已隐藏凭据]').slice(0,1400);
 const safeId = /^[a-z0-9-]{1,80}$/i;
 export function modelInput(input,scenarioId){
+  if(scenarioId==='onboarding')return {
+    employeeRef:'本次待登记员工',department:input.department,position:input.position,
+    resourceRequirements:input.resourceRequirements||'',employmentConfirmed:input.employmentConfirmed===true,
+    providedFields:{employeeNumber:!!input.employeeNumber,employeeName:!!input.employeeName,startDate:!!input.startDate,workEmail:!!input.workEmail,manager:!!input.manager},
+    personalDataHandling:'姓名、工号、邮箱、直属负责人及入职日期仅由本地工具处理，不进入模型上下文。请使用匿名员工标识交接。',
+  };
   return Object.fromEntries(Object.entries(input).map(([k,v])=>{
     const completeText=scenarioId==='delivery'||(scenarioId==='investment'&&k==='data');
     if(scenarioId==='investment'&&k==='financials'){const text=typeof v==='string'?v:String(v?.text||'');return [k,{name:v?.name||'财务资料',preview:text.slice(0,1800),characters:text.length,source:'财务文本预览，专用工具持有并读取完整输入。'}];}
@@ -113,6 +119,19 @@ export class OfficeEngine extends EventEmitter {
       if(v!==undefined&&f.type==='number'&&(!Number.isFinite(Number(v))||Number(v)<0))throw apiError(`${f.label}需要有效的非负数。`);
       if(typeof v==='string'&&v.length>4_000_000)throw apiError(`${f.label}内容过长。`);
       if(f.type==='select'&&v!==undefined&&!f.options.includes(v))throw apiError(`${f.label}选项无效。`);
+    }
+    if(scenario.id==='onboarding'){
+      const allowed=new Set(['employeeNumber','employeeName','department','position','startDate','workEmail','manager','resourceRequirements','employmentConfirmed','example','isExample']);
+      if(Object.keys(input).some(key=>!allowed.has(key)))throw apiError('入职登记仅接受列明的工作资料，不接受身份证、银行卡、健康、薪资或其他额外个人字段。');
+      for(const [key,label,max,required] of [['employeeNumber','工号',40,true],['employeeName','员工姓名',80,true],['department','入职部门',80,true],['position','工作岗位',80,true],['workEmail','工作邮箱',254,false],['manager','直属负责人',80,false],['resourceRequirements','岗位设备与权限准备需求',3000,false]]){
+        const value=input[key];
+        if(value===undefined||value===null){if(required)throw apiError(`请提供${label}。`);continue;}
+        if(typeof value!=='string'||(required&&!value.trim())||value.length>max||(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value))||(key!=='resourceRequirements'&&/[\r\n\t]/.test(value)))throw apiError(`${label}需要${required?'1到':'不超过'}${max}个字符的有效文本。`);
+      }
+      if(!/^[A-Za-z0-9_-]{1,40}$/.test(input.employeeNumber))throw apiError('工号只接受1到40位英文字母、数字、下划线或短横线。');
+      if(input.workEmail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.workEmail))throw apiError('请填写有效工作邮箱，或留空。');
+      if(typeof input.startDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(input.startDate)||Number(input.startDate.slice(0,4))<1||!Number.isFinite(Date.parse(input.startDate+'T00:00:00.000Z'))||new Date(input.startDate+'T00:00:00.000Z').toISOString().slice(0,10)!==input.startDate)throw apiError('入职日期需要真实有效的YYYY-MM-DD日期。');
+      if(input.employmentConfirmed!==true)throw apiError('请由真实员工确认公司已完成录用决定；此流程仅办理入职登记。');
     }
     if(scenario.id==='finance'&&(!Number.isInteger(Number(input.year))||input.year<1900||input.year>2200))throw apiError('请填写正确的汇报年度。');
     if(input.budget!==undefined&&Number(input.budget)<=0)throw apiError('预算需要大于零。');
@@ -265,8 +284,11 @@ export class OfficeEngine extends EventEmitter {
     if(control.approval)throw new Error('已有方案等待审批');
     const context=this.toolContext.getStore(),active=details.agentId?run.tasks.find(t=>t.status==='running'&&t.agentId===details.agentId):run.tasks.find(t=>t.status==='running'&&t.id===context?.taskId)||run.tasks.find(t=>t.status==='running');
     const agentId=details.agentId||active?.agentId||(run.scenarioId==='ddos'?'zhang':undefined),sourceNodeId=active?.nodeId||AGENTS.find(a=>a.id===agentId)?.nodeId;
-    run.status='awaiting_approval';run.approval={...details,kind:details.kind||(run.scenarioId==='investment'?'investment':'ddos'),agentId,taskId:active?.id,nodeId:sourceNodeId,id:randomUUID()};this.event(run,'approval',run.approval.title,{agentId,taskId:active?.id,approvalId:run.approval.id,data:details});
-    this.event(run,'handoff','待审方案已交给老板，等待真人选择。',handoffMetadata(run,'approval_request',{agentId,sourceAgentId:agentId,targetHumanId:'owner',sourceNodeId,targetNodeId:HUMAN_NODES.owner,taskId:active?.id,sourceTaskId:active?.id,approvalId:run.approval.id,kind:run.approval.kind,deliveryTitle:run.approval.title,summary:details.description||'请真人负责人审阅本次方案。',artifactIds:[...taskArtifactIds(run,active),...(active?.dependencies||[]).flatMap(id=>taskArtifactIds(run,run.tasks.find(t=>t.id===id)))]}));
+    const targetHumanId=details.targetHumanId||'owner';
+    if(!Object.hasOwn(HUMAN_NODES,targetHumanId))throw apiError('审批负责人无效。');
+    const kind=details.kind||(run.scenarioId==='investment'?'investment':run.scenarioId==='onboarding'?'onboarding':'ddos');
+    run.status='awaiting_approval';run.approval={...details,kind,agentId,taskId:active?.id,nodeId:sourceNodeId,targetHumanId,targetNodeId:HUMAN_NODES[targetHumanId],id:randomUUID()};this.event(run,'approval',run.approval.title,{agentId,taskId:active?.id,approvalId:run.approval.id,data:{...details,targetHumanId,targetNodeId:HUMAN_NODES[targetHumanId],kind}});
+    this.event(run,'handoff',targetHumanId==='owner'?'待审方案已交给老板，等待真人选择。':'待审资料已交给真实负责人，等待真人选择。',handoffMetadata(run,'approval_request',{agentId,sourceAgentId:agentId,targetHumanId,sourceNodeId,targetNodeId:HUMAN_NODES[targetHumanId],taskId:active?.id,sourceTaskId:active?.id,approvalId:run.approval.id,kind:run.approval.kind,deliveryTitle:run.approval.title,summary:details.description||'请真人负责人审阅本次方案。',artifactIds:[...taskArtifactIds(run,active),...(active?.dependencies||[]).flatMap(id=>taskArtifactIds(run,run.tasks.find(t=>t.id===id)))]}));
     return new Promise((resolve,reject)=>{
       const onAbort=()=>{control.approval=null;reject(new Error('任务取消，审批已作废'));};
       control.abort.signal.addEventListener('abort',onAbort,{once:true});
@@ -278,10 +300,10 @@ export class OfficeEngine extends EventEmitter {
     if(run.status!=='awaiting_approval'||!control?.approval||approvalId!==run.approval?.id)throw apiError('该审批已失效，请刷新当前任务。',409);
     if(typeof approved!=='boolean')throw apiError('请选择批准或拒绝。');
     const pending=control.approval,approval=run.approval;control.approval=null;run.approval=null;run.status='running';
-    const text=approval.kind==='investment'?`${approval.title}：${approved?'老板决定继续尽调。':'老板决定暂缓项目。'}`:approved?'真人负责人批准了隔离工作区变更。':'真人负责人拒绝变更，保留诊断与配置建议。';
-    this.event(run,'approval',text,{actor:'human',agentId:approval.agentId,taskId:approval.taskId,approvalId:approval.id,data:{title:approval.title,kind:approval.kind,approved,note:String(note).slice(0,500)}});
-    this.event(run,'handoff',text,handoffMetadata(run,'approval_decision',{sourceHumanId:'owner',targetAgentId:approval.agentId,sourceNodeId:HUMAN_NODES.owner,targetNodeId:approval.nodeId,taskId:approval.taskId,approvalId:approval.id,kind:approval.kind,approved,decision:approved?'approved':'declined',deliveryTitle:approval.title+'审批结果',summary:text+(note?' '+String(note).slice(0,500):'')}));
-    pending.resolve({approved,note:String(note).slice(0,500),kind:approval.kind,title:approval.title});return this.publicRun(run);
+    const text=approval.kind==='investment'?`${approval.title}：${approved?'老板决定继续尽调。':'老板决定暂缓项目。'}`:approval.kind==='onboarding'?`${approval.title}：${approved?'真实人事负责人批准本次入职登记。':'真实人事负责人暂缓本次入职登记，未写入员工台账。'}`:approved?'真人负责人批准了隔离工作区变更。':'真人负责人拒绝变更，保留诊断与配置建议。';
+    this.event(run,'approval',text,{actor:'human',agentId:approval.agentId,taskId:approval.taskId,approvalId:approval.id,data:{title:approval.title,kind:approval.kind,targetHumanId:approval.targetHumanId||'owner',approved,note:String(note).slice(0,500)}});
+    this.event(run,'handoff',text,handoffMetadata(run,'approval_decision',{sourceHumanId:approval.targetHumanId||'owner',targetAgentId:approval.agentId,sourceNodeId:HUMAN_NODES[approval.targetHumanId||'owner'],targetNodeId:approval.nodeId,taskId:approval.taskId,approvalId:approval.id,kind:approval.kind,approved,decision:approved?'approved':'declined',deliveryTitle:approval.title+'审批结果',summary:text+(note?' '+String(note).slice(0,500):'')}));
+    pending.resolve({approved,note:String(note).slice(0,500),kind:approval.kind,title:approval.title,targetHumanId:approval.targetHumanId||'owner',approvalId:approval.id});return this.publicRun(run);
   }
   async cancel(id,{reason='用户取消任务',message='任务已取消，已生成的文件与证据仍可下载。'}={}){
     const run=await this.get(id);if(!['queued','running','awaiting_approval'].includes(run.status))throw apiError('任务已经结束。',409);

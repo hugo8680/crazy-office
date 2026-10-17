@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { HUMAN_EMPLOYEES, humanForScenario } from '../dist/people.js';
 import { FLOOR_SEGMENTS, routeBetweenPoints, routeLength, pointAlongRoute, deliveryParticipants, createDeliveryQueue, motionUpdatePolicy } from '../dist/scene-motion.js';
 
-test('six explicit human representatives cover each scenario without virtual badges',()=>{
-  assert.equal(HUMAN_EMPLOYEES.length,6);
-  assert.equal(new Set(HUMAN_EMPLOYEES.map(h=>h.id)).size,6);
-  const expected={finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner'};
+test('seven explicit human representatives cover each scenario without virtual badges',()=>{
+  assert.equal(HUMAN_EMPLOYEES.length,7);
+  assert.equal(new Set(HUMAN_EMPLOYEES.map(h=>h.id)).size,7);
+  const expected={onboarding:'hr_owner',finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner'};
   for(const [scenario,id] of Object.entries(expected)) assert.equal(humanForScenario(scenario).id,id);
   assert.equal(humanForScenario('unknown').id,'owner');
   for(const human of HUMAN_EMPLOYEES) assert.ok(human.role&&human.responsibility&&human.nodeId);
@@ -126,4 +126,15 @@ test('same-run cancellation and failure halt active and queued exchanges; comple
   assert.equal(restored.reset,true);assert.equal(restored.animate,false);
   const newlyCreated=motionUpdatePolicy({runId:'new',animateEvents:true,runStatus:'running'});
   assert.equal(newlyCreated.reset,true);assert.equal(newlyCreated.animate,true);
+});
+
+test('onboarding intake, HR approval and final handoff keep human identity through the walking queue',()=>{
+  const hr=HUMAN_EMPLOYEES.find(h=>h.id==='hr_owner');assert.equal(hr.nodeId,'workstations');
+  const intake={id:'hr-intake',type:'handoff',sourceHumanId:'hr_owner',targetAgentId:'hr',deliveryKind:'task_input'};
+  const approval={id:'hr-approval',type:'handoff',sourceAgentId:'hr',targetHumanId:'hr_owner',deliveryKind:'approval_request',approvalId:'hr-approval-id'};
+  const final={id:'hr-final',type:'handoff',sourceAgentId:'lead',targetHumanId:'hr_owner',deliveryKind:'final_delivery'};
+  assert.deepEqual(deliveryParticipants(intake),{mover:'hr',recipient:'hr_owner',recipientHuman:true,collecting:true});
+  assert.deepEqual(deliveryParticipants(approval),{mover:'hr',recipient:'hr_owner',recipientHuman:true});
+  const path=routeBetweenPoints({x:464,y:235},hr);assert.deepEqual(path.at(-1),{x:hr.x,y:hr.y});assert.ok(path.some(p=>p.y===300));
+  const queue=createDeliveryQueue();queue.ingest([intake,approval,final]);assert.equal(queue.startReady()[0].id,'hr-approval');assert.ok(queue.locked('hr_owner'));queue.finish('hr-approval');assert.equal(queue.startReady()[0].id,'hr-intake');queue.finish('hr-intake');assert.equal(queue.startReady()[0].id,'hr-final');queue.finish('hr-final');assert.equal(queue.activeCount,0);
 });

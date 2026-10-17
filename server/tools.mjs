@@ -11,6 +11,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {AGENTS} from './catalog.mjs';
 import {INVESTMENT_TOOL_DEFINITIONS,createInvestmentFunctions} from './investment.mjs';
+import {ONBOARDING_TOOL_DEFINITIONS,createOnboardingFunctions} from './onboarding.mjs';
 
 const projectDir=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const PYTHON=process.env.OFFICE_PYTHON || '/usr/bin/python3';
@@ -38,7 +39,7 @@ const defs=[
  ['write_report','把基于同事证据的中文正式汇报保存为可下载Markdown及HTML。content须含真实结果/限制/来源，不能伪造数据、客户承诺或生产修复。',obj({title:str('报告标题'),content:str('完整中文Markdown正文；工具返回文件不代替正文')})],
  ['list_artifacts','列出本次实际文件及相关结构化工具结果，供同事复核，不返回私密凭证或工作区外路径。',obj({})],
 ];
-export const TOOL_DEFINITIONS=[...defs.map(([name,description,parameters])=>({name,description,parameters})),...INVESTMENT_TOOL_DEFINITIONS];
+export const TOOL_DEFINITIONS=[...defs.map(([name,description,parameters])=>({name,description,parameters})),...INVESTMENT_TOOL_DEFINITIONS,...ONBOARDING_TOOL_DEFINITIONS];
 const mime={'.json':'application/json','.csv':'text/csv; charset=utf-8','.md':'text/markdown; charset=utf-8','.html':'text/html; charset=utf-8','.txt':'text/plain; charset=utf-8','.sql':'application/sql','.conf':'text/plain; charset=utf-8','.sqlite':'application/vnd.sqlite3','.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
 const decode=s=>String(s).replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n)));
 const plain=s=>decode(String(s).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ')).trim();
@@ -145,6 +146,7 @@ export async function createToolbox({runDir,input={},emit=()=>{},signal,approval
  const rawRequirements=()=>[String(input.requirements||''),sourceText(input.data)].filter(Boolean).join('\n\n');
  const functions={
   ...createInvestmentFunctions({input,put,outputs,approval,publicFetch:url=>publicFetch(url,{signal}),validatePublicUrl}),
+  ...createOnboardingFunctions({input,runDir:base,put,outputs,approval,signal}),
   ...Object.fromEntries(['import_finance','calculate_finance','audit_finance','design_database','build_database','test_database','inspect_network','analyze_traffic','verify_network'].map(name=>[name,args=>python(name,args)])),
   async search_web(args){
    const query=String(args.query||input.query||input.requirements||'').trim().slice(0,400);if(!query)throw new Error('检索词不能为空');const limit=Math.min(8,Math.max(1,Math.trunc(args.limit||8)));const candidates=[];const attempts=[];let raw='';
