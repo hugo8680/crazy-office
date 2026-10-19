@@ -1,6 +1,6 @@
 /* Walkable floor centre lines. Vertical room walls are crossed only at doors. */
 export const FLOOR_SEGMENTS = Object.freeze([
-  [[82,87],[481,87]], [[82,87],[82,107]], [[82,107],[32,107]], [[32,107],[32,411]], [[32,411],[980,411]],
+  [[82,87],[481,87]], [[82,87],[82,107]], [[32,107],[550,107]], [[550,87],[775,87]], [[550,87],[550,107]], [[32,107],[32,411]], [[32,411],[980,411]],
   [[464,185],[464,411]], [[205,300],[464,300]],
   [[590,260],[590,373]], [[590,286],[787,286]], [[590,373],[787,373]], [[787,286],[787,390]], [[650,373],[650,411]], [[590,345],[650,345]], [[579,373],[590,373]], [[757,390],[787,390]],
   [[827,315],[977,315]], [[827,315],[827,411]],
@@ -67,6 +67,80 @@ export function pointAlongRoute(route,progress) {
     remaining-=length;
   }
   return {...route.at(-1),facing:1};
+}
+
+/* Geometry belongs to a single walk and is reclaimed with its route. Removing
+ * collinear graph junctions prevents a visible stop at every desk connection.
+ * Corners stay on the floor centre line instead of cutting through a wall. */
+const walkingPlans = new WeakMap();
+function walkingPlan(route) {
+  if(walkingPlans.has(route)) return walkingPlans.get(route);
+  const points=[];
+  for(const source of route) {
+    const p=point(source);
+    if(points.length&&same(points.at(-1),p))continue;
+    if(points.length>1) {
+      const a=points.at(-2),b=points.at(-1);
+      const ab={x:b.x-a.x,y:b.y-a.y},bc={x:p.x-b.x,y:p.y-b.y};
+      if(Math.abs(ab.x*bc.y-ab.y*bc.x)<.0001&&ab.x*bc.x+ab.y*bc.y>0)points.pop();
+    }
+    points.push(p);
+  }
+  const segments=[];let length=0,weight=0,facing=1;
+  for(let i=1;i<points.length;i++) {
+    const a=points[i-1],b=points[i],size=distance(a,b),dx=b.x-a.x,dy=b.y-a.y;
+    if(!size)continue;
+    const axis=Math.abs(dx)>=Math.abs(dy)?'x':'y';
+    if(axis==='x')facing=dx<0?-1:1;
+    const heading=axis==='x'?(dx<0?'left':'right'):(dy<0?'up':'down');
+    // Short stretches receive time to turn; long corridors retain a steady pace.
+    const durationWeight=size+Math.min(20,size*.35);
+    segments.push({a,b,length:size,startDistance:length,startWeight:weight,weight:durationWeight,axis,heading,facing});
+    length+=size;weight+=durationWeight;
+  }
+  const plan={points,segments,length,weight};walkingPlans.set(route,plan);return plan;
+}
+
+export function walkingDuration(route) {
+  const plan=walkingPlan(route);
+  if(!plan.length)return 0;
+  return Math.max(900,Math.min(10000,plan.length/150*1000+Math.max(0,plan.segments.length-1)*95+260));
+}
+
+/* One sampler drives travel, feet and body. The stride phase follows distance,
+ * so slowing down at a doorway also slows the feet instead of making them slide.
+ * Hermite tangents ease the first/last step and reduce speed before each turn. */
+export function walkingSample(route,elapsedMs,duration=walkingDuration(route)) {
+  const plan=walkingPlan(route),progress=duration>0?Math.max(0,Math.min(1,(Number.isFinite(elapsedMs)?elapsedMs:0)/duration)):1;
+  const still=plan.points.at(-1)||{x:0,y:0};
+  if(!plan.segments.length)return {...still,facing:1,axis:'none',heading:'none',progress:1,phase:0,stride:0,bob:0,lean:0,pace:0,arrived:true};
+  const moment=plan.weight*progress;
+  let index=plan.segments.findIndex(segment=>moment<=segment.startWeight+segment.weight);
+  if(index<0)index=plan.segments.length-1;
+  const segment=plan.segments[index],t=Math.max(0,Math.min(1,(moment-segment.startWeight)/segment.weight));
+  const startTangent=index===0?0:.32,endTangent=index===plan.segments.length-1?0:.32;
+  const t2=t*t,t3=t2*t;
+  const eased=(-2*t3+3*t2)+(t3-2*t2+t)*startTangent+(t3-t2)*endTangent;
+  const slope=(-6*t2+6*t)+(3*t2-4*t+1)*startTangent+(3*t2-2*t)*endTangent;
+  const covered=segment.startDistance+segment.length*eased,phase=covered/42*Math.PI*2;
+  const speed=duration>0?segment.length*slope/(duration*segment.weight/plan.weight)*1000:0;
+  const envelope=progress===0||progress===1?0:Math.min(1,Math.max(0,speed/105));
+  const step=Math.sin(phase),arrived=progress===1;
+  return {
+    x:segment.a.x+(segment.b.x-segment.a.x)*eased,
+    y:segment.a.y+(segment.b.y-segment.a.y)*eased,
+    facing:segment.facing,axis:segment.axis,heading:segment.heading,progress,phase,
+    stride:!envelope?0:step*14*envelope,
+    bob:!envelope?0:-Math.abs(step)*.8*envelope,
+    lean:!envelope?0:((segment.axis==='x'?segment.facing*.8:0)+Math.sin(phase*2)*.65)*envelope,
+    pace:speed>0?Math.max(150,Math.min(1200,42000/speed)):0,
+    arrived,
+  };
+}
+
+/* These are presentation timings only. They never dispatch or approve a task. */
+export function handoffTiming(reducedMotion=false) {
+  return reducedMotion?{approach:0,transfer:0,settle:1500,total:1500}:{approach:160,transfer:420,settle:720,total:1300};
 }
 
 export function deliveryKey(event) { return String(event.id || `${event.time}-${event.agentId||event.sourceHumanId}-${event.targetAgentId||event.targetHumanId}-${event.text}`); }

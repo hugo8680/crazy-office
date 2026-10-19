@@ -1,9 +1,10 @@
 /* The office is also the network: every visible endpoint is selectable. */
 import { HUMAN_EMPLOYEES } from './people.js';
-import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy } from './scene-motion.js';
+import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming } from './scene-motion.js';
 const NODE_META = {
   investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
-  internet: { x: 651, y: 65, label: '互联网', w: 59, ly: 26 },
+  general_office: { x:650, y:52, label:'总经办协作台', w:82, ly:-12 },
+  internet: { x: 914, y: 65, label: '互联网', w: 59, ly: 26 },
   firewall: { x: 553, y: 213, label: '安全网关', w: 70, ly: 29 },
   core: { x: 645, y: 314, label: '核心交换机', w: 82, ly: 24 },
   server: { x: 719, y: 232, label: '应用服务器', w: 82, ly: 35 },
@@ -27,14 +28,15 @@ const AGENT_META = {
   lead: { name:'陈工', role:'技术组长', x:650, y:373, color:'#6fa79c', hair:'#474b45' },
   business: { name:'林悦', role:'业务组长', x:477, y:575, color:'#ce9676', hair:'#6b483d' },
   finance: { name:'许姐', role:'财务', x:910, y:579, color:'#bdac73', hair:'#5e443d' },
-  boss: { name:'周助理', role:'管理审校', x:977, y:315, color:'#9f8298', hair:'#4d4440' },
-  ops: { name:'阿杰', role:'机房运维', x:589, y:373, color:'#8eaa76', hair:'#484b3d' },
+  boss: { name:'周助理', role:'管理审校', x:584, y:87, color:'#9f8298', hair:'#4d4440' },
+  ops: { name:'阿杰', role:'机房运维', x:590, y:335, color:'#8eaa76', hair:'#484b3d' },
 };
 // Sprite positions are feet on the floor, not centres inside devices.
 const WORK_POSITIONS = {
   investment:[[122,87],[234,87],[346,87]],
+  general_office:[[670,87]],
   internet:[[787,286],[757,390]], firewall:[[590,260],[590,286]],
-  core:[[650,345],[590,345]], server:[[700,286],[768,286]],
+  core:[[650,345],[590,373]], server:[[700,286],[768,286]],
   storage:[[787,373],[787,390]], ups:[[579,373],[590,345]],
   access:[[421,411],[492,411]], workstations:[[313,300],[387,300],[464,300]],
   meeting:[[322,479],[207,479]], executive:[[951,315],[861,315]],
@@ -46,18 +48,20 @@ const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;
 
 export function mountScene(container, { onSelectNode = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
-  const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35] };
+  const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], seated:[-26,-59,52,63], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35] };
   const use = (name, x, y, scale = 1, extra = '') => {
     const [sx,sy,width,height] = symbolBounds[name];
     return `<use href="#${uid}-${name}" x="${sx}" y="${sy}" width="${width}" height="${height}" overflow="visible" transform="translate(${x} ${y}) scale(${scale})" ${extra}/>`;
   };
   const person = (x, y, shirt, hair = '#3d393d', scale = 1, extra = '') => use('person', x, y, scale, `style="--shirt:${shirt};--hair:${hair}" ${extra}`);
-  const desk = (x, y, shirt, options = {}) => `<g class="cnl-desk">${use('desk', x, y, options.scale || 1, `style="--screen:${options.screen || '#a7d5db'}"`)}${person(x + 51 * (options.scale || 1), y + 59 * (options.scale || 1), shirt, options.hair || '#3d393d', (options.scale || 1) * 0.84)}${options.cup ? use('cup', x + 90, y + 26, 0.8) : ''}</g>`;
+  const seated = (x, y, shirt, hair = '#3d393d', scale = 1, lounge = false, back = false) => use('seated', x, y, scale, `class="cnl-seated" style="--shirt:${shirt};--hair:${hair};--chair-display:${lounge?'none':'block'};--typing-display:${lounge?'none':'block'};--resting-display:${lounge?'block':'none'};--front-facing:${back?'none':'block'};--back-facing:${back?'block':'none'}"`);
+  const desk = (x, y, shirt, options = {}) => { const k=options.scale || 1;return `<g class="cnl-desk">${use('desk', x, y, k, `style="--screen:${options.screen || '#a7d5db'}"`)}${seated(x + 54*k, y + 76*k, shirt, options.hair || '#3d393d', k*.84, false, true)}${options.cup ? use('cup', x + 90*k, y + 26*k, .8*k) : ''}</g>`; };
   const plant = (x, y, scale = 1) => use('plant', x, y, scale);
-  const title = (x, y, text, english, color) => `<g transform="translate(${x} ${y})"><rect x="0" y="-13" width="4" height="24" rx="2" fill="${color}"/><text x="13" y="-1" class="cnl-room-title">${text}</text><text x="13" y="12" class="cnl-room-en">${english}</text></g>`;
+  const title = (x, y, text, english, color) => `<g transform="translate(${x} ${y})"><rect x="0" y="-13" width="4" height="24" rx="2" fill="${color}"/><text x="13" y="-1" class="cnl-room-title">${esc(text)}</text><text x="13" y="12" class="cnl-room-en">${esc(english)}</text></g>`;
   const paths = [
     ['access', 'investment', 'M459 407H34V102H75V52'],
-    ['internet', 'firewall', 'M651 78V120H553V213'],
+    ['internet', 'firewall', 'M914 78V120H553V213'],
+    ['access', 'general_office', 'M459 407H34V107H550V88H650V52'],
     ['firewall', 'core', 'M553 213V274H645V314'],
     ['core', 'server', 'M645 314H675V232H719'],
     ['core', 'storage', 'M645 314H692V351H745'],
@@ -75,13 +79,34 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   <defs>
     <pattern id="${uid}-grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="#48564e" stroke-opacity=".035" stroke-width="1"/></pattern>
     <pattern id="${uid}-floor" width="68" height="28" patternUnits="userSpaceOnUse"><path d="M0 28H68M34 0V28M0 0V14M68 14V28" stroke="#a79b81" stroke-opacity=".12" fill="none" stroke-width=".7"/></pattern>
+    <linearGradient id="${uid}-floorlight" x2="0" y2="1"><stop stop-color="#fffef9"/><stop offset="1" stop-color="#eceee2"/></linearGradient>
     <linearGradient id="${uid}-glass" x2="0" y2="1"><stop stop-color="#cceae8"/><stop offset="1" stop-color="#e8f5ec"/></linearGradient>
     <linearGradient id="${uid}-screen" x2="1" y2="1"><stop stop-color="#306e70"/><stop offset="1" stop-color="#183c48"/></linearGradient>
     <filter id="${uid}-shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#273c35" flood-opacity=".09"/></filter>
     <filter id="${uid}-soft" x="-35%" y="-35%" width="170%" height="170%"><feDropShadow dx="0" dy="2" stdDeviation="1.3" flood-color="#344239" flood-opacity=".12"/></filter>
     <symbol id="${uid}-plant" viewBox="-20 -44 40 53"><ellipse cy="6" rx="15" ry="4" fill="#334e3a" opacity=".09"/><path d="M-11-9H11L8 6Q0 10-8 6Z" fill="#f6e0bd" stroke="#4f6052" stroke-width="1.1"/><ellipse cy="-9" rx="11" ry="3.5" fill="#afbd8d" stroke="#4f6052" stroke-width="1.1"/><path d="M0-9V-34M0-18Q-16-16-13-32Q1-33 0-18M0-24Q15-25 12-40Q-1-38 0-24M0-12Q13-10 16-24Q3-25 0-12M0-30Q-11-30-9-42Q3-41 0-30" fill="#75ae82" stroke="#4b7960" stroke-width="1.1" stroke-linecap="round"/></symbol>
-    <symbol id="${uid}-person" viewBox="-25 -25 50 71"><ellipse cy="39" rx="21" ry="5" fill="#4d5b59" opacity=".1"/><rect x="-17" y="-1" width="34" height="35" rx="12" fill="#536773" stroke="#394f53" stroke-width="1.1"/><path d="M-10 23L-11 34M9 23L11 34" stroke="#34404c" stroke-width="8" stroke-linecap="round"/><path d="M-12 36H-5M9 36H15" stroke="#36434a" stroke-width="6" stroke-linecap="round"/><path d="M-10 3Q0-4 11 3L12 21Q0 27-12 21Z" fill="var(--shirt,#73aaa4)" stroke="#3b5556" stroke-width="1"/><path d="M-10 6L-18 13L-18 2M11 6L18 13L18 2" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="7" stroke-linecap="round"/><circle cx="-18" cy="1" r="3.6" fill="#edc3a2" stroke="#876f5d" stroke-width=".6"/><circle cx="18" cy="1" r="3.6" fill="#edc3a2" stroke="#876f5d" stroke-width=".6"/><rect x="-3" y="-2" width="6" height="7" rx="2" fill="#e8b690"/><ellipse cy="-10" rx="10.5" ry="11.3" fill="#f2ccad" stroke="#8a7665" stroke-width=".9"/><path d="M-10-8Q-14-23 1-23Q14-23 11-7L7-13Q0-10-4-16L-9-11Z" fill="var(--hair,#3d393d)"/><path d="M-3-6Q0-4 3-6" fill="none" stroke="#a86f60" stroke-width="1" stroke-linecap="round"/><circle cx="-4" cy="-10" r="1" fill="#3f4548"/><circle cx="4" cy="-10" r="1" fill="#3f4548"/><ellipse cx="-7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/></symbol>
-    <symbol id="${uid}-desk" viewBox="-3 -3 114 65"><ellipse cx="52" cy="54" rx="53" ry="9" fill="#4d5b59" opacity=".07"/><path d="M5 40V54M98 40V54" stroke="#7d8b83" stroke-width="5"/><path d="M0 5L7 0H104L108 6V44Q108 49 102 49H6Q0 49 0 43Z" fill="#bcbea7" stroke="#53655b" stroke-width="1.2"/><rect x="0" y="0" width="108" height="43" rx="6" fill="#f9f3dc" stroke="#53655b" stroke-width="1.2"/><rect x="28" y="3" width="48" height="28" rx="3" fill="#3f555d" stroke="#36494e" stroke-width="1.1"/><rect x="31" y="6" width="42" height="21" rx="1" fill="var(--screen,#a7d5db)"/><path d="M35 11H53M35 15H47M35 19H57" stroke="#fff" opacity=".66" stroke-width="1.5"/><path d="M62 10L69 17L62 24" fill="none" stroke="#fff" opacity=".45" stroke-width="2"/><path d="M52 31V34M44 35H60" stroke="#576566" stroke-width="2.5" stroke-linecap="round"/><rect x="34" y="36" width="36" height="5" rx="1.5" fill="#c6cfc4" stroke="#677b71" stroke-width=".7"/><path d="M39 38.5H64" stroke="#84958b" stroke-width=".7" stroke-dasharray="2 1"/><ellipse cx="78" cy="38" rx="3" ry="4" fill="#dce2d4" stroke="#7f8b80" stroke-width=".7"/><rect x="10" y="24" width="13" height="14" rx="1" fill="#f1d6ab" transform="rotate(-8 10 24)"/><path d="M12 29H20M12 32H19" stroke="#bdad8b" stroke-width=".8"/></symbol>
+    <symbol id="${uid}-person" viewBox="-25 -25 50 71">
+      <ellipse class="cnl-person-shadow" cy="40" rx="16" ry="4" fill="#344c48" opacity=".13"/>
+      <g class="cnl-person-leg-left" style="transform-origin:-6px 22px"><path d="M-6 22L-7 31L-8 38" fill="none" stroke="#3c4d5b" stroke-width="7" stroke-linecap="round"/><path d="M-10 40H-3" stroke="#283e48" stroke-width="5" stroke-linecap="round"/><path d="M-10 41H-3" stroke="#bbc7c5" stroke-width="1" stroke-linecap="round"/></g>
+      <g class="cnl-person-leg-right" style="transform-origin:6px 22px"><path d="M6 22L7 31L8 38" fill="none" stroke="#455967" stroke-width="7" stroke-linecap="round"/><path d="M5 40H12" stroke="#283e48" stroke-width="5" stroke-linecap="round"/><path d="M5 41H12" stroke="#bbc7c5" stroke-width="1" stroke-linecap="round"/></g>
+      <g class="cnl-person-arm-left" style="transform-origin:-10px 6px"><path d="M-10 6Q-15 12-15 20" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="7" stroke-linecap="round"/><path d="M-15 19L-15 23" stroke="#efc7a8" stroke-width="5" stroke-linecap="round"/></g>
+      <g class="cnl-person-arm-right" style="transform-origin:10px 6px"><path d="M10 6Q15 12 15 20" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="7" stroke-linecap="round"/><path d="M15 19L15 23" stroke="#efc7a8" stroke-width="5" stroke-linecap="round"/></g>
+      <g class="cnl-person-torso"><path d="M-10 4Q0-1 10 4L11 23Q0 28-11 23Z" fill="var(--shirt,#73aaa4)" stroke="#3e5a5b" stroke-width=".8"/><path d="M-2 3L0 11L3 3" fill="#f7f4e9" opacity=".82"/><path d="M0 11V24" stroke="#fff" opacity=".2" stroke-width="1"/><path d="M-9 20Q0 23 10 20" fill="none" stroke="#203e48" opacity=".13" stroke-width="1.5"/></g>
+      <g class="cnl-person-head"><rect x="-3" y="-2" width="6" height="8" rx="2" fill="#e5b38d"/><ellipse cy="-10" rx="10.4" ry="11.4" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><ellipse cx="-10" cy="-9" rx="2" ry="3" fill="#e9bd9b"/><ellipse cx="10" cy="-9" rx="2" ry="3" fill="#e9bd9b"/><path d="M-10-8Q-13-22 0-23Q14-23 11-8L8-15Q2-10-4-16L-8-12Z" fill="var(--hair,#3d393d)"/><path d="M-3-5Q0-3 3-5" fill="none" stroke="#a86f60" stroke-width=".9" stroke-linecap="round"/><circle cx="-4" cy="-10" r=".9" fill="#3f4548"/><circle cx="4" cy="-10" r=".9" fill="#3f4548"/><path d="M-6-13H-3M3-13H6" stroke="#7c6253" stroke-width=".7" stroke-linecap="round"/><ellipse cx="-7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/></g>
+    </symbol>
+    <symbol id="${uid}-seated" viewBox="-26 -59 52 63">
+      <ellipse class="cnl-person-shadow" cy="1" rx="23" ry="4" fill="#344c48" opacity=".12"/>
+      <g class="cnl-seat" style="display:var(--chair-display,block)"><path d="M0-17V-3M-15 0H15M0-3L-13 1M0-3L13 1" fill="none" stroke="#71868a" stroke-width="2" stroke-linecap="round"/><rect x="-17" y="-39" width="34" height="30" rx="11" fill="#607b82" stroke="#405e64" stroke-width="1"/><rect x="-14" y="-36" width="28" height="20" rx="8" fill="#88a6aa"/><path d="M-12-31H12M-12-26H12" stroke="#b6cbcc" opacity=".35" stroke-width="1"/><path d="M-15-17H15" stroke="#a9b9b8" stroke-width="5" stroke-linecap="round"/></g>
+      <g class="cnl-person-leg-left"><path d="M-5-17L-12-12L-12-3" fill="none" stroke="#3b4d5d" stroke-width="7" stroke-linecap="round"/><path d="M-16-1H-9" stroke="#2d414b" stroke-width="5" stroke-linecap="round"/><path d="M-16 1H-9" stroke="#a7babd" stroke-width="1" stroke-linecap="round"/></g>
+      <g class="cnl-person-leg-right"><path d="M5-17L12-12L12-3" fill="none" stroke="#475b69" stroke-width="7" stroke-linecap="round"/><path d="M9-1H16" stroke="#2d414b" stroke-width="5" stroke-linecap="round"/><path d="M9 1H16" stroke="#a7babd" stroke-width="1" stroke-linecap="round"/></g>
+      <g class="cnl-person-torso"><path d="M-10-36Q0-40 10-36L12-19Q1-12-12-19Z" fill="var(--shirt,#73aaa4)" stroke="#476164" stroke-width=".8"/><path d="M-3-36L0-29L3-36" fill="#f7f4e9" opacity=".85"/><path d="M0-28V-18" stroke="#fff" opacity=".25" stroke-width="1"/></g>
+      <g class="cnl-person-arm-left" style="transform-origin:-10px -34px;display:var(--typing-display,block)"><path d="M-10-34L-13-36L-11-43" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M-11-43L-6-44" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
+      <g class="cnl-person-arm-right" style="transform-origin:10px -34px;display:var(--typing-display,block)"><path d="M10-34L13-36L11-43" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M11-43L6-44" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
+      <g class="cnl-seated-resting-arms" style="display:var(--resting-display,none)"><path d="M-10-34L-14-23L-6-20M10-34L14-23L6-20" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M-6-20H-2M6-20H2" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
+      <g class="cnl-person-head" style="display:var(--front-facing,block)"><rect x="-3" y="-40" width="6" height="6" rx="2" fill="#e5b38d"/><ellipse cy="-48" rx="10" ry="10.6" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><path d="M-10-47Q-13-59 0-59Q13-59 10-46L7-52Q1-49-4-54L-8-50Z" fill="var(--hair,#3d393d)"/><circle cx="-3.8" cy="-48" r=".9" fill="#3f4548"/><circle cx="3.8" cy="-48" r=".9" fill="#3f4548"/><path d="M-2.5-43Q0-42 2.5-43" fill="none" stroke="#a86f60" stroke-width=".9" stroke-linecap="round"/><ellipse cx="-7" cy="-44" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-44" rx="2" ry="1" fill="#e9a994" opacity=".6"/></g>
+      <g class="cnl-person-head cnl-person-head-back" style="display:var(--back-facing,none)"><rect x="-3" y="-40" width="6" height="6" rx="2" fill="#e5b38d"/><ellipse cy="-48" rx="10" ry="10.6" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><ellipse cx="-9.5" cy="-46" rx="2" ry="2.7" fill="#e8bd9c"/><ellipse cx="9.5" cy="-46" rx="2" ry="2.7" fill="#e8bd9c"/><path d="M-9-45Q-13-59 0-59Q13-59 9-45L6-39Q0-36-6-39Z" fill="var(--hair,#3d393d)"/><path d="M-6-54Q0-58 6-53M-5-42Q0-40 5-42" fill="none" stroke="#b3a394" opacity=".28" stroke-width="1" stroke-linecap="round"/></g>
+    </symbol>
+    <symbol id="${uid}-desk" viewBox="-3 -3 114 65"><ellipse cx="52" cy="54" rx="53" ry="9" fill="#4d5b59" opacity=".07"/><path d="M5 40V54M98 40V54" stroke="#7d8b83" stroke-width="5"/><path d="M0 5L7 0H104L108 6V44Q108 49 102 49H6Q0 49 0 43Z" fill="#bcbea7" stroke="#53655b" stroke-width="1.2"/><rect x="0" y="0" width="108" height="43" rx="6" fill="#f9f3dc" stroke="#53655b" stroke-width="1.2"/><rect x="28" y="3" width="48" height="28" rx="3" fill="#3f555d" stroke="#36494e" stroke-width="1.1"/><rect x="31" y="6" width="42" height="21" rx="1" fill="var(--screen,#a7d5db)"/><path class="cnl-screen-sheen" d="M44 6H57L45 27H32Z" fill="#fff" opacity=".12"/><path d="M35 11H53M35 15H47M35 19H57" stroke="#fff" opacity=".66" stroke-width="1.5"/><path d="M62 10L69 17L62 24" fill="none" stroke="#fff" opacity=".45" stroke-width="2"/><path d="M52 31V34M44 35H60" stroke="#576566" stroke-width="2.5" stroke-linecap="round"/><rect x="34" y="36" width="36" height="5" rx="1.5" fill="#c6cfc4" stroke="#677b71" stroke-width=".7"/><path d="M39 38.5H64" stroke="#84958b" stroke-width=".7" stroke-dasharray="2 1"/><ellipse cx="78" cy="38" rx="3" ry="4" fill="#dce2d4" stroke="#7f8b80" stroke-width=".7"/><rect x="10" y="24" width="13" height="14" rx="1" fill="#f1d6ab" transform="rotate(-8 10 24)"/><path d="M12 29H20M12 32H19" stroke="#bdad8b" stroke-width=".8"/></symbol>
     <symbol id="${uid}-server" viewBox="-3 -5 58 110"><ellipse cx="26" cy="99" rx="28" ry="6" fill="#344b46" opacity=".1"/><path d="M0 3L8-2H50L45 5Z" fill="#829497" stroke="#354b51" stroke-width="1.2"/><path d="M45 5L50-2V87L45 95Z" fill="#344d55" stroke="#354b51" stroke-width="1.2"/><rect x="0" y="4" width="45" height="92" rx="3" fill="#496169" stroke="#354b51" stroke-width="1.3"/><rect x="4" y="9" width="37" height="80" rx="2" fill="#263e48"/><g fill="#3f555e" stroke="#1d3540" stroke-width=".6"><rect x="7" y="13" width="31" height="13" rx="1.5"/><rect x="7" y="30" width="31" height="13" rx="1.5"/><rect x="7" y="47" width="31" height="13" rx="1.5"/><rect x="7" y="64" width="31" height="13" rx="1.5"/></g><g stroke="#89aaa9" stroke-width="1.1"><path d="M11 18H26M11 21H26M11 35H26M11 38H26M11 52H26M11 55H26M11 69H26M11 72H26"/></g><g class="cnl-server-led" fill="#b6e79c"><circle cx="33" cy="19" r="1.6"/><circle cx="33" cy="36" r="1.6"/><circle cx="33" cy="53" r="1.6"/><circle cx="33" cy="70" r="1.6"/></g><rect x="9" y="82" width="27" height="3" rx="1.5" fill="#738e90"/><path d="M8 96V101M37 96V101" stroke="#465b5d" stroke-width="4" stroke-linecap="round"/></symbol>
     <symbol id="${uid}-switch" viewBox="-40 -14 80 35"><path d="M-35-7L-28-13H35L39-7V11L33 16H-35Z" fill="#91b1a9" stroke="#3f5c5b" stroke-width="1.2"/><rect x="-35" y="-7" width="70" height="20" rx="3" fill="#e0e9d9" stroke="#3f5c5b" stroke-width="1.2"/><g fill="#526c67"><rect x="-27" y="-1" width="6" height="5" rx=".7"/><rect x="-17" y="-1" width="6" height="5" rx=".7"/><rect x="-7" y="-1" width="6" height="5" rx=".7"/><rect x="3" y="-1" width="6" height="5" rx=".7"/><rect x="13" y="-1" width="6" height="5" rx=".7"/></g><circle cx="27" cy="1" r="2.2" fill="#81b774"/><path d="M-26 7H17" stroke="#96a991" stroke-width="1" stroke-dasharray="2 3"/></symbol>
     <symbol id="${uid}-cup" viewBox="-6 -8 16 19"><ellipse cy="8" rx="7" ry="2" fill="#717f72" opacity=".12"/><path d="M5-2Q13-3 10 4Q8 7 4 4" fill="none" stroke="#687f73" stroke-width="1.5"/><path d="M-5-4H6L5 7Q0 10-4 7Z" fill="#fff8e9" stroke="#687f73" stroke-width="1"/><ellipse cx=".5" cy="-4" rx="5.5" ry="2" fill="#9c7e60" stroke="#687f73" stroke-width="1"/><path d="M0-8Q3-11 1-14" fill="none" stroke="#87968b" stroke-width=".7" opacity=".6"/></symbol>
@@ -102,23 +127,26 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-human-approval{display:none;cursor:pointer;outline:none}.cnl-human-approval.is-requesting{display:block}.cnl-human-halo{fill:#f0c165;stroke:#bd8536;stroke-width:1.2;opacity:.35;animation:cnl-humanpulse 1.8s ease-in-out infinite}.cnl-human-ring{fill:none;stroke:#e0a248;stroke-width:2.2;stroke-dasharray:3 3}.cnl-human-approval rect{fill:#fff4d2;stroke:#c79443;stroke-width:1}.cnl-human-approval text{fill:#996623;font-size:10px;font-weight:800}.cnl-human-approval .cnl-human-sub{font-size:6px;font-weight:600;fill:#b28a4b}.cnl-human-approval:hover rect,.cnl-human-approval:focus-visible rect{stroke:#9f6621;stroke-width:2}@keyframes cnl-humanpulse{50%{opacity:.62;r:39}}
     @keyframes cnl-agenttool{50%{transform:translateY(-2px) rotate(9deg)}}@keyframes cnl-handofffade{0%{opacity:0}12%,74%{opacity:.7}100%{opacity:0}}
     @keyframes cnl-datastream{to{stroke-dashoffset:-268}}@keyframes cnl-faultpulse{0%,100%{opacity:.03;r:24}50%{opacity:.16;r:30}}@keyframes cnl-rotate{to{transform:rotate(360deg)}}@keyframes cnl-ledblink{from{opacity:.4}to{opacity:1}}@keyframes cnl-agentpop{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@keyframes cnl-toolpulse{50%{fill:#c7e2ad}}
+    .cnl-office-scene .cnl-room-title{fill:#294c47;font-weight:800;letter-spacing:.3px}.cnl-office-scene .cnl-room-en{font-size:6.8px;fill:#81968c;letter-spacing:1.05px}.cnl-office-scene .cnl-node-label rect{fill:#fffef9;stroke:#abc1b3;stroke-width:.75}.cnl-office-scene .cnl-node-label text{fill:#3f6459;font-size:7.6px;letter-spacing:.15px}.cnl-office-scene .cnl-cable-under{stroke:#fffef9;stroke-width:6;opacity:.95}.cnl-office-scene .cnl-cable{stroke:#68b7aa;stroke-width:1.7;opacity:.65}.cnl-office-scene .cnl-packet{stroke:#e7fff7;stroke-width:2.3;stroke-dasharray:7 138;filter:drop-shadow(0 0 2px #63c9b1)}
+    .cnl-agent .cnl-ai-aura{fill:#71d8c0;stroke:#399f8b;stroke-width:.75;opacity:.10}.cnl-agent .cnl-agent-ground{fill:#def9ed;stroke:#55ac94;stroke-width:1;opacity:.9}.cnl-agent-ground-grid{fill:none;stroke:#8bcab4;stroke-width:.5;opacity:.7}.cnl-agent .cnl-agent-card{fill:#f5fff9;stroke:#7abca5;stroke-width:.8;stroke-dasharray:none}.cnl-agent .cnl-agent-card-stripe{stroke:#2d9f83;stroke-width:2;stroke-linecap:round}.cnl-agent .cnl-agent-name{fill:#244f46;font-size:7px;font-weight:800}.cnl-agent .cnl-agent-type{fill:#2c917a;font-size:4.8px;letter-spacing:.25px}.cnl-agent .cnl-agent-state{fill:#587d6d;font-size:5.7px}.cnl-agent .cnl-config-dot{stroke:#6ba78d;fill:#effcf4;stroke-width:.7}.cnl-agent.is-configured .cnl-config-dot{fill:#329a7d;stroke:#329a7d}.cnl-agent-headset{fill:none;stroke:#368c81;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}.cnl-agent-headset rect{fill:#d9fbef;stroke:#367e74;stroke-width:.7}.cnl-agent-headset circle{fill:#48b399;stroke:none}.cnl-ai-badge rect{fill:#d5fff1;stroke:#329f84;stroke-width:.6}.cnl-ai-badge path{fill:none;stroke:#2e8c76;stroke-width:.65;stroke-linecap:round}.cnl-ai-badge circle{fill:#2e8c76}.cnl-agent .cnl-pose-seated{display:none}.cnl-agent.is-seated:not(.is-walking):not(.is-delivering) .cnl-pose-standing{display:none}.cnl-agent.is-seated:not(.is-walking):not(.is-delivering) .cnl-pose-seated{display:block}.cnl-agent.is-working .cnl-ai-aura{fill:#9cf0d1;opacity:.24;stroke:#2a9f80}.cnl-agent.is-working .cnl-agent-card{stroke:#3b9e82}.cnl-agent.is-unassigned{opacity:.64}
+    .cnl-human .cnl-human-halo-static{fill:#edbd74;stroke:#ba955a;stroke-width:.6;opacity:.12}.cnl-human-ground{fill:#fff4db;stroke:#c8a264;stroke-width:.9}.cnl-human-identity>circle:first-child{fill:#fff5df;stroke:#b98b4c;stroke-width:.8}.cnl-human-identity>circle:nth-child(2){fill:#ab7b3e}.cnl-human-identity path{fill:none;stroke:#ab7b3e;stroke-width:1;stroke-linecap:round}.cnl-human .cnl-human-card{fill:#fff9ec;stroke:#c5a66f;stroke-width:.8}.cnl-human-card-stripe{fill:none;stroke:#bb8b47;stroke-width:2;stroke-linecap:round}.cnl-human .cnl-human-name{fill:#6f542c;font-size:7px}.cnl-human .cnl-human-type{fill:#a1783b;font-size:4.8px}.cnl-human .cnl-human-state{fill:#92764d;font-size:5.5px}.cnl-carry-document{filter:drop-shadow(1px 2px 1px #245a4940)}.cnl-agent .cnl-carry-document{fill:#f4fff9;stroke:#3d9c80}
     @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important;transition:none!important}}
   </style>
 
   <g class="cnl-world">
-    <rect x="0" y="0" width="1060" height="650" rx="20" fill="#eef1e7"/>
+    <rect x="0" y="0" width="1060" height="650" rx="20" fill="url(#${uid}-floorlight)"/>
     <rect x="0" y="0" width="1060" height="650" fill="url(#${uid}-grid)"/>
     <g opacity=".55" stroke="#c9d4c2" stroke-width="1" fill="none"><path d="M24 66h16m-8-8v16M1017 68h16m-8-8v16M24 629h16m-8-8v16M1017 629h16m-8-8v16"/><circle cx="278" cy="66" r="2"/><circle cx="831" cy="52" r="2"/></g>
 
     <!-- Visible route from the investment annex to the main building's left door. -->
-    <path d="M82 99V107H32V411H60" fill="none" stroke="#a8b9a7" stroke-width="26" stroke-linejoin="round"/><path d="M82 99V107H32V411H60" fill="none" stroke="#f8f3df" stroke-width="23" stroke-linejoin="round"/>
+    <path d="M550 99V107H82M82 99V107H32V411H60" fill="none" stroke="#a8b9a7" stroke-width="26" stroke-linejoin="round"/><path d="M550 99V107H82M82 99V107H32V411H60" fill="none" stroke="#f8f3df" stroke-width="23" stroke-linejoin="round"/>
     <!-- Internet remains outside the office boundary. -->
-    <g class="cnl-device" data-device="internet" transform="translate(651 62)">
+    <g class="cnl-device" data-device="internet" transform="translate(914 62)">
       <ellipse cy="19" rx="49" ry="6" fill="#bacac0" opacity=".2"/>
       <path d="M-34 13C-54 10-52-13-34-16C-30-37 1-39 10-22C33-29 48-12 43 1C55 15 32 23 17 19H-31Z" fill="#fffef7" stroke="#90aca0" stroke-width="1.4"/>
       <path d="M-14-1Q0-14 14-1M-8 5Q0-2 8 5" fill="none" stroke="#6f9e94" stroke-width="2" stroke-linecap="round"/><circle cy="10" r="2" fill="#6f9e94"/>
     </g>
-    <text x="705" y="58" class="cnl-small">外部网络</text><text x="705" y="71" class="cnl-tiny">WAN · INTERNET</text>
+    <text x="968" y="58" class="cnl-small">外部网络</text><text x="968" y="71" class="cnl-tiny">WAN · INTERNET</text>
 
     <!-- A shallow dollhouse frame, tiled floors, and open doors. -->
     <g filter="url(#${uid}-shadow)">
@@ -146,7 +174,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
         <path d="M695 430H809V443H695ZM880 430H1005V443H880Z"/>
         <path d="M351 443H365V605H351ZM678 443H692V605H678Z"/>
       </g>
-      <g fill="url(#${uid}-glass)" stroke="#9ab7ab" stroke-width=".8"><rect x="91" y="116" width="144" height="13" rx="2"/><rect x="267" y="116" width="144" height="13" rx="2"/><rect x="843" y="116" width="132" height="13" rx="2"/></g>
+      <g class="cnl-window" fill="url(#${uid}-glass)" stroke="#9ab7ab" stroke-width=".8"><rect x="91" y="116" width="144" height="13" rx="2"/><rect x="267" y="116" width="144" height="13" rx="2"/><rect x="843" y="116" width="132" height="13" rx="2"/></g>
       <g stroke="#9ab7ab" stroke-width=".8"><path d="M163 117V128M339 117V128M909 117V128"/></g>
       <g stroke="#9bad95" stroke-width="1" stroke-dasharray="3 3" fill="none" opacity=".6"><path d="M169 431V442H245M491 431V442H564M810 431V442H879"/></g>
       <g fill="#e5dfc8"><rect x="168" y="430" width="78" height="13"/><rect x="490" y="430" width="75" height="13"/><rect x="809" y="430" width="71" height="13"/></g>
@@ -185,7 +213,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g transform="translate(756 153)" stroke="#9db6aa" stroke-width="1"><rect width="31" height="15" rx="2" fill="#eaf0e3"/><path d="M4 4H27M4 7H27M4 10H27"/></g>
 
     <!-- Executive office: a lived-in room, not an isolated computer icon. -->
-    ${title(833, 165, '管理办公室', 'HUMAN APPROVAL', '#c5a579')}
+    ${title(833, 165, '业务管理室', 'BUSINESS OPERATIONS', '#c5a579')}
     <rect x="840" y="206" width="144" height="111" rx="8" fill="#e8d8b9" opacity=".6"/>
     <g class="cnl-device" data-device="executive">${use('desk',857,226,1.03,'style="--screen:#b8d3d6"')}${use('cup',947,252,.8)}</g>
     <g transform="translate(840 327)">${use('sofa',0,0,.75)}<rect x="79" y="6" width="43" height="31" rx="7" fill="#ead1ab" stroke="#9b967e" stroke-width="1"/>${use('cup',98,18,.65)}</g>
@@ -195,9 +223,9 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <!-- Meeting room, complete with people and presentation screen. -->
     ${title(77, 466, '会议室', 'MEETING ROOM · A', '#aaa2bf')}
     <g transform="translate(75 493)"><path d="M0 0H29V39H0Z" fill="#e9e9ef" stroke="#9093a5" stroke-width="1"/><rect x="3" y="4" width="23" height="29" rx="1" fill="#c6d0df"/><path d="M7 27V20H11V27M15 27V13H19V27M23 27V8" fill="none" stroke="#879caf" stroke-width="2"/><path d="M14 39V46M6 47H23" stroke="#8e94a1" stroke-width="2"/></g>
-    ${person(148,493,'#a69fc3','#654c44',.68)}${person(211,493,'#7eabb3','#3f454c',.68)}${person(274,493,'#d8ac82','#775c42',.68)}
+    ${seated(148,516,'#a69fc3','#654c44',.68)}${seated(211,516,'#7eabb3','#3f454c',.68)}${seated(274,516,'#d8ac82','#775c42',.68)}
     <g transform="translate(112 503)"><ellipse cx="99" cy="54" rx="99" ry="9" fill="#778375" opacity=".1"/><path d="M17 34V52M177 34V52" stroke="#9e9d9e" stroke-width="5"/><rect y="4" width="192" height="48" rx="19" fill="#b5b4c3" stroke="#7a8590" stroke-width="1.1"/><rect width="192" height="46" rx="19" fill="#f1eee6" stroke="#7a8590" stroke-width="1.2"/><path d="M92 3V42" stroke="#d7d5d0" stroke-width=".8"/><g fill="#c3d7d6" stroke="#728d8e" stroke-width=".8"><rect x="23" y="10" width="26" height="17" rx="2"/><rect x="145" y="10" width="26" height="17" rx="2"/></g><path d="M20 29H52M142 29H174" stroke="#70868a" stroke-width="2" stroke-linecap="round"/>${use('cup',69,19,.65)}${use('cup',119,18,.65)}</g>
-    ${person(155,566,'#8faa91','#453b3d',.72)}${person(264,566,'#c39591','#6f4a36',.72)}
+    ${seated(155,580,'#8faa91','#453b3d',.72,false,true)}${seated(264,580,'#c39591','#6f4a36',.72,false,true)}
     <g class="cnl-device" data-device="meeting" transform="translate(208 516)"><ellipse rx="13" ry="7" fill="#e0e3df" stroke="#82948c" stroke-width=".9"/><rect x="-7" y="-5" width="14" height="6" rx="3" fill="#b4c8be"/><circle r="1.5" fill="#78a78d"/></g>
     ${plant(325,579,.7)}
 
@@ -205,7 +233,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     ${title(386, 466, '客户会见厅', 'CUSTOMER LOUNGE', '#cea985')}
     <rect x="418" y="491" width="217" height="92" rx="26" fill="#e8d5bd" opacity=".55"/>
     ${use('sofa',392,493,.84)}${use('sofa',564,493,.84)}
-    ${person(431,518,'#749b96','#5e4a3f',.69)}${person(601,518,'#b49a80','#463e3e',.69)}
+    ${seated(431,545,'#749b96','#5e4a3f',.69,true)}${seated(601,545,'#b49a80','#463e3e',.69,true)}
     <g transform="translate(486 512)"><ellipse cx="43" cy="31" rx="47" ry="7" fill="#8d8b70" opacity=".1"/><path d="M10 18V35M73 18V35" stroke="#a89e80" stroke-width="4"/><rect y="3" width="86" height="26" rx="12" fill="#d7c1a0" stroke="#9b9780" stroke-width="1"/><rect width="86" height="25" rx="12" fill="#fbf1da" stroke="#9b9780" stroke-width="1"/>${use('cup',16,9,.65)}${use('cup',69,10,.65)}<rect x="30" y="8" width="22" height="12" rx="1" fill="#d5d5b4" transform="rotate(-7 30 8)"/></g>
     <g class="cnl-device" data-device="reception" transform="translate(529 520)"><rect x="-11" y="-5" width="22" height="10" rx="4" fill="#f1f2e5" stroke="#7e9b8e" stroke-width="1"/><path d="M-5-9Q0-14 5-9M-3-6Q0-9 3-6" fill="none" stroke="#85aa96" stroke-width="1.3" stroke-linecap="round"/><circle cy="1" r="1.4" fill="#8ab18b"/></g>
     ${plant(390,586,.82)}${plant(665,590,.7)}
@@ -225,14 +253,19 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g transform="translate(58 584)"><rect width="57" height="18" rx="4" fill="#e2e7d6" stroke="#acb99f" stroke-width=".7"/><circle cx="9" cy="9" r="2.4" fill="#8eaf89"/><text x="16" y="12" class="cnl-tiny">LAISEN LAB</text></g>
 
     <!-- Investment is an attached office, linked to the same working network. -->
-    <g class="cnl-investment-room"><rect x="55" y="7" width="450" height="94" rx="11" fill="#e5e9ee" stroke="#a9b9b3" stroke-width="1.2"/><path d="M56 35H504" stroke="#c9d3d0" stroke-width="1"/>${title(230,25,'投资部','INVESTMENT DUE DILIGENCE','#9baec0')}${use('desk',90,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',202,43,.60,'style="--screen:#cbd4b5"')}${use('desk',314,43,.60,'style="--screen:#cabeda"')}${use('desk',426,43,.55,'style="--screen:#e1c29e"')}<path d="M55 101H68M96 101H505" stroke="#8da99b" stroke-width="2"/><rect x="69" y="98" width="26" height="6" fill="#f8f3df"/><path d="M69 99V82H86" fill="none" stroke="#a7b7a2" stroke-width=".8"/></g>
+    <g class="cnl-investment-room" filter="url(#${uid}-soft)"><path d="M55 13L62 6H499L505 13V98H55Z" fill="#b6c8c9" stroke="#718f8b" stroke-width="1.1"/><rect x="55" y="10" width="450" height="91" rx="8" fill="#e7eef0" stroke="#9ab2af" stroke-width="1.1"/><path d="M56 35H504" stroke="#c0d1cf" stroke-width=".8"/>${title(224,25,'投资者关系部','INVESTOR RELATIONS','#7799a7')}${use('desk',90,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',202,43,.60,'style="--screen:#cbd4b5"')}${use('desk',314,43,.60,'style="--screen:#cabeda"')}${use('desk',426,43,.55,'style="--screen:#e1c29e"')}<path d="M55 101H68M96 101H505" stroke="#8da99b" stroke-width="2"/><rect x="69" y="98" width="26" height="6" fill="#f8f3df"/><path d="M69 99V82H86" fill="none" stroke="#a7b7a2" stroke-width=".8"/></g>
+    <g class="cnl-general-office-room" filter="url(#${uid}-soft)"><path d="M527 13L534 6H799L805 13V98H527Z" fill="#c5baa3" stroke="#a29377" stroke-width="1.1"/><rect x="527" y="10" width="278" height="91" rx="8" fill="#f0e9da" stroke="#b6aa90" stroke-width="1.1"/><path d="M528 35H804" stroke="#d8cdb8" stroke-width=".8"/>${title(668,25,'总经办','EXECUTIVE OFFICE','#b48e58')}<g class="cnl-device" data-device="general_office">${use('desk',552,43,.60,'style="--screen:#a4d5ca"')}${use('desk',723,43,.60,'style="--screen:#d5bc94"')}<g transform="translate(657 46)"><rect x="-7" y="-5" width="15" height="11" rx="2" fill="#fffbec" stroke="#ae9470" stroke-width=".7"/><path d="M-3-2H4M-3 0H4M-3 2H2" stroke="#b6a078" stroke-width=".7"/></g></g><path d="M527 101H536M564 101H805" stroke="#a99b7c" stroke-width="2"/><rect x="537" y="98" width="26" height="6" fill="#f8f3df"/><path d="M537 99V82H554" fill="none" stroke="#b5a68a" stroke-width=".8"/>${plant(788,81,.40)}</g>
     <g class="cnl-node-layer">${hotspots}</g>
     <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g>
-    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
+    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
   </g>
   </svg>`;
 
   const svg = container.querySelector('svg');
+  // Inline the moving characters so limb transforms can follow the actual walk cycle.
+  // Fixed desk occupants keep lightweight reusable symbols.
+  const avatarArtwork={person:svg.querySelector(`#${uid}-person`).innerHTML,seated:svg.querySelector(`#${uid}-seated`).innerHTML};
+  const avatar=(shirt,hair,{sitting=false,scale=.56}={})=>`<g class="${sitting?'cnl-pose-seated cnl-seated':'cnl-pose-standing'}" transform="translate(0 ${sitting?0:-22}) scale(${scale})" style="--shirt:${esc(shirt)};--hair:${esc(hair)};--front-facing:${sitting?'none':'block'};--back-facing:${sitting?'block':'none'}">${avatarArtwork[sitting?'seated':'person']}</g>`;
   const nodeElements = new Map([...svg.querySelectorAll('[data-node]')].map(el => [el.dataset.node, el]));
   const deviceElements = new Map([...svg.querySelectorAll('[data-device]')].map(el => [el.dataset.device, el]));
   const links = [...svg.querySelectorAll('.cnl-link')];
@@ -251,7 +284,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const desiredPositions = new Map();
   const motions = new Map();
   const agentState = new Map();
-  const reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
+  const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');
+  let reducedMotion=motionPreference?.matches || false;
   let motionFrame = 0;
   let motionEpoch = 0;
   let activeRunId;
@@ -345,9 +379,12 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       el.setAttribute('transform',`translate(${meta.x} ${meta.y})`);
       el.classList.toggle('is-awaiting',human.status==='awaiting_approval');
       el.dataset.status=human.status||'idle';
-      const phrase=human.status==='awaiting_approval'?'请你审阅方案':human.status==='waiting'?'已派工 · 等待成果':human.status==='delivery'?'成果待查阅':human.status==='files_available'?'证据已保留 · 可查阅':'点击提供资料／接收成果';
+      const phrase=human.status==='awaiting_approval'?'请你审阅方案':human.status==='waiting'?'已派工 · 等待成果':human.status==='delivery'?'成果待查阅':human.status==='files_available'?'证据已保留 · 可查阅':human.id==='owner'?'暂无待批事项':'待提供资料';
       el.setAttribute('aria-label',`${human.name}，真实员工，${human.role}，${phrase}`);
-      el.innerHTML=`<title>${esc(human.name)} · 真实员工 · ${esc(human.role)}；${esc(phrase)}</title><circle class="cnl-human-halo-static" cy="-14" r="19"/><g class="cnl-human-person">${person(0,-22,human.color,human.hair,.56)}</g><rect x="-35" y="-35" width="70" height="61" fill="transparent"/><g transform="translate(-36 5)"><rect class="cnl-human-card" width="72" height="26" rx="6"/><text class="cnl-human-name" x="36" y="9" text-anchor="middle">${esc(human.name)}</text><text class="cnl-human-type" x="36" y="17" text-anchor="middle">真实员工 · ${esc(human.role)}</text><text class="cnl-human-state" x="36" y="23" text-anchor="middle">${esc(phrase)}</text></g>`;
+      const sitting=['owner','investment_owner'].includes(meta.id);
+      el.classList.toggle('is-seated',sitting);
+      el.innerHTML=`<title>${esc(human.name)} · 真实员工 · ${esc(human.role)}；${esc(phrase)}</title><ellipse class="cnl-human-halo-static" cy="-10" rx="22" ry="24"/><ellipse class="cnl-human-ground" cy="1" rx="21" ry="5"/><g class="cnl-human-person">${avatar(human.color,human.hair,{sitting})}</g><g class="cnl-human-identity" transform="translate(10 -17)"><circle r="5.5"/><circle cy="-1.5" r="1.5"/><path d="M-2.7 2Q0-1 2.7 2"/></g><rect x="-39" y="-38" width="78" height="72" fill="transparent"/><g class="cnl-person-card" transform="translate(-39 5)"><rect class="cnl-human-card" width="78" height="28" rx="7"/><path class="cnl-human-card-stripe" d="M6 6V21"/><text class="cnl-human-name" x="13" y="10">${esc(human.name)}</text><text class="cnl-human-type" x="68" y="10" text-anchor="end">真实员工</text><text class="cnl-human-state" x="13" y="22">${esc(phrase)}</text></g>`;
+
     }
   }
 
@@ -357,6 +394,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     el.style.transform=`translate(${point.x}px, ${point.y}px)`;
     el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
     if(point.facing) el.style.setProperty('--facing',String(point.facing));
+    const home=AGENT_META[id];el.classList.toggle('is-seated',!!home&&(id.startsWith('invest_')||id==='boss')&&Math.hypot(point.x-home.x,point.y-home.y)<2);
   }
 
   function motionPhrase(id) {
@@ -376,7 +414,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       const agent={...meta,...data,id};agentState.set(id,agent);
       const working=agent.selected!==false && !!NODE_META[agent.nodeId] && agent.status==='working';
       let point=[meta.x,meta.y];
-      if(working) { const offset=perNode[agent.nodeId]||0;perNode[agent.nodeId]=offset+1;const positions=WORK_POSITIONS[agent.nodeId];point=positions[offset%positions.length]; }
+      if(working) { if(id==='boss'&&agent.nodeId==='general_office')point=[meta.x,meta.y];else {const offset=perNode[agent.nodeId]||0;perNode[agent.nodeId]=offset+1;const positions=WORK_POSITIONS[agent.nodeId];point=positions[offset%positions.length];} }
       desiredPositions.set(id,{x:point[0],y:point[1]});
       let el=agentElements.get(id);
       if(!el) {
@@ -393,14 +431,21 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       const signature=JSON.stringify([agent.name,agent.role,agent.color,agent.hair,agent.configured,agent.selected,phrase,working]);
       if(signature!==agentSignatures.get(id)) {
         agentSignatures.set(id,signature);
-        el.innerHTML=`<title>${esc(agent.name)} · ${esc(agent.role)} · 虚拟员工 · ${esc(phrase)}；点击查看任务与配置</title><rect class="cnl-agent-hit" x="-37" y="-37" width="74" height="70" rx="8"/><ellipse class="cnl-ai-aura" cy="-15" rx="17" ry="22"/><ellipse class="cnl-agent-ground" cy="-1" rx="18" ry="5"/><g class="cnl-facing" style="transform:scaleX(var(--facing,1));transform-origin:0 -12px"><g class="cnl-walk-sprite">${person(0,-22,agent.color,meta.hair,.56)}<path class="cnl-stride cnl-stride-one" d="M-5-3L-7 0"/><path class="cnl-stride cnl-stride-two" d="M5-3L7 0"/><g class="cnl-carry-document" transform="translate(12 -12)"><rect x="-4" y="-5" width="9" height="11" rx="1"/><path d="M-2-2H3M-2 0H3M-2 2H2" fill="none" stroke="#b39257" stroke-width=".6"/></g></g></g><g class="cnl-ai-badge" transform="translate(-5 -18)"><rect width="10" height="5" rx="1"/><text x="5" y="3.7" text-anchor="middle">虚拟</text></g><g class="cnl-role-tool" transform="translate(14 -16)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g><g transform="translate(-36 5)"><rect class="cnl-agent-card" width="72" height="24" rx="6"/><text class="cnl-agent-name" x="8" y="10">${esc(String(agent.name).slice(0,5))}</text><text class="cnl-agent-type" x="39" y="9">虚拟员工</text><text class="cnl-agent-state" x="8" y="19">${esc(phrase)}</text><circle class="cnl-config-dot" cx="64" cy="18" r="3.3"/><path class="cnl-config-check" d="M62.2 18l1.2 1.2 2-2.5"/></g>`;
+        el.innerHTML=`<title>${esc(agent.name)} · ${esc(agent.role)} · 虚拟员工 · ${esc(phrase)}；点击查看任务与配置</title><rect class="cnl-agent-hit" x="-40" y="-40" width="80" height="75" rx="8"/><path class="cnl-ai-aura" d="M0-40L20-29V-7L0 5L-20-7V-29Z"/><path class="cnl-agent-ground" d="M-21-1L-10-5H10L21-1L10 4H-10Z"/><path class="cnl-agent-ground-grid" d="M-14-1H14M-7-4L-1 3M3-4L9 3"/><g class="cnl-facing" style="transform:scaleX(var(--facing,1));transform-origin:0 -12px"><g class="cnl-walk-sprite">${avatar(agent.color,meta.hair)}${avatar(agent.color,meta.hair,{sitting:true})}<g class="cnl-agent-headset"><path d="M-6.6-28Q-8-36 0-36Q8-36 6.6-28"/><rect x="-7.8" y="-30" width="3" height="5" rx="1.2"/><rect x="5" y="-30" width="3" height="5" rx="1.2"/><path d="M6.8-25Q6.5-21 3-22"/><circle cx="2.7" cy="-22" r="1"/></g><g class="cnl-carry-document" transform="translate(12 -12)"><rect x="-4" y="-5" width="9" height="11" rx="1"/><path d="M-2-2H3M-2 0H3M-2 2H2" fill="none" stroke="#38a395" stroke-width=".6"/></g></g></g><g class="cnl-ai-badge" transform="translate(-4 -16)"><rect width="8" height="5.5" rx="1.2"/><path d="M2 1.6H6M2 3.6H4.5"/><circle cx="6" cy="3.6" r=".5"/></g><g class="cnl-role-tool" transform="translate(17 -17)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g><g class="cnl-person-card" transform="translate(-39 5)"><rect class="cnl-agent-card" width="78" height="27" rx="7"/><path class="cnl-agent-card-stripe" d="M6 6V20"/><text class="cnl-agent-name" x="12" y="10">${esc(String(agent.name).slice(0,5))}</text><text class="cnl-agent-type" x="68" y="9.5" text-anchor="end">虚拟员工</text><text class="cnl-agent-state" x="12" y="21">${esc(phrase)}</text><circle class="cnl-config-dot" cx="69" cy="20" r="3.1"/><path class="cnl-config-check" d="M67.3 20l1.1 1.1 1.9-2.3"/></g>`;
+
       }
       motionPhrase(id);
     });
   }
 
+  function clearWalkPose(el) {
+    if(!el)return;
+    el.style.setProperty('--walk-phase','0');el.style.setProperty('--walk-bob','0px');el.style.setProperty('--walk-lean','0deg');el.style.setProperty('--walk-stride','0deg');el.style.setProperty('--walk-pace','400ms');
+    el.classList.remove('is-walking','is-facing-side','is-facing-away');delete el.dataset.heading;
+  }
+
   function stopWalk(id) {
-    motions.delete(id);const el=agentElements.get(id);el?.classList.remove('is-walking');
+    motions.delete(id);clearWalkPose(agentElements.get(id));
   }
 
   function ensureMotionFrame() {
@@ -411,9 +456,13 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function tickMotions(now) {
     motionFrame=0;if(destroyed)return;
     for(const [id,motion] of [...motions]) {
-      const progress=Math.max(0,Math.min(1,(now-motion.started)/motion.duration));
-      setAgentPoint(id,pointAlongRoute(motion.route,progress));
-      if(progress>=1) { motions.delete(id);agentElements.get(id)?.classList.remove('is-walking');motion.onArrive?.(); }
+      const sample=walkingSample(motion.route,now-motion.started,motion.duration),el=agentElements.get(id);
+      setAgentPoint(id,sample);
+      if(el) {
+        el.style.setProperty('--walk-phase',String(sample.phase));el.style.setProperty('--walk-bob',`${sample.bob}px`);el.style.setProperty('--walk-lean',`${sample.lean}deg`);el.style.setProperty('--walk-stride',`${sample.stride}deg`);el.style.setProperty('--walk-pace',`${sample.pace||400}ms`);
+        el.dataset.heading=sample.heading;el.classList.toggle('is-facing-side',sample.axis==='x');el.classList.toggle('is-facing-away',sample.heading==='up');
+      }
+      if(sample.arrived) { motions.delete(id);clearWalkPose(el);motion.onArrive?.(); }
     }
     onViewChange();ensureMotionFrame();
   }
@@ -426,7 +475,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     el.dataset.motionPhase=kind;
     const epoch=motionEpoch;
     if(reducedMotion||length<1) { setAgentPoint(id,target);queueMicrotask(()=>{if(!destroyed&&epoch===motionEpoch)onArrive?.();});return; }
-    const duration=Math.max(650,Math.min(5800,length/145*1000));
+    const duration=walkingDuration(route);
     motions.set(id,{route,started:performance.now(),duration,onArrive,kind,event});motionPhrase(id);ensureMotionFrame();
   }
 
@@ -474,14 +523,21 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       walkTo(pair.mover,near,{kind:pair.collecting?'collecting':'delivering_walk',event,onArrive:()=>{
         if(destroyed||epoch!==motionEpoch)return;
         const el=agentElements.get(pair.mover);el.dataset.motionPhase='delivering';el.classList.add('is-delivering');motionPhrase(pair.mover);path.remove();
-        const feedback=deliveryFeedback(event,recipient);
-        // This is only a visual acknowledgement of a real event; it never approves a workflow.
-        onDelivery(event);
-        if(destroyed||epoch!==motionEpoch)return;
+        const timing=handoffTiming(reducedMotion);
+        const face=recipient.x>=near.x?1:-1;el.style.setProperty('--facing',String(face));if(!pair.recipientHuman)receiver?.style.setProperty('--facing',String(-face));
+        el.classList.add('is-offering');
+        let feedback;
+        const transfer=setTimeout(()=>{
+          handoffTimers.delete(transfer);if(destroyed||epoch!==motionEpoch)return;
+          el.classList.remove('is-offering');el.classList.add('is-transferring');receiver?.classList.add('is-acknowledging');
+          feedback=deliveryFeedback(event,recipient);
+          // This acknowledges a real recorded handoff; it never approves a workflow.
+          onDelivery(event);
+        },timing.transfer);handoffTimers.add(transfer);
         const timer=setTimeout(()=>{
-          handoffTimers.delete(timer);feedback.remove();receiver?.classList.remove('is-handoff','is-delivering');el.classList.remove('is-delivering','is-carrying');
+          handoffTimers.delete(timer);feedback?.remove();receiver?.classList.remove('is-handoff','is-delivering','is-acknowledging');el.classList.remove('is-delivering','is-carrying','is-offering','is-transferring');
           deliveryQueue.finish(event._deliveryKey);startDeliveries();resumeWork(pair.mover);if(!pair.recipientHuman)resumeWork(pair.recipient);syncMotionCounts();
-        },reducedMotion?1500:1100);handoffTimers.add(timer);
+        },timing.total);handoffTimers.add(timer);
       }});
     }
     syncMotionCounts();
@@ -492,9 +548,16 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function resetMotions() {
     motionEpoch++;
     cancelAnimationFrame(motionFrame);motionFrame=0;motions.clear();deliveryQueue.clear();handoffTimers.forEach(clearTimeout);handoffTimers.clear();handoffLayer.innerHTML='';
-    agentElements.forEach(el=>{el.classList.remove('is-walking','is-delivering','is-carrying','is-handoff');el.dataset.motionPhase='idle';delete el.dataset.deliveryId;delete el.dataset.deliveryKind;delete el.dataset.targetPerson;});
-    humanElements.forEach(el=>el.classList.remove('is-handoff'));syncMotionCounts();
+    agentElements.forEach(el=>{clearWalkPose(el);el.classList.remove('is-delivering','is-carrying','is-handoff','is-offering','is-transferring','is-acknowledging');el.dataset.motionPhase='idle';delete el.dataset.deliveryId;delete el.dataset.deliveryKind;delete el.dataset.targetPerson;});
+    humanElements.forEach(el=>el.classList.remove('is-handoff','is-acknowledging'));syncMotionCounts();
   }
+
+  const onMotionPreferenceChange=event=>{
+    reducedMotion=event.matches;if(!reducedMotion||destroyed)return;
+    cancelAnimationFrame(motionFrame);motionFrame=0;
+    for(const [id,motion] of [...motions]) {motions.delete(id);setAgentPoint(id,motion.route.at(-1));clearWalkPose(agentElements.get(id));motion.onArrive?.();}
+    scheduleViewChange();
+  };
 
   function update(state={}) {
     const runId=state.runId??null;
@@ -585,6 +648,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   svg.addEventListener('wheel', onWheel, { passive:false });
   const resizeObserver = new ResizeObserver(() => scheduleViewChange());
   resizeObserver.observe(container);
+  motionPreference?.addEventListener?.('change',onMotionPreferenceChange);
   renderHumans([]);
   renderAgents([],{snap:true});
 
@@ -615,6 +679,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     destroy() {
       destroyed = true;
       resizeObserver.disconnect();
+      motionPreference?.removeEventListener?.('change',onMotionPreferenceChange);
       cancelAnimationFrame(viewFrame);
       resetMotions();
       container.innerHTML = '';

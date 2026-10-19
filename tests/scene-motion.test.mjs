@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HUMAN_EMPLOYEES, humanForScenario } from '../dist/people.js';
-import { FLOOR_SEGMENTS, routeBetweenPoints, routeLength, pointAlongRoute, deliveryParticipants, createDeliveryQueue, motionUpdatePolicy } from '../dist/scene-motion.js';
+import { FLOOR_SEGMENTS, routeBetweenPoints, routeLength, pointAlongRoute, walkingDuration, walkingSample, handoffTiming, deliveryParticipants, createDeliveryQueue, motionUpdatePolicy } from '../dist/scene-motion.js';
 
 test('seven explicit human representatives cover each scenario without virtual badges',()=>{
   assert.equal(HUMAN_EMPLOYEES.length,7);
@@ -108,6 +108,67 @@ test('floor graph segments are finite axis-aligned paths',()=>{
     assert.ok(a.every(Number.isFinite)&&b.every(Number.isFinite));
     assert.ok(a[0]===b[0]||a[1]===b[1]);assert.notDeepEqual(a,b);
   }
+});
+
+test('general office connects through its own door and outside corridor without crossing office walls',()=>{
+  const boss={x:604,y:87},owner={x:729,y:87};
+  const local=routeBetweenPoints(boss,owner);
+  assert.equal(routeLength(local),125);
+  const route=routeBetweenPoints(owner,{x:909,y:579});
+  assert.deepEqual(route[0],owner);
+  assert.ok(route.some(p=>p.x===550&&p.y===87),'general office aisle');
+  assert.ok(route.some(p=>p.x===550&&p.y===107),'general office door');
+  assert.ok(route.some(p=>p.x===32&&p.y===107),'outside corridor');
+  assert.ok(route.some(p=>p.x===32&&p.y===411),'main office entrance');
+  assert.deepEqual(route.at(-1),{x:909,y:579});
+  for(let i=1;i<route.length;i++)assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
+});
+
+test('walking sampler eases departure and arrival and stops feet exactly at the endpoint',()=>{
+  const route=[{x:20,y:20},{x:220,y:20}],duration=walkingDuration(route);
+  const start=walkingSample(route,0,duration),early=walkingSample(route,duration*.05,duration);
+  const middle=walkingSample(route,duration*.5,duration),late=walkingSample(route,duration*.95,duration),end=walkingSample(route,duration,duration);
+  assert.equal(start.x,20);assert.equal(start.stride,0);assert.equal(start.bob,0);
+  assert.ok(early.x<30,'first steps cover less than linear travel');
+  assert.equal(middle.x,120);assert.ok(late.x>210,'last steps decelerate');
+  assert.equal(end.x,220);assert.equal(end.y,20);assert.equal(end.arrived,true);
+  assert.equal(end.stride,0);assert.equal(end.bob,0);assert.equal(end.lean,0);
+  assert.equal(start.arrived,false);assert.ok(duration>=900&&duration<=10000);
+  assert.deepEqual(walkingSample(route,duration*2,duration),end,'overdue frame remains at the destination');
+});
+
+test('turns slow down on the corridor centre line and retain the preceding horizontal facing',()=>{
+  const route=[{x:200,y:10},{x:100,y:10},{x:100,y:110}],duration=walkingDuration(route);
+  const before=walkingSample(route,duration*.49,duration),corner=walkingSample(route,duration*.5,duration),after=walkingSample(route,duration*.51,duration);
+  assert.equal(before.y,10);assert.ok(before.x>100);
+  assert.equal(corner.x,100);assert.equal(corner.y,10);
+  assert.equal(after.x,100);assert.ok(after.y>10);
+  assert.equal(before.heading,'left');assert.equal(after.heading,'down');assert.equal(after.facing,-1);
+  const fast=walkingSample(route,duration*.25,duration),fastNext=walkingSample(route,duration*.26,duration);
+  assert.ok(Math.hypot(corner.x-before.x,corner.y-before.y)<Math.hypot(fastNext.x-fast.x,fastNext.y-fast.y),'doorway turn is slower than corridor cruising');
+  for(let i=0;i<=200;i++){
+    const p=walkingSample(route,duration*i/200,duration);
+    assert.ok((p.y===10&&p.x>=100&&p.x<=200)||(p.x===100&&p.y>=10&&p.y<=110));
+    assert.ok(Object.values(p).filter(v=>typeof v==='number').every(Number.isFinite));
+    assert.ok(Math.abs(p.stride)<=14&&p.bob>=-.8&&p.bob<=0&&Math.abs(p.lean)<=1.5);
+  }
+});
+
+test('stride phase is distance based and collinear graph junctions do not cause artificial stops',()=>{
+  const simple=[{x:0,y:20},{x:200,y:20}],junctions=[{x:0,y:20},{x:50,y:20},{x:100,y:20},{x:200,y:20}];
+  assert.equal(walkingDuration(simple),walkingDuration(junctions));
+  for(let i=0;i<=50;i++)assert.deepEqual(walkingSample(simple,i*40,2000),walkingSample(junctions,i*40,2000));
+  const slow=walkingSample(simple,500,2000),fast=walkingSample(simple,250,1000);
+  assert.equal(slow.x,fast.x);assert.equal(slow.phase,fast.phase,'same floor position has the same step phase');
+  assert.equal(walkingDuration([]),0);assert.equal(walkingSample([],400).arrived,true);
+  assert.deepEqual(walkingSample([{x:8,y:9}],0),{x:8,y:9,facing:1,axis:'none',heading:'none',progress:1,phase:0,stride:0,bob:0,lean:0,pace:0,arrived:true});
+});
+
+test('handoff choreography has a distinct transfer and acknowledgement window, with a motion-free alternative',()=>{
+  const normal=handoffTiming(),reduced=handoffTiming(true);
+  assert.ok(normal.approach>0&&normal.transfer>normal.approach&&normal.settle>normal.transfer&&normal.total>normal.settle);
+  assert.equal(reduced.approach,0);assert.equal(reduced.transfer,0);assert.ok(reduced.total>=1000,'readable receipt remains without movement');
+  assert.deepEqual(handoffTiming(),normal,'timings have no clock or global animation state');
 });
 
 test('same-run cancellation and failure halt active and queued exchanges; completion preserves actual final delivery',()=>{

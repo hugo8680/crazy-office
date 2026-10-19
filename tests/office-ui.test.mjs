@@ -251,3 +251,28 @@ test('the existing lightweight poll refreshes model health and submit availabili
 test('a delayed health poll cannot override the result of an explicit model connection check',async()=>{
  const h=harness(),auto=deferred(),oldHealth=deferred();h.scope.a=automationFixture();h.eval('setAutomationState(a,{baseline:true});health={provider:{ready:false,model:"old"}}');h.setResponder(request=>request.url==='/api/provider/check'?{provider:{ready:true,model:'fresh-model',provider:'ollama'}}:request.url==='/api/automation'?auto.promise:oldHealth.promise);const poll=h.eval('refreshAutomation()');await h.eval('action("check-provider")');auto.resolve({automation:automationFixture()});oldHealth.resolve({provider:{ready:false,model:'stale-model'}});await poll;assert.equal(h.eval('health.provider.ready'),true);assert.equal(h.eval('health.provider.model'),'fresh-model');assert.equal(h.element('#availability').textContent,'fresh-model');assert.equal(h.requests.filter(request=>request.url==='/api/provider/check').length,1);
 });
+
+test('总经办提供真实人员与虚拟审校入口，老板审批仍需点击提交',async()=>{
+ const h=harness();h.scope.pending=makeRun({scenarioId:'investment',title:'项目尽调',status:'awaiting_approval',artifacts:[{id:'actual-memo',name:'memo.md',url:'/api/runs/run-a/artifacts/actual-memo'}],approval:{id:'general-approval',kind:'investment',targetHumanId:'owner',title:'请老板审阅',description:'实际待审方案',details:{}}});
+ h.eval('receive(pending,{initial:true});openPanel("node","general_office")');
+ const markup=h.element('#popover-content').innerHTML;assert.match(markup,/总经办/);assert.match(markup,/data-human="owner"/);assert.match(markup,/data-agent="boss"/);assert.match(markup,/审阅并作出决定/);assert.match(markup,/data-open="artifacts"/);assert.equal(h.requests.length,0);
+ await h.click({open:'approval'});assert.equal(h.eval('panel.type'),'approval');assert.equal(h.requests.length,0);
+ h.setResponder(request=>({run:makeRun({scenarioId:'investment',status:'running'})}));await h.click({approval:'true'});
+ const post=h.requests.find(request=>request.method==='POST');assert.equal(post.url,'/api/runs/run-a/approval');assert.equal(post.body.approvalId,'general-approval');assert.equal(post.body.approved,true);
+});
+
+test('总经办不会把人事审批展示成老板待批，也不会代为批准',()=>{
+ const h=harness();h.scope.pending=makeRun({scenarioId:'onboarding',status:'awaiting_approval',approval:{id:'hr-only',kind:'onboarding',targetHumanId:'hr_owner',title:'登记资料核对',details:{}}});h.eval('receive(pending,{initial:true});openPanel("node","general_office")');
+ assert.doesNotMatch(h.element('#popover-content').innerHTML,/审阅并作出决定/);assert.equal(h.requests.length,0);assert.equal(h.eval('run.approval.id'),'hr-only');
+});
+
+test('通知内容未变化时保留原DOM，实时状态不会不断重播入场动画',()=>{
+ const h=harness(),layer=h.eval('noticeLayer');let html='',writes=0;Object.defineProperty(layer,'innerHTML',{get:()=>html,set:value=>{html=value;writes++;},configurable:true});
+ h.eval('notices.set("zhang",{id:"actual-receipt",agentId:"zhang",task:"实际建库",action:"执行SQLite",result:"已生成数据库",failed:false});renderNotices();');assert.equal(writes,1);assert.match(html,/notice-delivered/);
+ h.eval('renderNotices();renderNotices();');assert.equal(writes,1);
+ h.eval('notices.get("zhang").result="存在待核查项";notices.get("zhang").failed=true;renderNotices();');assert.equal(writes,2);assert.match(html,/notice-review/);assert.match(html,/存在待核查项/);
+});
+
+test('新的提示卡保留可访问状态并转义用户内容',()=>{
+ const h=harness();h.eval('toast("<img src=x onerror=alert(1)>")');const el=h.element('#toast');assert.match(el.innerHTML,/toast-symbol/);assert.match(el.innerHTML,/toast-progress/);assert.match(el.innerHTML,/&lt;img/);assert.doesNotMatch(el.innerHTML,/<img/);assert.equal(el.getAttribute('role'),'status');assert.equal(el.getAttribute('aria-live'),'polite');
+});

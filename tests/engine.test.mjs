@@ -148,7 +148,7 @@ test('采购检索不能只抓一个页面就遗漏其他用户指定供应商',
   if(input.messages.at(-1)?.content.startsWith('尚未抓取')){prevented=true;return {action:'tool',tool:'fetch_quote',args:{url:urls[1]},summary:'remaining URL'};}
   return {action:'finish',summary:'actual receipts checked',output:'quotes checked'};
  },toolboxFactory:async({runDir})=>{const artifacts=[];return {definitions:allNames.map(name=>({name})),artifacts:()=>artifacts,publicState:()=>({}),execute:async(name,args)=>{if(name==='write_report'){await writeFile(path.join(runDir,'report.txt'),'actual test report');artifacts.push({id:'report',name:'report.txt',path:'report.txt',bytes:18});}return name==='fetch_quote'?{evidence:{quotes:[{requestedUrl:args.url,status:'pending_inquiry'}]}}:{summary:'test receipt'};}};}});
- try{const run=await engine.create({scenarioId:'procurement',input:{requirements:'test hardware',budget:1000,currency:'USD',urls:urls.join('\n')}});await until(()=>engine.runs.get(run.id).status==='completed');assert.equal(prevented,true);assert.equal(engine.runs.get(run.id).tasks[0].toolCalls,3);}finally{await wait(20);await clean();}
+ try{const run=await engine.create({scenarioId:'procurement',input:{requirements:'test hardware',budget:1000,currency:'USD',urls:urls.join('\n')}});await until(()=>engine.runs.get(run.id).status==='completed');assert.equal(prevented,true);assert.equal(engine.runs.get(run.id).tasks[0].toolCalls,3);}finally{await engine.shutdown();await clean();}
 });
 test('长交付需求明确拒绝，受支持的补充文本完整交给模型',async()=>{
  let seen='';const {engine,clean}=await setup({modelCall:input=>{if(input.context.input.data?.preview)seen=input.context.input.data.preview;return model(input);}});
@@ -367,7 +367,7 @@ test('并行审批准确找到请求员工，先交方案而仅真人有效选�
  try{
   const started=await engine.create({scenarioId:'finance',input:{company:'parallel approval',year:2025,data:'explicit provided data'}});const run=await until(()=>{const r=engine.runs.get(started.id);return r.status==='awaiting_approval'&&r;});const approvalId=run.approval.id;
   assert.equal(run.tasks.filter(t=>t.status==='running').length,2);assert.equal(run.approval.agentId,'liu');assert.equal(run.approval.taskId,'audit');
-  const request=run.events.find(e=>e.deliveryKind==='approval_request');assert.equal(request.approvalId,approvalId);assert.equal(request.taskId,'audit');assert.equal(request.sourceAgentId,'liu');assert.equal(request.targetHumanId,'owner');assert.equal(request.targetNodeId,'executive');assert.equal(request.sourceNodeId,'finance');assert.ok(request.artifactIds.includes('audit-proposal'));assert.ok(!request.artifactIds.includes('calculate_finance'));assert.equal(request.approved,undefined);assert.equal(request.decision,undefined);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'||e.deliveryKind==='final_delivery'),false);
+  const request=run.events.find(e=>e.deliveryKind==='approval_request');assert.equal(request.approvalId,approvalId);assert.equal(request.taskId,'audit');assert.equal(request.sourceAgentId,'liu');assert.equal(request.targetHumanId,'owner');assert.equal(request.targetNodeId,'general_office');assert.equal(request.sourceNodeId,'finance');assert.ok(request.artifactIds.includes('audit-proposal'));assert.ok(!request.artifactIds.includes('calculate_finance'));assert.equal(request.approved,undefined);assert.equal(request.decision,undefined);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'||e.deliveryKind==='final_delivery'),false);
   await assert.rejects(engine.approve(run.id,{approved:true,approvalId:'stale'}),/失效/);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'),false);
   await assert.rejects(engine.approve(run.id,{approved:'true',approvalId}),/批准或拒绝/);assert.equal(run.events.some(e=>e.deliveryKind==='approval_decision'),false);
   await engine.approve(run.id,{approved:false,approvalId,note:'真人暂缓'});const decisions=run.events.filter(e=>e.deliveryKind==='approval_decision');assert.equal(decisions.length,1);assert.equal(decisions[0].sourceHumanId,'owner');assert.equal(decisions[0].targetAgentId,'liu');assert.equal(decisions[0].taskId,'audit');assert.equal(decisions[0].approvalId,approvalId);assert.equal(decisions[0].approved,false);assert.equal(decisions[0].decision,'declined');assert.match(decisions[0].summary,/真人暂缓/);
@@ -438,7 +438,7 @@ test('入职审批交给真实人事负责人，非法目标拒绝且旧场景�
   const request=run.events.findLast(e=>e.deliveryKind==='approval_request');assert.equal(request.targetHumanId,'hr_owner');assert.equal(request.targetNodeId,'workstations');assert.equal(request.sourceAgentId,'hr');
   await engine.approve(run.id,{approved:true,approvalId:run.approval.id});const actual=await hrPromise;assert.equal(actual.targetHumanId,'hr_owner');assert.ok(actual.approvalId);
   const decision=run.events.findLast(e=>e.deliveryKind==='approval_decision');assert.equal(decision.sourceHumanId,'hr_owner');assert.equal(decision.sourceNodeId,'workstations');assert.match(decision.summary,/真实人事负责人批准本次入职登记/);assert.ok(!decision.summary.includes('隔离'));
-  const oldPromise=engine.requestApproval(run,{kind:'ddos',title:'旧隔离审批'});assert.equal(run.approval.targetHumanId,'owner');assert.equal(run.approval.targetNodeId,'executive');await engine.approve(run.id,{approved:false,approvalId:run.approval.id});await oldPromise;assert.equal(run.events.findLast(e=>e.deliveryKind==='approval_decision').sourceHumanId,'owner');assert.match(run.events.findLast(e=>e.actor==='human').text,/拒绝变更/);
+  const oldPromise=engine.requestApproval(run,{kind:'ddos',title:'旧隔离审批'});assert.equal(run.approval.targetHumanId,'owner');assert.equal(run.approval.targetNodeId,'general_office');await engine.approve(run.id,{approved:false,approvalId:run.approval.id});await oldPromise;assert.equal(run.events.findLast(e=>e.deliveryKind==='approval_decision').sourceHumanId,'owner');assert.match(run.events.findLast(e=>e.actor==='human').text,/拒绝变更/);
  }finally{await engine.shutdown();await clean();}
 });
 
@@ -464,4 +464,17 @@ test('入职六阶段依赖图真实等待人事审批后交付，独立核查�
    const sent=snapshots.join('\n');for(const key of ['employeeNumber','employeeName','startDate','workEmail','manager'])assert.ok(!sent.includes(input[key]),key);assert.ok(sent.includes(input.department));assert.ok((await engine.artifact(run.id,'onboarding-report')).bytes>0);
   }finally{await engine.shutdown();await clean();}
  }
+});
+
+test('采购的技术与财务成果真实交接至总经办，再向采购负责人交付',async()=>{
+ const {engine,clean}=await setup({receiptHandoff:true,toolboxFactory:receiptToolbox(),modelCall:async request=>{
+  const remaining=request.context.taskProgress.remainingRequiredTools;
+  return remaining.length?{action:'tool',tool:remaining[0],args:{},summary:'unit-test authorized tool request'}:{action:'finish',summary:'unit-test tool receipts checked',output:'unit-test research receipts complete'};
+ }});
+ try{
+  const started=await engine.create({scenarioId:'procurement',input:{requirements:'unit-test public quote workflow',budget:30000,currency:'CNY',urls:''}});await until(()=>engine.runs.get(started.id).status==='completed');const run=await engine.get(started.id),management=run.tasks.find(t=>t.id==='request');
+  assert.equal(management.agentId,'boss');assert.equal(management.nodeId,'general_office');assert.equal(management.status,'done');assert.equal(run.nodes.general_office.status,'online');
+  for(const source of ['zhang','finance']){const handoff=run.events.find(e=>e.deliveryKind==='evidence'&&e.sourceAgentId===source&&e.targetAgentId==='boss');assert(handoff);assert.equal(handoff.targetNodeId,'general_office');assert(handoff.artifactIds.length>0);}
+  const final=run.events.find(e=>e.deliveryKind==='final_delivery');assert.equal(final.sourceAgentId,'boss');assert.equal(final.sourceNodeId,'general_office');assert.equal(final.targetHumanId,'purchasing_owner');assert.equal(run.events.some(e=>e.actor==='human'&&e.approved===true),false);
+ }finally{await engine.shutdown();await clean();}
 });

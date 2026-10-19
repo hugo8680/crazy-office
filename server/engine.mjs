@@ -11,7 +11,7 @@ const DATA = resolve(process.env.OFFICE_DATA_DIR || '.office-data');
 const MAX_STEPS = 9;
 const MAX_EVENTS = 400;
 const HUMAN_FOR_SCENARIO={finance:'finance_owner',procurement:'purchasing_owner',ddos:'it_owner',database:'it_owner',delivery:'business_owner',investment:'investment_owner',onboarding:'hr_owner'};
-const HUMAN_NODES={owner:'executive',finance_owner:'finance',purchasing_owner:'reception',it_owner:'server',business_owner:'meeting',investment_owner:'investment',hr_owner:'workstations'};
+const HUMAN_NODES={owner:'general_office',finance_owner:'finance',purchasing_owner:'reception',it_owner:'server',business_owner:'meeting',investment_owner:'investment',hr_owner:'workstations'};
 const compact = value => {
   const s=typeof value==='string'?value:JSON.stringify(value);
   return s.length>18000?s.slice(0,18000)+'\n[内容过长，参见已登记产物]':s;
@@ -168,7 +168,7 @@ export class OfficeEngine extends EventEmitter {
     const provider=await this.providerStatus();if(this.stopping)throw apiError('服务正在停止，暂不接受新任务。',503);if(!provider.ready)throw apiError(provider.message||'模型未连接，请先完成模型配置。',503);
     const id=randomUUID(),runDir=join(this.dataDir,id);await mkdir(runDir,{recursive:true,mode:0o700});
     const metadata=source==='automation'?{source:'automation',automation:Object.fromEntries(['companyName','templateId','inputBasis','dispatchedAt'].filter(k=>typeof automation?.[k]==='string').map(k=>[k,automation[k].slice(0,500)]))}:{source:'manual'};
-    const run={id,scenarioId,...metadata,title:scenario.title,status:'queued',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),provider:provider.provider,model:provider.model,inputSummary:input.example?'明确选择的示例输入':source==='automation'?'自动派工：'+(metadata.automation.inputBasis||'公司内部准备任务'):'用户提供的任务输入',input:structuredClone(input),configs,runDir,tasks:scenario.tasks.map(t=>({id:t.id,title:t.title,agentId:t.agentId,nodeId:t.nodeId,dependencies:t.dependencies,status:'pending',action:'',result:'',output:'',toolCalls:0,startedAt:null,finishedAt:null})),events:[],artifacts:[],approval:null,summary:'',error:null,nodes:Object.fromEntries(['internet','firewall','core','server','storage','ups','access','workstations','meeting','executive','reception','finance','investment'].map(id=>[id,{status:'online'}]))};
+    const run={id,scenarioId,...metadata,title:scenario.title,status:'queued',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),provider:provider.provider,model:provider.model,inputSummary:input.example?'明确选择的示例输入':source==='automation'?'自动派工：'+(metadata.automation.inputBasis||'公司内部准备任务'):'用户提供的任务输入',input:structuredClone(input),configs,runDir,tasks:scenario.tasks.map(t=>({id:t.id,title:t.title,agentId:t.agentId,nodeId:t.nodeId,dependencies:t.dependencies,status:'pending',action:'',result:'',output:'',toolCalls:0,startedAt:null,finishedAt:null})),events:[],artifacts:[],approval:null,summary:'',error:null,nodes:Object.fromEntries(['internet','firewall','core','server','storage','ups','access','workstations','meeting','executive','reception','finance','investment','general_office'].map(id=>[id,{status:'online'}]))};
     this.runs.set(id,run);this.controls.set(id,{abort:new AbortController(),approval:null});this.publish(run);
     setImmediate(()=>{const execution=this.execute(run).catch(error=>this.fail(run,error)).finally(()=>this.executions.delete(id));this.executions.set(id,execution);});
     return this.publicRun(run);

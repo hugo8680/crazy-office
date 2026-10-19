@@ -1,6 +1,6 @@
 /* Functional human representatives; these do not claim that real people are online. */
 export const HUMAN_EMPLOYEES = Object.freeze([
-  { id:'owner', name:'你', role:'老板／最终审批', nodeId:'executive', x:909, y:315, color:'#d29165', hair:'#4e4742', responsibility:'审阅方案，决定批准、退回或暂缓。' },
+  { id:'owner', name:'你', role:'老板／最终审批', nodeId:'general_office', x:755, y:87, color:'#d29165', hair:'#4e4742', responsibility:'审阅方案，决定批准、退回或暂缓。' },
   { id:'hr_owner', name:'人事负责人', role:'入职资料与登记审批', nodeId:'workstations', x:205, y:300, color:'#d59c7b', hair:'#51453d', responsibility:'提供已确认录用员工的登记资料，亲自审批本地登记并接收资源待办。' },
   { id:'finance_owner', name:'财务负责人', role:'财务资料与验收', nodeId:'finance', x:786, y:579, color:'#d9a36d', hair:'#5a443b', responsibility:'提供财务资料，核对口径并接收财务报告。' },
   { id:'it_owner', name:'IT负责人', role:'技术需求与验收', nodeId:'server', x:757, y:390, color:'#c98a75', hair:'#424644', responsibility:'提供日志、架构和业务约束，接收修复验证或数据库成果。' },
