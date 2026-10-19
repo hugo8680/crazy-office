@@ -1,6 +1,6 @@
 {
   "name": "crazy-network-lab",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "private": true,
   "type": "module",
   "description": "A local office with real model-driven virtual employees and verifiable tools.",

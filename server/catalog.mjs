@@ -70,8 +70,8 @@ export const SCENARIOS = [
     {name:'urls',label:'候选供应商链接（可选，每行一个）',type:'textarea',placeholder:'可填写官网或授权经销商产品页面，最多 8 个'},
   ], tasks:[
     task('research','检索并提取真实互联网报价','business','reception',[],['search_web','fetch_quote'],'先用search_web检索与用户需求相关的公开服务器报价。然后优先一次调用fetch_quote({urls:[...]})批量抓取候选链接，覆盖不同供应商及用户给的全部URL（最多8个）。搜索摘要不能代替报价证据，缺价明确标记待询价，云服务不能冒充硬件整机。'),
-    task('technical','核对服务器配置可比性','zhang','server',['research'],['compare_quotes'],'逐项比较已经抓取的真实报价及配置，区分整机/配件/云服务、是否满足CPU内存存储保修需求。未核实或配置不同不能作为等价低价。'),
-    task('budget','核对预算与采购成本','finance','finance',['research'],['compare_quotes'],'依据抓取证据核对币种、含税信息、配送与保修，缺项列为未知。不要自行换算汇率，不把未知总成本说成预算内。'),
+    task('technical','核对服务器配置可比性','zhang','server',['research'],['compare_quotes'],'逐项比较已经抓取的真实报价及配置，区分整机/配件/云服务、是否满足CPU内存存储保修需求。调用compare_quotes时purpose填写“服务器配置审查”，notes只写本岗位实际发现。未核实或配置不同不能作为等价低价。'),
+    task('budget','核对预算与采购成本','finance','finance',['research'],['compare_quotes'],'依据抓取证据核对币种、含税信息、配送与保修，缺项列为未知。调用compare_quotes时purpose填写“预算与采购成本审查”，notes说明本岗位成本缺口，不能沿用技术岗位的用途标签。不要自行换算汇率，不把未知总成本说成预算内。'),
     task('request','形成可复核采购申请','boss','executive',['technical','budget'],['write_report'],'形成采购申请供真人决策，列明每个有效报价原始URL、抓取时间、价格币种、配置、税费和未知项。说明检索范围，不能声称穷尽全网。无可比有效报价时输出待询价申请，不编推荐成交价。不下单、不发送询价。'),
   ]},
   { id:'ddos', title:'DDoS 诊断与隔离修复', description:'分析请求日志，生成防护策略，审批后在隔离副本验证。', icon:'shield', room:'网络机房', nodeId:'firewall', outputs:['流量分析证据','防护配置','正常流量与拦截验证','事故复盘'], agents:['ops','liu','zhang','lead'], exampleLabel:'隔离演练请求日志', fields:[
