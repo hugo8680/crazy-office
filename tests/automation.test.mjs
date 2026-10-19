@@ -29,8 +29,14 @@ test('默认停用，三个内部任务资料符合现有验证且不包含虚�
   const {controller,calls,timers}=await harness(t);const status=await controller.publicStatus();
   assert.equal(status.enabled,false);assert.equal(status.status,'disabled');assert.equal(status.nextRunAt,null);assert.equal(timers.size,0);assert.equal(calls.length,0);
   assert.equal(status.companyName,COMPANY_NAME);assert.deepEqual(status.scenarioIds,['database','delivery','procurement']);
-  for(const id of status.scenarioIds){const task=companyTaskInput(id,status.companyProfile);assert.equal(task.available,true);OfficeEngine.prototype.validateInput.call({},getScenario(id),task.input);assert.match(task.input.requirements,/草案/);assert.equal(task.input.example,undefined);}
+  for(const id of status.scenarioIds){const task=companyTaskInput(id,status.companyProfile);assert.equal(task.available,true);OfficeEngine.prototype.validateInput.call({},getScenario(id),task.input);assert.match(task.input.requirements,/草案/);assert.equal(task.input.example,undefined);assert.equal(task.input.databaseTestMode,id==='database'?'contract-only':undefined);}
   assert.equal('taskInputs' in status,false);
+});
+
+test('真实员工提供的数据库任务不会被默认模板添加合同范围限制',()=>{
+ const supplied={requirements:'用户自定义业务数据库',databaseChecks:[{name:'用户合同',sql:'SELECT 1;'}]};
+ const task=companyTaskInput('database',{name:COMPANY_NAME,verifiedFacts:[]},{database:supplied});
+ assert.equal(task.available,true);assert.equal(task.input.databaseTestMode,undefined);assert.deepEqual(task.input,supplied);
 });
 
 test('随机3至5分钟派发，带来源元数据并保存受限权限配置',async t=>{

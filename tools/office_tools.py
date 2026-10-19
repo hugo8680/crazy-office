@@ -356,6 +356,11 @@ def db_build(inp,args):
     return {'summary':'已真实建立SQLite数据库，导入%d条%s'%(imported,record_kind)+('；无用户数据' if imported==0 else ''),'evidence':result,'files':['database/company.sqlite','database/build.json']}
 
 def db_test(inp,args):
+    contract_only=inp.get('databaseTestMode')=='contract-only'
+    if contract_only:
+        if not isinstance(inp.get('databaseChecks'),list) or not 1<=len(inp['databaseChecks'])<=30:raise ValueError('contract-only模式需要1到30项有效的databaseChecks验收合同')
+        if args.get('tests',[])!=[]:raise ValueError('合同范围验收模式的tests须为[]；工具会独立复跑全部databaseChecks，不接受附加测试')
+        if not isinstance(args.get('queries',[]),list) or len(args.get('queries',[]))>1:raise ValueError('合同范围验收模式最多接受一条SELECT查询')
     if not path('database/company.sqlite').exists():raise ValueError('请先建立数据库')
     c=connect_db();c.row_factory=sqlite3.Row
     try:
@@ -366,12 +371,16 @@ def db_test(inp,args):
         queries=[]
         for q in args.get('queries',[]):
             qs=q.get('sql') if isinstance(q,dict) else q
-            for s in safe_sql(qs,'select'):
+            statements=safe_sql(qs,'select')
+            if contract_only and len(statements)>1:raise ValueError('合同范围验收模式最多接受一条SELECT查询，不能在同一项拼接多条SQL')
+            for s in statements:
                 cur=c.execute(s);rr=[dict(r) for r in cur.fetchmany(101)];queries.append({'sql':s,'rows':rr[:100],'truncated':len(rr)>100})
         result={'passed':integrity=='ok' and not fk and all(t['passed'] for t in tests+contract_tests),'integrity':integrity,'foreignKeyViolations':fk,'schema':schema,'tests':tests,'contractTests':contract_tests,'queries':queries,'testCoverage':'原始输入显式SQL合同由工具独立复测；其他验收仅覆盖实际执行的用例，没有用例时只能确认SQLite结构和完整性','allChangesRolledBack':True}
+        if contract_only:result.update({'databaseTestMode':'contract-only','additionalTestsNotRequested':True,'verificationScope':'explicit_database_contracts','contractCount':len(contract_tests),'testCoverage':'仅复测本次明确声明的%d项SQL验收合同及SQLite完整性、外键；未请求附加测试，不代表业务或测试全覆盖'%len(contract_tests)})
         save('database/tests.json',result)
     finally:c.close()
-    return {'summary':'数据库完整性'+('通过' if result['passed'] else '有失败项')+'，执行%d项回滚测试'%(len(tests)+len(contract_tests)),'evidence':result,'files':['database/tests.json']}
+    summary=('数据库合同范围验收'+('通过' if result['passed'] else '有失败项')+'，独立执行%d项SQL合同；未请求附加测试'%len(contract_tests)) if contract_only else '数据库完整性'+('通过' if result['passed'] else '有失败项')+'，执行%d项回滚测试'%(len(tests)+len(contract_tests))
+    return {'summary':summary,'evidence':result,'files':['database/tests.json']}
 
 
 def network_inspect(inp,args):

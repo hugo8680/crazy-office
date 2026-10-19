@@ -456,8 +456,47 @@ test('Ollama requires executable SQL, complete test rows and a bounded real repo
   assert.deepEqual(tests.properties.tests.items.required, ['name', 'sql', 'expectError']);
   assert.deepEqual(report.required, ['title', 'content']);
   assert.equal(report.properties.content.minLength, 100);
-  assert.equal(report.properties.content.maxLength, 1000);
+  assert.equal(report.properties.content.maxLength, 450);
+  assert.match(body.messages.at(-1).content, /200至350字/);
+  assert.match(body.messages.at(-1).content, /CHECK求值为NULL不会拒绝写入/);
   assert.deepEqual(definitions, originals);
+});
+
+test('Ollama contract-only database mode requests empty tests and at most one SELECT without losing source contracts', async () => {
+  const definition = { name: 'test_database', parameters: { type: 'object', additionalProperties: false, properties: {
+    tests: { type: 'array', maxItems: 30, items: { type: 'object', additionalProperties: false, properties: { name: { type: 'string' }, sql: { type: 'string' }, expectError: { type: 'boolean' } } } },
+    queries: { type: 'array', maxItems: 10, items: { type: 'string' } },
+  } } };
+  const original = structuredClone(definition);
+  const checks = [{ name: '独立合同', setupSql: 'INSERT INTO items VALUES(1);', sql: 'SELECT id FROM items;', expectedRows: 1 }];
+  const context = { input: { databaseTestMode: 'contract-only', databaseChecks: checks } };
+  let body;
+  const provider = createProvider({ env: ollamaEnv, configPath: '/not-present/provider.json', fetch: async (url, options) => { body = JSON.parse(options.body); return ollamaResponse({ action: 'tool', tool: 'test_database', args: { tests: [], queries: ['SELECT COUNT(*) FROM items;'] }, summary: '独立复跑合同', output: '' }); } });
+  const decision = await provider.decide({ ...input, tools: [definition], context });
+  const schema = body.format.oneOf[0].properties.args;
+  assert.equal(schema.properties.tests.maxItems, 0); assert.deepEqual(schema.required, ['tests']); assert.equal(schema.properties.queries.maxItems, 1);
+  assert.match(body.messages.at(-1).content, /合同范围验收/); assert.match(body.messages.at(-1).content, /不要重复生成合同SQL/); assert.match(body.messages.at(-1).content, /不将合同范围通过称为全覆盖/);
+  assert.deepEqual(JSON.parse(body.messages[0].content.split('\n\n')[1]).context.input.databaseChecks, checks);
+  assert.deepEqual(decision.args.tests, []); assert.deepEqual(definition, original);
+  for (const taskInput of [{ databaseChecks: checks }, { databaseTestMode: 'contract-only', databaseChecks: [] }, { databaseTestMode: 'contract-only', databaseChecks: [{ name: '缺少SQL' }] }, { databaseTestMode: 'contract-only', databaseChecks: [{ ...checks[0], expectedRows: -1 }] }]) {
+    await provider.decide({ ...input, tools: [definition], context: { input: taskInput } });
+    const ordinary = body.format.oneOf[0].properties.args;
+    assert.equal(ordinary.properties.tests.maxItems, 30); assert.equal(ordinary.properties.queries.maxItems, 10);
+    assert.doesNotMatch(body.messages.at(-1).content, /本任务明确采用合同范围验收/);
+  }
+});
+
+test('Ollama bounded report generation preserves actual model content and complete input evidence', async () => {
+  const definition = { name: 'write_report', parameters: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, content: { type: 'string', maxLength: 50000 } }, required: ['title', 'content'] } };
+  const content = '真实工具回执。'.repeat(32) + '仅通过明确声明的合同；未请求附加测试。文件：database/tests.json。';
+  const originalEvidence = '完整证据不可静默截断。'.repeat(800);
+  let body;
+  const provider = createProvider({ env: ollamaEnv, configPath: '/not-present/provider.json', fetch: async (url, options) => { body = JSON.parse(options.body); return ollamaResponse({ action: 'tool', tool: 'write_report', args: { title: '合同范围验收记录', content }, summary: '写入实际结论', output: '' }); } });
+  const decision = await provider.decide({ ...input, tools: [definition], context: { evidence: originalEvidence } });
+  assert.equal(body.format.oneOf[0].properties.args.properties.content.maxLength, 450);
+  assert.equal(decision.args.content, content); assert.ok(content.length >= 200 && content.length <= 350);
+  assert.equal(JSON.parse(body.messages[0].content.split('\n\n')[1]).context.evidence, originalEvidence);
+  assert.equal(definition.parameters.properties.content.maxLength, 50000);
 });
 
 test('proxy helper respects an existing application environment without exposing credentials', async () => {

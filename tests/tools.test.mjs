@@ -49,7 +49,7 @@ test('the model can submit isolated setup SQL through the real test tool contrac
 
 test('explicit database contracts reject missing currency/price CHECK before saving DDL, then corrected design builds and independently passes',async()=>{
  const input=companyTaskInput('database',{name:COMPANY_NAME,verifiedFacts:[]}).input;
- assert.equal(input.example,undefined);assert.equal(input.isExample,true);assert.equal(input.databaseChecks.length,11);assert.match(input.requirements,/不代表公司既有生产表结构/);
+ assert.equal(input.example,undefined);assert.equal(input.isExample,true);assert.equal(input.databaseTestMode,'contract-only');assert.equal(input.databaseChecks.length,11);assert.match(input.requirements,/不代表公司既有生产表结构/);
  const samples=JSON.parse(input.data.text);assert.deepEqual(Object.values(samples).map(rows=>rows.length),[1,1,1]);assert.match(samples.suppliers[0].name,/sample/);assert.match(samples.candidates[0].model,/sample/);assert.equal(samples.quotes[0].source_url,'https://example.invalid/sample-quote');assert.equal(samples.quotes[0].fetched_at,'2000-01-01T00:00:00Z');assert.equal(samples.quotes[0].price,null);
  await withBox(input,async(box,dir)=>{
   const omitted=procurementPrototypeDdl.replace(" CHECK(currency IN ('CNY','USD'))",'').replace(' CHECK(price IS NULL OR price>=0)','');
@@ -59,7 +59,41 @@ test('explicit database contracts reject missing currency/price CHECK before sav
   assert.equal(designed.evidence.designChecks.passed,true);assert.equal(designed.evidence.designChecks.testCount,11);assert(designed.evidence.designChecks.tests.every(row=>row.passed));assert(designed.artifacts.some(file=>file.name==='design-checks.json'));
   const receipt=JSON.parse(await fs.readFile(path.join(dir,'database/design-checks.json'),'utf8'));assert.equal(receipt.allChangesRolledBack,true);assert.equal(receipt.tests.filter(row=>row.constraintError).length,9);
   const built=await box.execute('build_database',{},'ops');assert.equal(built.evidence.importedRows,3);assert.equal(built.evidence.importedBusinessRows,0);assert.equal(built.evidence.validationSampleRows,3);assert.equal(built.evidence.validationSamplesOnly,true);assert.equal(built.evidence.sampleSource,'explicit_example_input');
-  const verified=await box.execute('test_database',{queries:['SELECT COUNT(*) AS n FROM suppliers;','SELECT COUNT(*) AS n FROM candidates;','SELECT COUNT(*) AS n FROM quotes;','SELECT price,source_url FROM quotes;']},'liu');assert.equal(verified.evidence.passed,true);assert.equal(verified.evidence.contractTests.length,11);assert(verified.evidence.contractTests.every(row=>row.passed));assert.deepEqual(verified.evidence.queries.slice(0,3).map(query=>query.rows[0].n),[1,1,1]);assert.equal(verified.evidence.queries[3].rows[0].price,null);
+  const verified=await box.execute('test_database',{tests:[],queries:['SELECT (SELECT COUNT(*) FROM suppliers) AS suppliers,(SELECT COUNT(*) FROM candidates) AS candidates,(SELECT COUNT(*) FROM quotes) AS quotes,price,source_url FROM quotes;']},'liu');assert.equal(verified.evidence.passed,true);assert.equal(verified.evidence.contractTests.length,11);assert(verified.evidence.contractTests.every(row=>row.passed));const row=verified.evidence.queries[0].rows[0];assert.deepEqual([row.suppliers,row.candidates,row.quotes],[1,1,1]);assert.equal(row.price,null);
+  assert.equal(verified.evidence.additionalTestsNotRequested,true);assert.equal(verified.evidence.verificationScope,'explicit_database_contracts');assert.equal(verified.evidence.contractCount,11);assert.deepEqual(verified.evidence.tests,[]);assert.match(verified.evidence.testCoverage,/不代表业务或测试全覆盖/);assert.match(verified.summary,/合同范围验收通过/);
+  const testReceipt=JSON.parse(await fs.readFile(path.join(dir,'database/tests.json'),'utf8'));assert.equal(testReceipt.contractCount,11);assert.equal(testReceipt.allChangesRolledBack,true);assert.deepEqual(testReceipt.contractTests,verified.evidence.contractTests);
+ });
+});
+
+test('contract-only database tests reject extra cases and excess queries without writing a success receipt',async()=>{
+ const input=companyTaskInput('database',{name:COMPANY_NAME,verifiedFacts:[]}).input;
+ await withBox(input,async(box,dir)=>{
+  await box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang');await box.execute('build_database',{},'ops');
+  await assert.rejects(()=>box.execute('test_database',{tests:[{name:'重复合同',sql:'SELECT 1;',expectError:false}]},'liu'),/tests须为\[\]/);
+  for(const queries of [['SELECT 1;','SELECT 2;'],['SELECT 1; SELECT 2;']])await assert.rejects(()=>box.execute('test_database',{tests:[],queries},'liu'),/最多接受一条SELECT查询/);
+  await assert.rejects(fs.stat(path.join(dir,'database/tests.json')),error=>error.code==='ENOENT');
+  const verified=await box.execute('test_database',{tests:[]},'liu');assert.equal(verified.evidence.contractCount,11);assert.equal(verified.evidence.passed,true);assert.deepEqual(verified.evidence.queries,[]);
+ });
+});
+
+test('contract-only mode requires valid contracts and preserves actual failed contract outcomes',async()=>{
+ await withBox({},async(box,dir)=>{
+  await box.execute('design_database',{ddl:'CREATE TABLE items(id INTEGER PRIMARY KEY);'},'zhang');await box.execute('build_database',{},'ops');
+  for(const databaseChecks of [undefined,[],[{name:'无SQL'}]]){
+   const strict=await createToolbox({runDir:dir,input:{databaseTestMode:'contract-only',databaseChecks}});
+   await assert.rejects(()=>strict.execute('test_database',{tests:[]},'liu'),/有效的databaseChecks|SQL为空/);
+  }
+  const strict=await createToolbox({runDir:dir,input:{databaseTestMode:'contract-only',databaseChecks:[{name:'未实现的负数限制',sql:'INSERT INTO items(id) VALUES(-1);',expectError:true}]}});
+  const tested=await strict.execute('test_database',{tests:[],queries:['SELECT COUNT(*) AS n FROM items;']},'liu');
+  assert.equal(tested.evidence.passed,false);assert.equal(tested.evidence.contractCount,1);assert.equal(tested.evidence.contractTests[0].passed,false);assert.match(tested.evidence.contractTests[0].reason,/未触发预期约束拒绝/);assert.equal(tested.evidence.queries[0].rows[0].n,0);assert.match(tested.summary,/有失败项/);
+ });
+});
+
+test('ordinary database requests retain additional tests and multiple SELECT queries',async()=>{
+ await withBox({databaseChecks:[{name:'原始合同',sql:'SELECT id FROM items;',expectedRows:0}]},async box=>{
+  await box.execute('design_database',{ddl:'CREATE TABLE items(id INTEGER PRIMARY KEY);'},'zhang');await box.execute('build_database',{},'ops');
+  const tested=await box.execute('test_database',{tests:[{name:'手工附加插入',sql:'INSERT INTO items VALUES(1);',expectError:false}],queries:['SELECT COUNT(*) AS n FROM items;','SELECT 2 AS n;']},'liu');
+  assert.equal(tested.evidence.passed,true);assert.equal(tested.evidence.tests.length,1);assert.equal(tested.evidence.contractTests.length,1);assert.equal(tested.evidence.queries.length,2);assert.equal(tested.evidence.additionalTestsNotRequested,undefined);
  });
 });
 
