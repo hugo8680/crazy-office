@@ -92,7 +92,7 @@ export const SCENARIOS = [
     task('requirements','梳理实体与验收条件','business','reception',[],['extract_requirements'],'从用户业务需求和上传数据提取实体、字段、关系、约束及验收条件。未明确需求标为假设，不擅自添加敏感个人字段。'),
     task('design','设计数据库结构和建库 SQL','zhang','server',['requirements'],['design_database'],'基于业务验收条件设计SQLite结构，使用主外键、唯一和CHECK约束及适当索引。调用design_database保存可执行DDL与设计说明，不仅写建议。'),
     task('build','真实建库并导入数据','ops','storage',['design'],['build_database'],'在独立任务工作区真实执行DDL、创建SQLite库并导入提供的数据。无用户数据时只使用明确标记的验证样本，不能宣称导入了真实业务数据。'),
-    task('tests','独立测试数据库约束与查询','liu','storage',['build'],['test_database'],'检查实际数据库结构、完整性、外键和约束。构造可回滚的正反测试与实际查询，验证用户验收条件并列出未覆盖项。'),
+    task('tests','独立测试数据库约束与查询','liu','storage',['build'],['test_database'],'检查实际数据库结构、完整性、外键和约束。工具会在实际库上独立复跑input.databaseChecks；已有合同时不必复制同一批SQL，可传tests:[]并生成实际SELECT查询。仅确有额外验收条件时补充正反测试，用setupSql准备本用例数据或引用build的真实样本ID；不能把合同中已回滚的临时ID当成现存数据。没有合同时自行构造测试。列出未覆盖项。'),
     task('handover','交付数据库与使用说明','lead','meeting',['design','build','tests'],['write_report'],'根据真实建库和测试证据交付数据库使用说明，包含表关系、字段、使用SQL、约束和测试限制。失败用例不得说成通过。'),
   ]},
   { id:'delivery', title:'客户需求与交付计划', description:'把客户材料整理为范围、工作包、预算和验收清单。', icon:'users', room:'会议室', nodeId:'meeting', outputs:['需求与范围说明','工作包与排期','预算估算','验收检查表'], agents:['business','finance','liu','lead'], exampleLabel:'客户服务系统建设需求', fields:[

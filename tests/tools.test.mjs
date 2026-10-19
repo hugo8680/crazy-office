@@ -6,6 +6,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createToolbox,isPublicAddress,validatePublicUrl} from '../server/tools.mjs';
 import {companyTaskInput,COMPANY_NAME} from '../server/company.mjs';
+import {parseDecision} from '../server/provider.mjs';
 const tmp=()=>fs.mkdtemp(path.join(os.tmpdir(),'office-tools-test-'));
 const example=async id=>(JSON.parse(await fs.readFile(new URL('../data/examples/'+id+'.json',import.meta.url),'utf8'))).input;
 async function withBox(input,fn,approved=true){const runDir=await tmp();try{const box=await createToolbox({runDir,input,approval:async()=>({approved,note:'测试审批'})});await fn(box,runDir);}finally{await fs.rm(runDir,{recursive:true,force:true});}}
@@ -40,6 +41,10 @@ CREATE INDEX candidate_quotes ON quotes(candidate_id,fetched_at);`;
 
 test('SQL that was double escaped gets an actionable error and never becomes a successful design',async()=>{
  await withBox({},async(box,dir)=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl.replaceAll('\n','\\n')},'zhang'),/实际换行或分号.*不要对JSON字符串中的SQL再次转义/);assert.equal(box.artifacts().length,0);await assert.rejects(fs.stat(path.join(dir,'database/schema.sql')),error=>error.code==='ENOENT');});
+});
+
+test('the model can submit isolated setup SQL through the real test tool contract',async()=>{
+ await withBox({},async box=>{await box.execute('design_database',{ddl:'CREATE TABLE p(id INTEGER PRIMARY KEY); CREATE TABLE c(id INTEGER PRIMARY KEY,p_id INTEGER NOT NULL REFERENCES p(id));'},'zhang');await box.execute('build_database',{},'ops');const definition=box.definitions.find(tool=>tool.name==='test_database');const args={tests:[{name:'合法外键插入',setupSql:'INSERT INTO p VALUES(910001);',sql:'INSERT INTO c VALUES(1,910001);',expectError:false},{name:'拒绝悬空外键',setupSql:'INSERT INTO p VALUES(910001);',sql:'INSERT INTO c VALUES(1,999999);',expectError:true}],queries:['SELECT COUNT(*) AS n FROM p;']};const decision=parseDecision(JSON.stringify({action:'tool',tool:'test_database',args_json:JSON.stringify(args),summary:'独立验收',output:''}),[definition],'unit-test-only');const result=await box.execute(decision.tool,decision.args,'liu');assert.equal(result.evidence.passed,true);assert.equal(result.evidence.tests.length,2);assert.equal(result.evidence.queries[0].rows[0].n,0);});
 });
 
 test('explicit database contracts reject missing currency/price CHECK before saving DDL, then corrected design builds and independently passes',async()=>{
