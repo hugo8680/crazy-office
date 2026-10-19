@@ -1,0 +1,20 @@
+{
+  "name": "吉林云投莱森购数字科技有限公司",
+  "source": "user-provided",
+  "verifiedFacts": [
+    {
+      "fact": "公司官网提供AI训练数据、数据标注、模型评测与行业数据解决方案。",
+      "sourceUrl": "https://www.laisengou.com/",
+      "basis": "官网首页描述；企业自述"
+    }
+  ],
+  "sources": [
+    {
+      "title": "莱森购｜AI 数据服务与模型评测解决方案",
+      "url": "https://www.laisengou.com/",
+      "checkedAt": "2026-10-19T02:37:41.820634+00:00",
+      "type": "company-website"
+    }
+  ],
+  "updatedAt": "2026-10-19T02:37:41.821040+00:00"
+}

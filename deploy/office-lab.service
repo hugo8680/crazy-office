@@ -1,0 +1,26 @@
+[Unit]
+Description=Crazy Office application
+After=network-online.target office-model.service
+Wants=network-online.target
+[Service]
+Type=simple
+User=office-lab
+Group=office-lab
+WorkingDirectory=/opt/office.laisengou.com/current
+EnvironmentFile=/opt/office.laisengou.com/office.env
+ExecStart=/usr/bin/node scripts/server.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/office.laisengou.com/data
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=128
+[Install]
+WantedBy=multi-user.target

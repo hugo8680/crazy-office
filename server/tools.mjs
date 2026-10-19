@@ -33,7 +33,7 @@ const defs=[
  ['design_database','将模型设计的SQLite DDL存为SQL并在内存真实执行验证。只允许CREATE TABLE/INDEX，禁止扩展、ATTACH、虚拟表和文件访问。',obj({ddl:str('完整SQLite CREATE TABLE/CREATE INDEX DDL；用分号分隔。须符合实际需求的约束。'),description:str('实体关系与字段说明'),assumptions:strings('需求未明确而作出的假设')})],
  ['build_database','执行已验证DDL，在隔离工作区真实建立SQLite；默认导入用户数据（JSON表名映射或CSV）。无数据可建空库，可额外传明确验证样本INSERT，禁止混入用户数据。',obj({table:str('CSV/行数组多表导入时的表名'),sampleSql:str('仅无用户数据时可选的INSERT验证样本；明确标记非业务数据')})],
  ['test_database','真实检查SQLite完整性/外键与结构。tests中传可回滚的正反SQL用例；期望约束失败用expectError:true；queries只允许SELECT。全部测试变更回滚。',obj({tests:{type:'array',maxItems:30,items:obj({name:str('验收条件'),sql:str('INSERT/UPDATE/DELETE/SELECT测试SQL'),expectError:{type:'boolean'},expectedRows:{type:'integer'},params:{type:'array',items:{type:['string','number','null']}}})},queries:{type:'array',maxItems:10,items:{type:'string'}}})],
- ['extract_requirements','基于用户原始需求提取可追溯要求，保存规格和验收清单。模型提供requirements/criteria时每项source必须直接引用用户材料；不凭空添加确认事项。',obj({requirements:{type:'array',items:obj({id:str('R1等唯一ID'),description:str('需求内容'),source:str('从用户原文逐字引用的证据'),acceptance:str('可核验验收条件')})},entities:strings('数据实体/业务对象'),questions:strings('待真人确认的问题'),exclusions:strings('本次排除范围'),assumptions:strings('明确标记假设')})],
+ ['extract_requirements','基于用户原始需求提取可追溯要求，保存规格和验收清单。每项source必须逐字引用用户材料；原文有多个R数字编号时，保留并覆盖全部原编号，source必须来自同编号业务条款，不能以背景或共同交付说明替代；额外共同要求可另列新ID。不凭空添加确认事项。',obj({requirements:{type:'array',items:obj({id:str('R1等唯一ID，原文已有编号须保留'),description:str('需求内容'),source:str('从对应需求条款逐字引用的证据'),acceptance:str('可核验验收条件')})},entities:strings('数据实体/业务对象'),questions:strings('待真人确认的问题'),exclusions:strings('本次排除范围'),assumptions:strings('明确标记假设')})],
  ['estimate_delivery','保存模型拆解的工作包并确定性计算人日、依赖排期与成本。首次须给packages；财务复核不传packages，复用同事已保存工作包，避免重造。每天可用人数用teamSize，默认1。估算不是合同报价。',obj({packages:{type:'array',maxItems:50,items:obj({id:str('唯一工作包ID'),name:str('工作包'),days:num('所需人日，大于0'),dependsOn:strings('依赖的工作包ID数组'),requirementIds:strings('覆盖的需求ID'),deliverable:str('可验收产物')})},dailyRate:num('可省略，使用用户人日单价'),teamSize:{type:'integer',minimum:1,maximum:50},bufferPct:{type:'number',minimum:0,maximum:100},assumptions:strings('估算假设')})],
  ['review_delivery','独立核对原始需求引用、工作包依赖、人日与费用一致性及验收覆盖。返回实际检查结果；issues为审校Agent补充的发现，不能伪称客户确认。',obj({issues:strings('审校Agent根据证据发现的范围或估算问题'),risks:strings('待确认风险')})],
  ['write_report','把基于同事证据的中文正式汇报保存为可下载Markdown及HTML。content须含真实结果/限制/来源，不能伪造数据、客户承诺或生产修复。',obj({title:str('报告标题'),content:str('完整中文Markdown正文；工具返回文件不代替正文')})],
@@ -117,6 +117,23 @@ function reportHtml(markdown){
 }
 
 function sourceText(value){if(value==null)return '';if(typeof value==='string')return value;if(value.text!=null)return String(value.text);if(value.base64){const b=Buffer.from(value.base64,'base64');if(/\.xlsx$/i.test(value.name||''))return '[用户上传XLSX二进制文件，使用专用导入工具读取]';return b.toString('utf8');}return JSON.stringify(value,null,2);}
+function numberedRequirementClauses(raw){
+ const markers=[...raw.matchAll(/\b(R\d+)\s*[:：]/g)];
+ if(new Set(markers.map(match=>match[1])).size<2)return null;
+ const clauses=new Map(),shared=[];
+ for(let i=0;i<markers.length;i++){
+  const marker=markers[i],end=markers[i+1]?.index??raw.length,contentStart=marker.index+marker[0].length;
+  const body=raw.slice(contentStart,end);
+  // A common handover note is not evidence for the final business requirement.
+  // It can still be extracted separately under an additional requirement ID.
+  const footer=[...body.matchAll(/[。；;.!?\r\n][ \t]*(?:#{1,6}[ \t]+)?(?:共同(?:交付)?(?:说明|要求)|统一(?:交付)?(?:说明|要求)|通用(?:交付)?(?:说明|要求)|交付(?:说明|要求|清单)|补充说明|后续说明|交付(?=\s*(?:[A-Za-z]|数据|文件|报告|成果|产物|清单))|拆成|拆分成|需求拆为)/g)].find(match=>body.slice(0,match.index).trim());
+  const clauseEnd=footer?contentStart+footer.index+(footer[0].match(/^[。；;.!?\r\n]/)?1:0):end;
+  const text=raw.slice(marker.index,clauseEnd).trim();
+  if(!clauses.has(marker[1]))clauses.set(marker[1],[]);clauses.get(marker[1]).push(text);
+  if(footer)shared.push(raw.slice(clauseEnd,end).trim());
+ }
+ return {clauses,shared};
+}
 function unique(arr){return [...new Set(arr)];}
 function sanitizeName(name){return String(name||'report').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,70)||'report';}
 function parsePriceNumber(raw){const x=String(raw).replace(/[,\s]/g,'');return /^\d+(?:\.\d{1,2})?$/.test(x)&&Number(x)>0?Number(x):null;}
@@ -189,7 +206,9 @@ export async function createToolbox({runDir,input={},emit=()=>{},signal,approval
   async extract_requirements(args){
    const raw=rawRequirements();if(!raw.trim())throw new Error('用户需求不能为空');const proposed=args.requirements;
    if(!Array.isArray(proposed)||!proposed.length)throw new Error('请根据原始需求提交requirements数组，包含id、description、source原文与acceptance，不能仅复制任务名称');
-   const seen=new Set();const rows=proposed.map((r,i)=>{const id=String(r.id||'R'+(i+1));if(seen.has(id))throw new Error('重复需求ID: '+id);seen.add(id);const source=String(r.source||'').trim();if(!source||!raw.includes(source))throw new Error('需求'+id+'的source必须逐字引用用户原文，不能伪造来源');if(!String(r.description||'').trim()||!String(r.acceptance||'').trim())throw new Error('每个需求须有描述和可核验验收条件');return {id,description:String(r.description),source,acceptance:String(r.acceptance),confirmedByCustomer:false};});
+   const numbered=numberedRequirementClauses(raw),proposedIds=new Set(proposed.map((r,i)=>String(r.id||'R'+(i+1))));
+   if(numbered){const missing=[...numbered.clauses.keys()].filter(id=>!proposedIds.has(id));if(missing.length)throw new Error('原始需求包含明确编号，提取结果缺少需求ID：'+missing.join('、')+'。请保留原编号，逐项补全后重新提交。');}
+   const seen=new Set();const rows=proposed.map((r,i)=>{const id=String(r.id||'R'+(i+1));if(seen.has(id))throw new Error('重复需求ID: '+id);seen.add(id);const source=String(r.source||'').trim();if(!source||!raw.includes(source))throw new Error('需求'+id+'的source必须逐字引用用户原文，不能伪造来源');if(numbered){const clauses=numbered.clauses.get(id);if(clauses&&!clauses.some(text=>text.includes(source)))throw new Error('需求'+id+'的source必须逐字引用原文'+id+'对应的业务条款，不能引用公司背景、其他编号或共同交付说明。');if(!clauses&&!numbered.shared.some(text=>text.includes(source)))throw new Error('需求'+id+'不是原文编号；额外需求的source须来自明确的共同交付说明，不能重新编号已有业务条款。');}if(!String(r.description||'').trim()||!String(r.acceptance||'').trim())throw new Error('每个需求须有描述和可核验验收条件');return {id,description:String(r.description),source,acceptance:String(r.acceptance),confirmedByCustomer:false};});
    requirementDoc={project:String(input.company||'本次业务需求'),source:raw,requirements:rows,entities:args.entities||[],questions:args.questions||[],exclusions:args.exclusions||[],assumptions:args.assumptions||[],createdAt:new Date().toISOString()};await put('delivery/requirements.json',requirementDoc);await put('delivery/requirements.md','# '+requirementDoc.project+' 需求规格\n\n'+rows.map(r=>'## '+r.id+' '+r.description+'\n\n来源：'+r.source+'\n\n验收：'+r.acceptance).join('\n\n')+'\n\n## 待确认\n\n'+requirementDoc.questions.map(x=>'- '+x).join('\n')+'\n\n## 假设\n\n'+requirementDoc.assumptions.map(x=>'- '+x).join('\n'));return {summary:'从用户原文提取'+rows.length+'项有来源的需求和验收条件','evidence':requirementDoc,files:['delivery/requirements.json','delivery/requirements.md']};
   },
   async estimate_delivery(args){

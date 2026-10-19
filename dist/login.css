@@ -1,0 +1,28 @@
+:root{color-scheme:light;--ink:#294f43;--muted:#819181;--line:#d9e1d0;--green:#397b64;--paper:#fffef8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;font-synthesis:none}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:40px 24px;background:#f4f5eb;background-image:linear-gradient(#b7c5af12 1px,transparent 1px),linear-gradient(90deg,#b7c5af12 1px,transparent 1px);background-size:36px 36px;color:var(--ink)}
+.entry{width:min(960px,100%);display:grid;grid-template-columns:1.12fr 1fr;overflow:hidden;border:1px solid #cdd9c5;border-radius:24px;background:var(--paper);box-shadow:0 25px 85px #354b3410,0 4px 14px #354b3405}
+.office-preview{position:relative;padding:43px 42px 24px;background:#e9efdf;border-right:1px solid #d9e3cc;overflow:hidden}
+.brand-mark{width:39px;height:39px;padding:4px;border:1px solid #b9cbb0;border-radius:10px;color:#6b9376;background:#f1f5e9}
+.brand-mark svg{width:100%;height:100%;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.brand-caption{font-size:10px;letter-spacing:2.6px;color:#86957d;margin:24px 0 10px;font-weight:600}
+h1{font-size:34px;line-height:1.35;letter-spacing:2px;font-weight:650;margin:0}
+.company{font-size:11px;line-height:1.8;color:#7c8f74;letter-spacing:.5px;margin:14px 0 0}
+.floor-plan{margin:22px -9px 11px}
+.floor-plan svg{width:100%;display:block;overflow:visible}
+.floor-shadow{fill:#788f7720}.floor-base{fill:#f9f7e8}.room-sage{fill:#dfe9ce}.room-blue{fill:#d5e7df}.room-cream{fill:#e7e3d0}.room-peach{fill:#eeddc8}.walls{fill:none;stroke:#879b7b;stroke-width:2}.network-shadow{fill:none;stroke:#fffdf1;stroke-width:7;stroke-linejoin:round}.network{fill:none;stroke:#8ebdaf;stroke-width:3;stroke-linejoin:round}.desk{fill:#fff9df;stroke:#8e9e7e;stroke-width:1.5}.screen rect{fill:#a8cdc2;stroke:#597e73;stroke-width:1.6}.screen path{fill:none;stroke:#e0f3e7;stroke-width:2;stroke-linecap:round}.people circle{fill:#e6c4a0;stroke:#a99778;stroke-width:1.2}.people path{fill:#85a18b;stroke:#7d947b;stroke-width:1.1}.servers rect{fill:#577771;stroke:#3e605a;stroke-width:2}.servers path{fill:none;stroke:#9cbbb0;stroke-width:1.5}.status-lights{fill:#a5c97e}.table{fill:#d1decb;stroke:#8da68c;stroke-width:1.5}.plant-stem{stroke:#759575;stroke-width:1.5;fill:none}.plant-leaf{fill:#8cb28a;stroke:#749c76;stroke-width:1}.plant-pot{fill:#ebd6af;stroke:#a2a17e;stroke-width:1}
+.preview-footer{display:flex;align-items:center;gap:7px;font-size:8px;letter-spacing:1.6px;color:#94a18a;border-top:1px solid #d3dfc6;padding-top:18px}
+.status-dot{height:5px;width:5px;border-radius:50%;background:#88aa7c;flex-shrink:0}.floor-label{margin-left:auto;letter-spacing:1px}
+.login-panel{padding:84px 47px 66px;display:flex;flex-direction:column;justify-content:center}
+.entry-label{font-size:11px;letter-spacing:1px;color:#a19a7b}
+h2{font-size:24px;line-height:1.5;font-weight:600;letter-spacing:.6px;margin:8px 0 34px}
+.field{display:block;margin-bottom:20px}.field>span{display:block;font-size:12px;line-height:1.5;color:#6d816e;margin-bottom:9px}.field>input{width:100%;height:48px;border:1px solid var(--line);border-radius:8px;background:#fcfdf6;color:var(--ink);font:inherit;font-size:15px;padding:0 13px;transition:border-color .15s,box-shadow .15s}
+.field>input:hover{border-color:#b8cdb2}.field>input:focus{outline:none;border-color:#70a081;box-shadow:0 0 0 3px #8dae8a22;background:#fffef9}.field>input:disabled{opacity:.65}
+.login-error{font-size:12px;line-height:1.8;color:#a55e48;background:#fff3e7;border:1px solid #e4c4a8;border-radius:7px;padding:10px 12px;margin:-1px 0 18px;overflow-wrap:anywhere}
+[hidden]{display:none!important}
+button{display:flex;justify-content:center;align-items:center;gap:17px;width:100%;min-height:48px;margin-top:29px;border:1px solid #397b64;border-radius:8px;background:var(--green);color:#fffef6;font:inherit;font-size:14px;letter-spacing:1.5px;font-weight:550;cursor:pointer;transition:background .15s,transform .15s}
+button:hover{background:#2d6853}button:focus-visible{outline:3px solid #9ab496;outline-offset:3px}button:active{transform:translateY(1px)}button:disabled{cursor:wait;background:#7d9a85;border-color:#7d9a85}
+button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:720px){body{padding:24px 18px}.entry{width:min(450px,100%);display:block;border-radius:20px}.office-preview{padding:28px 29px 24px;border-right:0;border-bottom:1px solid #d9e3cc}.brand-mark{width:32px;height:32px;position:absolute;top:29px;right:29px}.brand-caption{margin:0 0 9px;font-size:9px;letter-spacing:2px}h1{font-size:28px;letter-spacing:1px}.company{font-size:10px;margin-top:10px;letter-spacing:.15px;padding-right:0}.floor-plan{display:none}.preview-footer{display:none}.login-panel{padding:30px 29px 34px}.entry-label{font-size:10px}h2{font-size:21px;margin:6px 0 25px}.field{margin-bottom:18px}.field>input{font-size:16px}button{margin-top:25px}}
+@media(max-width:360px){body{padding:18px 12px}.office-preview{padding:24px}.brand-mark{top:24px;right:24px}.company{font-size:9px}.login-panel{padding:27px 24px 30px}h1{font-size:26px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}

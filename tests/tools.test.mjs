@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createToolbox,isPublicAddress,validatePublicUrl} from '../server/tools.mjs';
+import {companyTaskInput,COMPANY_NAME} from '../server/company.mjs';
 const tmp=()=>fs.mkdtemp(path.join(os.tmpdir(),'office-tools-test-'));
 const example=async id=>(JSON.parse(await fs.readFile(new URL('../data/examples/'+id+'.json',import.meta.url),'utf8'))).input;
 async function withBox(input,fn,approved=true){const runDir=await tmp();try{const box=await createToolbox({runDir,input,approval:async()=>({approved,note:'测试审批'})});await fn(box,runDir);}finally{await fs.rm(runDir,{recursive:true,force:true});}}
@@ -31,12 +32,90 @@ test('database is actually built; unique/check/fk constraints and tests rollback
  await withBox({requirements:'唯一邮箱，订单金额非负且关联存在的客户。'},async(box,dir)=>{await box.execute('design_database',{ddl,description:'真实约束'},'zhang');await box.execute('build_database',{sampleSql:"INSERT INTO customers VALUES(1,'sample@example.test'); INSERT INTO orders VALUES(1,1,100);"},'ops');const r=await box.execute('test_database',{tests:[{name:'拒绝重复邮箱',sql:"INSERT INTO customers VALUES(2,'sample@example.test');",expectError:true},{name:'拒绝负金额',sql:'INSERT INTO orders VALUES(2,1,-1);',expectError:true},{name:'拒绝悬空外键',sql:'INSERT INTO orders VALUES(2,999,1);',expectError:true},{name:'有效数据可插入后回滚',sql:'INSERT INTO orders VALUES(2,1,10);',expectError:false}],queries:['SELECT COUNT(*) AS n FROM orders;']},'liu');assert.equal(r.evidence.passed,true);assert.equal(r.evidence.tests.length,4);assert.equal(r.evidence.queries[0].rows[0].n,1);assert((await fs.stat(path.join(dir,'database/company.sqlite'))).size>0);await assert.rejects(()=>box.execute('design_database',{ddl:"ATTACH '/tmp/leak.db' AS evil;"},'zhang'),/不允许|禁止/);await assert.rejects(()=>box.execute('test_database',{queries:["SELECT load_extension('evil');"]},'liu'),/禁止/);});
 });
 
+const procurementPrototypeDdl=`
+CREATE TABLE suppliers(id INTEGER PRIMARY KEY,name TEXT NOT NULL);
+CREATE TABLE candidates(id INTEGER PRIMARY KEY,supplier_id INTEGER NOT NULL REFERENCES suppliers(id),model TEXT NOT NULL,memory_gb INTEGER NOT NULL,ssd_gb INTEGER NOT NULL);
+CREATE TABLE quotes(id INTEGER PRIMARY KEY,candidate_id INTEGER NOT NULL REFERENCES candidates(id),source_url TEXT NOT NULL,fetched_at TEXT NOT NULL,currency TEXT NOT NULL CHECK(currency IN ('CNY','USD')),price REAL CHECK(price IS NULL OR price>=0),tax_known INTEGER NOT NULL CHECK(tax_known IN (0,1)));
+CREATE INDEX candidate_quotes ON quotes(candidate_id,fetched_at);`;
+
+test('explicit database contracts reject missing currency/price CHECK before saving DDL, then corrected design builds and independently passes',async()=>{
+ const input=companyTaskInput('database',{name:COMPANY_NAME,verifiedFacts:[]}).input;
+ assert.equal(input.example,undefined);assert.equal(input.isExample,true);assert.equal(input.databaseChecks.length,9);assert.match(input.requirements,/不代表公司既有生产表结构/);
+ const samples=JSON.parse(input.data.text);assert.deepEqual(Object.values(samples).map(rows=>rows.length),[1,1,1]);assert.match(samples.suppliers[0].name,/sample/);assert.match(samples.candidates[0].model,/sample/);assert.equal(samples.quotes[0].source_url,'https://example.invalid/sample-quote');assert.equal(samples.quotes[0].fetched_at,'2000-01-01T00:00:00Z');assert.equal(samples.quotes[0].price,null);
+ await withBox(input,async(box,dir)=>{
+  const omitted=procurementPrototypeDdl.replace(" CHECK(currency IN ('CNY','USD'))",'').replace(' CHECK(price IS NULL OR price>=0)','');
+  await assert.rejects(()=>box.execute('design_database',{ddl:omitted,description:'故意遗漏两个CHECK的回归设计'},'zhang'),error=>/报价拒绝CNY和USD之外的币种/.test(error.message)&&/报价已知价格必须非负/.test(error.message));
+  assert.equal(box.artifacts().length,0);for(const name of ['schema.sql','design.json','design-checks.json'])await assert.rejects(fs.stat(path.join(dir,'database',name)),error=>error.code==='ENOENT');
+  const designed=await box.execute('design_database',{ddl:procurementPrototypeDdl,description:'依据显式合同修正DDL'},'zhang');
+  assert.equal(designed.evidence.designChecks.passed,true);assert.equal(designed.evidence.designChecks.testCount,9);assert(designed.evidence.designChecks.tests.every(row=>row.passed));assert(designed.artifacts.some(file=>file.name==='design-checks.json'));
+  const receipt=JSON.parse(await fs.readFile(path.join(dir,'database/design-checks.json'),'utf8'));assert.equal(receipt.allChangesRolledBack,true);assert.equal(receipt.tests.filter(row=>row.constraintError).length,7);
+  const built=await box.execute('build_database',{},'ops');assert.equal(built.evidence.importedRows,3);assert.equal(built.evidence.importedBusinessRows,0);assert.equal(built.evidence.validationSampleRows,3);assert.equal(built.evidence.validationSamplesOnly,true);assert.equal(built.evidence.sampleSource,'explicit_example_input');
+  const verified=await box.execute('test_database',{queries:['SELECT COUNT(*) AS n FROM suppliers;','SELECT COUNT(*) AS n FROM candidates;','SELECT COUNT(*) AS n FROM quotes;','SELECT price,source_url FROM quotes;']},'liu');assert.equal(verified.evidence.passed,true);assert.equal(verified.evidence.contractTests.length,9);assert(verified.evidence.contractTests.every(row=>row.passed));assert.deepEqual(verified.evidence.queries.slice(0,3).map(query=>query.rows[0].n),[1,1,1]);assert.equal(verified.evidence.queries[3].rows[0].price,null);
+ });
+});
+
+test('expected database constraint failures do not accept SQL syntax errors, missing tables or missing columns',async()=>{
+ for(const sql of ['INSERT INTO nonexistent(id) VALUES(1);','INSERT INTO suppliers(unknown_column) VALUES(1);','INSERT INTO suppliers(id,name) VALUES(1,);'])await withBox({databaseChecks:[{name:'必须真实触发约束',sql,expectError:true}]},async(box,dir)=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang'),/SQL执行错误不能作为约束拒绝/);assert.equal(box.artifacts().length,0);await assert.rejects(fs.stat(path.join(dir,'database/schema.sql')),error=>error.code==='ENOENT');});
+});
+
+test('contract setup IntegrityError cannot masquerade as expected failure of the tested SQL',async()=>{
+ const check={name:'种子准备必须独立成功',setupSql:"INSERT INTO suppliers(id,name) VALUES(1,'sample'); INSERT INTO suppliers(id,name) VALUES(1,'sample-duplicate');",sql:"INSERT INTO suppliers(id,name) VALUES(2,'sample-valid');",expectError:true};
+ await withBox({databaseChecks:[check]},async box=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang'),/样本准备失败，不能作为约束验收通过/);assert.equal(box.artifacts().length,0);});
+});
+
+test('design SQL contracts enforce query row counts and roll back every individual sample',async()=>{
+ const check={name:'本用例只有自己的sample',setupSql:"INSERT INTO suppliers(id,name) VALUES(1,'sample');",sql:'SELECT id FROM suppliers;',expectedRows:1};
+ await withBox({databaseChecks:[check,{...check,name:'第二用例可重用相同编号'}]},async box=>{const result=await box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang');assert.equal(result.evidence.designChecks.testCount,2);assert(result.evidence.designChecks.tests.every(row=>row.rows.length===1&&row.passed));});
+ await withBox({databaseChecks:[{...check,name:'错误行数必须失败',expectedRows:2}]},async box=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang'),/查询预期2行，实际1行/);});
+});
+
+test('explicit SQL contract cannot disable foreign keys or attach files',async()=>{
+ for(const check of [{name:'禁止关闭外键',sql:'PRAGMA foreign_keys=OFF;'},{name:'禁止种子跨文件',setupSql:"ATTACH '/tmp/forbidden.sqlite' AS other;",sql:'SELECT 1;'}])await withBox({databaseChecks:[check]},async box=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang'),/不允许|禁止/);assert.equal(box.artifacts().length,0);});
+});
+
 test('DDoS uses actual varying log input; approval controls apply and replay computes exact rates',async()=>{
  const input=await example('ddos');for(const approved of [false,true])await withBox(input,async(box,dir)=>{await box.execute('inspect_network',{},'ops');const a=await box.execute('analyze_traffic',{threshold:20,windowSeconds:60},'liu');assert.deepEqual(a.evidence.suspectedSources.sort(),['203.0.113.201','203.0.113.202']);const d=await box.execute('apply_defense',{blockedIps:a.evidence.suspectedSources,rateLimit:null,reason:'证据显示两来源各130条高频请求；放行其余正常来源'},'zhang');assert.equal(d.evidence.approved,approved);const v=await box.execute('verify_network',{},'liu');assert.equal(v.evidence.normalRequests,60);assert.equal(v.evidence.maliciousRequests,260);assert.equal(v.evidence.normalPassRate,1);assert.equal(v.evidence.maliciousBlockRate,approved?1:0);assert.equal(v.evidence.verifiedRestored,approved);const conf=await fs.stat(path.join(dir,'network/nginx-defense.conf')).then(()=>true,()=>false);assert.equal(conf,approved);},approved);
 });
 
 test('delivery requires original quotes, computes dependency/cost deterministically and reuses packages',async()=>{
  const input={company:'服务系统',requirements:'需要工单创建和统计报表，第一期不做支付。',dailyRate:1500};await withBox(input,async box=>{await assert.rejects(()=>box.execute('extract_requirements',{requirements:[{id:'R1',description:'支付',source:'需要微信支付',acceptance:'支付通过'}]},'business'),/逐字引用/);await box.execute('extract_requirements',{requirements:[{id:'R1',description:'工单创建',source:'工单创建',acceptance:'可保存工单并查询'},{id:'R2',description:'统计报表',source:'统计报表',acceptance:'统计与实际工单数量一致'}]},'business');const first=await box.execute('estimate_delivery',{packages:[{id:'P1',name:'工单功能',days:4,dependsOn:[],requirementIds:['R1'],deliverable:'可用工单'},{id:'P2',name:'报表',days:2,dependsOn:['P1'],requirementIds:['R2'],deliverable:'统计报表'}],bufferPct:10},'business');const verify=await box.execute('estimate_delivery',{},'finance');assert.equal(first.evidence.totalCost,9900);assert.deepEqual(first.evidence,verify.evidence);assert.equal(first.evidence.packages[1].startDay,4);assert.equal((await box.execute('review_delivery',{},'liu')).evidence.passed,true);await assert.rejects(()=>box.execute('write_report',{title:'空报告',content:'完成'},'lead'),/至少100/);});
+});
+
+const numberedInput={company:'编号需求验收',requirements:'工作主体：用户提供的公司名称，业务情况待核实。\nR1：供应商有唯一内部编号和名称。R2: 服务器候选关联存在的供应商，记录型号。\nR3：报价关联存在的候选，已知价格非负，未知价格保留NULL。\nR4：能查询每个候选的报价来源与时间。\n共同交付说明：交付SQLite、DDL和约束测试回执。'};
+const numberedRows=()=>[
+ {id:'R1',description:'登记供应商',source:'供应商有唯一内部编号和名称。',acceptance:'唯一编号约束可执行'},
+ {id:'R2',description:'关联服务器候选',source:'服务器候选关联存在的供应商，记录型号。',acceptance:'不存在的供应商无法被关联'},
+ {id:'R3',description:'保存候选报价',source:'报价关联存在的候选，已知价格非负，未知价格保留NULL。',acceptance:'负价被拒绝，空价格可保存'},
+ {id:'R4',description:'查询报价依据',source:'能查询每个候选的报价来源与时间。',acceptance:'查询返回候选对应的来源和时间'},
+];
+
+test('explicit numbered requirements reject omitted R4 without saving a successful specification',async()=>{
+ await withBox(numberedInput,async(box,dir)=>{await assert.rejects(()=>box.execute('extract_requirements',{requirements:numberedRows().slice(0,3)},'business'),/缺少需求ID：R4/);assert.equal(box.artifacts().length,0);await assert.rejects(fs.stat(path.join(dir,'delivery/requirements.json')),error=>error.code==='ENOENT');});
+});
+
+test('explicit requirement sources must quote their own clauses rather than background or another ID',async()=>{
+ for(const [id,source] of [['R1','工作主体：用户提供的公司名称，业务情况待核实。'],['R4','供应商有唯一内部编号和名称。'],['R4','交付SQLite、DDL和约束测试回执。']])await withBox(numberedInput,async box=>{const rows=numberedRows();rows.find(row=>row.id===id).source=source;await assert.rejects(()=>box.execute('extract_requirements',{requirements:rows},'business'),new RegExp('需求'+id+'.*对应的业务条款'));assert.equal(box.artifacts().length,0);});
+});
+
+test('all original numbered requirements pass with exact same-ID quotes and remain unapproved',async()=>{
+ await withBox(numberedInput,async(box,dir)=>{const rows=numberedRows();rows[1].source='R2: 服务器候选关联存在的供应商，记录型号。';const result=await box.execute('extract_requirements',{requirements:rows},'business');assert.deepEqual(result.evidence.requirements.map(row=>row.id),['R1','R2','R3','R4']);assert(result.evidence.requirements.every(row=>row.confirmedByCustomer===false));assert.equal(result.artifacts.length,2);const saved=JSON.parse(await fs.readFile(path.join(dir,'delivery/requirements.json'),'utf8'));assert.equal(saved.requirements[3].source,'能查询每个候选的报价来源与时间。');});
+});
+
+test('common handover notes can be separate requirements but cannot replace the final numbered clause',async()=>{
+ const input={requirements:'R1：记录名称。R2：记录来源URL。交付SQLite和测试回执。'};
+ await withBox(input,async box=>{const rows=[{id:'R1',description:'名称',source:'记录名称。',acceptance:'名称可保存'},{id:'R2',description:'来源',source:'记录来源URL。',acceptance:'来源可查询'},{id:'R3',description:'交付物',source:'交付SQLite和测试回执。',acceptance:'文件可下载'}];assert.equal((await box.execute('extract_requirements',{requirements:rows},'business')).evidence.requirements.length,3);rows[1].source='交付SQLite和测试回执。';await assert.rejects(()=>box.execute('extract_requirements',{requirements:rows},'business'),/需求R2.*共同交付说明/);});
+});
+
+test('a numbered business clause may itself start with delivery wording',async()=>{
+ await withBox({requirements:'R1：交付文件需要记录来源URL。R2：\n交付报告可以按任务编号查询。\n共同交付说明：保留验收清单。'},async box=>{const rows=[{id:'R1',description:'文件来源',source:'交付文件需要记录来源URL。',acceptance:'来源可查'},{id:'R2',description:'报告查询',source:'交付报告可以按任务编号查询。',acceptance:'编号可查'}];assert.equal((await box.execute('extract_requirements',{requirements:rows},'business')).evidence.requirements.length,2);});
+});
+
+test('unnumbered input keeps existing quote extraction behavior; one R label does not enable coverage rules',async()=>{
+ for(const requirements of ['需要工单创建和统计报表，第一期不做支付。','背景备注R9：讨论工单创建，另外需要统计报表。'])await withBox({requirements},async box=>{const result=await box.execute('extract_requirements',{requirements:[{id:'R1',description:'工单',source:'工单创建',acceptance:'可创建工单'},{id:'R2',description:'统计',source:'统计报表',acceptance:'与数据一致'}]},'business');assert.equal(result.evidence.requirements.length,2);});
+});
+
+test('repeated original labels need unique coverage once, and arbitrary renumbering is rejected',async()=>{
+ await withBox({requirements:'R1：保存订单。R2：查询订单。共同交付说明：包含R1：保存订单的测试记录。'},async box=>{const rows=[{id:'R1',description:'保存订单',source:'保存订单。',acceptance:'可保存'},{id:'R2',description:'查询订单',source:'查询订单。',acceptance:'可查询'}];assert.equal((await box.execute('extract_requirements',{requirements:rows},'business')).evidence.requirements.length,2);await assert.rejects(()=>box.execute('extract_requirements',{requirements:[...rows,{id:'R3',description:'重复拆分',source:'保存订单。',acceptance:'可保存'}]},'business'),/不是原文编号/);});
 });
 
 test('DDoS mixed unknown labels cannot be declared fully verified',async()=>{

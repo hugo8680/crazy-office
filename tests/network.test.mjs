@@ -45,6 +45,7 @@ test('startup URLs list LAN interfaces for wildcard binding and omit them for lo
   assert.deepEqual(policy({ bindHost: '193.168.10.144' }).urls(), { local: null, lanName: null, lan: ['http://193.168.10.144:4173/'] });
   assert.equal(policy({ getHostname: () => 'Other-Mac' }).urls().lanName, 'http://other-mac.local:4173/');
   assert.equal(policy({ getHostname: () => 'invalid/host' }).urls().lanName, null);
+  assert.equal(policy({ getHostname: () => '192.168.2.0' }).urls().lanName, null);
   assert.equal(policy({ getInterfaces: () => ({}) }).urls().lanName, null);
 });
 

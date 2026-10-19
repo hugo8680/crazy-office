@@ -226,18 +226,75 @@ def connect_db():
         return 1 if budget[0]>20000 else 0
     c.set_progress_handler(progress,1000);return c
 
+def database_checks(c, checks, require_names=False):
+    if not isinstance(checks,list) or len(checks)>30 or (require_names and not checks):
+        raise ValueError('databaseChecks须为1到30项显式SQL验收合同')
+    results=[]
+    for i,t in enumerate(checks):
+        if not isinstance(t,dict):raise ValueError('数据库验收用例必须为对象')
+        name=t.get('name','测试%d'%(i+1))
+        if not isinstance(name,str) or not name.strip() or len(name)>160 or (require_names and 'name' not in t):raise ValueError('数据库验收用例需明确名称且不超过160字符')
+        expect_error=t.get('expectError',t.get('expect_error',False))
+        if not isinstance(expect_error,bool):raise ValueError('数据库验收expectError须为布尔值')
+        expected_rows=t.get('expectedRows')
+        if 'expectedRows' in t and (not isinstance(expected_rows,int) or isinstance(expected_rows,bool) or expected_rows<0 or expected_rows>100):raise ValueError('数据库验收expectedRows须为0到100的整数')
+        sql=t.get('sql','');ss=safe_sql(sql,'test')
+        setup=t.get('setupSql','');setup_statements=safe_sql(setup,'test') if setup else []
+        params=t.get('params',[])
+        if not isinstance(params,list) or (params and len(ss)!=1):raise ValueError('数据库验收params仅支持单条测试SQL的参数数组')
+        rows=[];error=None;error_type=None;constraint_error=False;phase='setup'
+        savepoint='office_verification_%d'%i
+        c.execute('SAVEPOINT '+savepoint)
+        try:
+            for s in setup_statements:c.execute(s)
+            phase='test'
+            for s in ss:
+                cur=c.execute(s,params if len(ss)==1 else [])
+                if cur.description:
+                    names=[column[0] for column in cur.description]
+                    rows=[dict(zip(names,row)) for row in cur.fetchmany(101)]
+        except sqlite3.Error as e:
+            error=str(e);error_type=type(e).__name__;constraint_error=phase=='test' and isinstance(e,sqlite3.IntegrityError)
+        finally:
+            c.execute('ROLLBACK TO '+savepoint);c.execute('RELEASE '+savepoint)
+        passed=constraint_error if expect_error else error is None
+        if error is None and 'expectedRows' in t:passed=passed and len(rows)==expected_rows
+        if error and phase=='setup':reason='样本准备失败，不能作为约束验收通过：'+error
+        elif expect_error and not constraint_error:reason=('SQL未触发预期约束拒绝' if not error else 'SQL执行错误不能作为约束拒绝：'+error)
+        elif expect_error and constraint_error:reason='已按预期拒绝违反约束的数据'
+        elif error:reason='SQL执行失败：'+error
+        elif 'expectedRows' in t and len(rows)!=expected_rows:reason='查询预期%d行，实际%d行'%(expected_rows,len(rows))
+        else:reason='符合本条SQL验收合同'
+        results.append({'name':name,'sql':sql,'setupSql':setup,'passed':passed,'expectedError':expect_error,'expectedRows':expected_rows,'error':error,'errorType':error_type,'constraintError':constraint_error,'errorPhase':phase if error else None,'reason':reason,'rows':rows[:100],'truncated':len(rows)>100})
+    return results
+
 def db_design(inp,args):
     ddl=args.get('ddl',args.get('sql'))
     ss=safe_sql(ddl,'design')
     c=sqlite3.connect(':memory:');c.execute('PRAGMA foreign_keys=ON');c.set_authorizer(authorizer)
+    budget=[0]
+    def progress():
+        budget[0]+=1
+        return 1 if budget[0]>20000 else 0
+    c.set_progress_handler(progress,1000)
+    contract=None
     try:
         for s in ss:c.execute(s)
         tables=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
         if not tables: raise ValueError('DDL没有建立业务表')
         schema={t:[{'name':r[1],'type':r[2],'notNull':bool(r[3]),'primaryKey':bool(r[5])} for r in c.execute('PRAGMA table_info("'+t.replace('"','""')+'")')] for t in tables}
+        if inp.get('databaseChecks') is not None:
+            tests=database_checks(c,inp['databaseChecks'],True)
+            failed=[t for t in tests if not t['passed']]
+            if failed:raise ValueError('DDL未通过显式数据库验收：'+'；'.join(t['name']+'（'+t['reason']+'）' for t in failed)+ '。请按input.databaseChecks修改DDL后重新调用design_database，不能把语法错误或缺列当成约束通过。')
+            contract={'passed':True,'tests':tests,'allChangesRolledBack':True,'validationEnvironment':'本次DDL的独立内存SQLite；SQL合同仅证明实际执行的用例，不代表生产部署','testCount':len(tests)}
     finally:c.close()
-    path('database/schema.sql').write_text(ddl,encoding='utf8');save('database/design.json',{'tables':tables,'schema':schema,'description':str(args.get('description','')),'assumptions':args.get('assumptions',[]),'sourceRequirements':str(inp.get('requirements',''))})
-    return {'summary':'可执行DDL已在内存SQLite验证，包含%d个业务表'%len(tables),'evidence':read('database/design.json'),'files':['database/schema.sql','database/design.json']}
+    evidence={'tables':tables,'schema':schema,'description':str(args.get('description','')),'assumptions':args.get('assumptions',[]),'sourceRequirements':str(inp.get('requirements',''))}
+    files=['database/schema.sql','database/design.json']
+    if contract:
+        evidence['designChecks']=contract;save('database/design-checks.json',contract);files.append('database/design-checks.json')
+    path('database/schema.sql').write_text(ddl,encoding='utf8');save('database/design.json',evidence)
+    return {'summary':'可执行DDL已在内存SQLite验证，包含%d个业务表'%len(tables)+('；通过%d项显式SQL验收合同'%contract['testCount'] if contract else ''),'evidence':evidence,'files':files}
 
 def db_build(inp,args):
     ddl=path('database/schema.sql')
@@ -294,29 +351,17 @@ def db_test(inp,args):
     try:
         integrity=c.execute('PRAGMA integrity_check').fetchone()[0];fk=[dict(r) for r in c.execute('PRAGMA foreign_key_check')]
         schema=[dict(r) for r in c.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")]
-        tests=[]
-        for i,t in enumerate(args.get('tests',[])):
-            if not isinstance(t,dict):raise ValueError('测试必须为对象')
-            sql=t.get('sql','');ss=safe_sql(sql,'test');expect_error=bool(t.get('expectError',t.get('expect_error',False)));result_rows=[];error=None;constraint_error=False;error_type=None
-            c.execute('SAVEPOINT verification')
-            try:
-                for s in ss:
-                    cur=c.execute(s,t.get('params',[]) if len(ss)==1 else [])
-                    if cur.description:result_rows=[dict(r) for r in cur.fetchmany(101)]
-            except sqlite3.Error as e:error=str(e);constraint_error=isinstance(e,sqlite3.IntegrityError);error_type=type(e).__name__
-            finally:c.execute('ROLLBACK TO verification');c.execute('RELEASE verification')
-            passed=constraint_error if expect_error else error is None
-            if not error and 'expectedRows' in t:passed=passed and len(result_rows)==int(t['expectedRows'])
-            tests.append({'name':t.get('name','测试%d'%(i+1)),'sql':sql,'passed':passed,'expectedError':expect_error,'error':error,'errorType':error_type,'constraintError':constraint_error,'rows':result_rows[:100],'truncated':len(result_rows)>100})
+        tests=database_checks(c,args.get('tests',[]))
+        contract_tests=database_checks(c,inp['databaseChecks'],True) if inp.get('databaseChecks') is not None else []
         queries=[]
         for q in args.get('queries',[]):
             qs=q.get('sql') if isinstance(q,dict) else q
             for s in safe_sql(qs,'select'):
                 cur=c.execute(s);rr=[dict(r) for r in cur.fetchmany(101)];queries.append({'sql':s,'rows':rr[:100],'truncated':len(rr)>100})
-        result={'passed':integrity=='ok' and not fk and all(t['passed'] for t in tests),'integrity':integrity,'foreignKeyViolations':fk,'schema':schema,'tests':tests,'queries':queries,'testCoverage':'仅覆盖实际执行的以下用例；没有测试用例时只能确认SQLite结构和完整性','allChangesRolledBack':True}
+        result={'passed':integrity=='ok' and not fk and all(t['passed'] for t in tests+contract_tests),'integrity':integrity,'foreignKeyViolations':fk,'schema':schema,'tests':tests,'contractTests':contract_tests,'queries':queries,'testCoverage':'原始输入显式SQL合同由工具独立复测；其他验收仅覆盖实际执行的用例，没有用例时只能确认SQLite结构和完整性','allChangesRolledBack':True}
         save('database/tests.json',result)
     finally:c.close()
-    return {'summary':'数据库完整性'+('通过' if result['passed'] else '有失败项')+'，执行%d项回滚测试'%len(tests),'evidence':result,'files':['database/tests.json']}
+    return {'summary':'数据库完整性'+('通过' if result['passed'] else '有失败项')+'，执行%d项回滚测试'%(len(tests)+len(contract_tests)),'evidence':result,'files':['database/tests.json']}
 
 
 def network_inspect(inp,args):

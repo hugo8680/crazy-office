@@ -1,6 +1,6 @@
 {
   "name": "crazy-network-lab",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": true,
   "type": "module",
   "description": "A local office with real model-driven virtual employees and verifiable tools.",
@@ -11,6 +11,6 @@
     "dev": "node scripts/server.mjs",
     "start": "node scripts/server.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check scripts/server.mjs && node --check server/network.mjs && node --check server/lifecycle.mjs && node --check server/engine.mjs && node --check server/catalog.mjs && node --check server/provider.mjs && node --check server/tools.mjs && node --check server/investment.mjs && node --check server/onboarding.mjs && node --check dist/office.js && node --check dist/scene.js && node --check dist/people.js && node --check dist/scene-motion.js"
+    "check": "node --check scripts/server.mjs && node --check server/network.mjs && node --check server/lifecycle.mjs && node --check server/engine.mjs && node --check server/catalog.mjs && node --check server/provider.mjs && node --check server/tools.mjs && node --check server/investment.mjs && node --check server/onboarding.mjs && node --check dist/office.js && node --check dist/scene.js && node --check dist/people.js && node --check dist/scene-motion.js && node --check server/access.mjs && node --check server/automation.mjs && node --check server/company.mjs && node --check dist/login.js"
   }
 }
