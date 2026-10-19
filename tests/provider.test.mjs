@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { createServer } from 'node:http';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createProvider, parseDecision, getProxyUrl } from '../server/provider.mjs';
+import { createProvider, parseDecision, getProxyUrl, networkFetch } from '../server/provider.mjs';
 
 const tool = { name: 'inspect_network', description: 'Read network observations', parameters: { type: 'object', properties: { scope: { type: 'string', enum: ['edge', 'all'] } }, required: ['scope'], additionalProperties: false } };
 const call = { action: 'tool', tool: tool.name, args_json: '{"scope":"edge"}', summary: '检查边界网络', output: '' };
@@ -174,6 +175,46 @@ test('local config rejects stored secrets, Ollama stays on loopback and never do
 const ollamaEnv = { OFFICE_PROVIDER: 'ollama', OFFICE_MODEL: 'existing-model', OFFICE_MODEL_RETRIES: '0', OFFICE_OLLAMA_CONTEXT: '8192' };
 const ollamaResponse = (decision, extra = {}) => ({ ok: true, status: 200, headers: new Map(), text: async () => JSON.stringify({ model: 'existing-model', message: { content: JSON.stringify(decision) }, done: true, done_reason: 'stop', ...extra }) });
 
+test('loopback HTTP waits for delayed headers and preserves cancellation before headers and during a body', async () => {
+  const server = createServer((request, response) => {
+    let timer;
+    if (request.url === '/body') {
+      response.writeHead(200, { 'content-type': 'text/plain' }); response.flushHeaders();
+      timer = setTimeout(() => response.end('late body'), 250);
+    } else timer = setTimeout(() => response.end('delayed headers'), request.url === '/cancel' ? 250 : 60);
+    response.on('close', () => clearTimeout(timer));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const response = await networkFetch(base + '/headers', { signal: AbortSignal.timeout(1000) }, { env: { HTTP_PROXY: 'http://127.0.0.1:1' } });
+    assert.equal(await response.text(), 'delayed headers');
+    const controller = new AbortController();
+    const pending = networkFetch(base + '/cancel', { signal: controller.signal });
+    const timer = setTimeout(() => controller.abort(), 30);
+    await assert.rejects(pending, { name: 'AbortError' }); clearTimeout(timer);
+    const bodyController = new AbortController();
+    const body = await networkFetch(base + '/body', { signal: bodyController.signal });
+    const reading = body.text(); bodyController.abort();
+    await assert.rejects(reading, { name: 'AbortError' });
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+test('real loopback Ollama request keeps the configured provider deadline while headers are delayed', async () => {
+  let requests = 0;
+  const server = createServer((request, response) => {
+    requests += 1; request.resume();
+    const timer = setTimeout(() => response.end(JSON.stringify({ model: 'existing-model', message: { content: JSON.stringify(finish) } })), 1600);
+    response.on('close', () => clearTimeout(timer));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const provider = createProvider({ env: { ...ollamaEnv, OFFICE_OLLAMA_URL: `http://127.0.0.1:${server.address().port}`, OFFICE_MODEL_TIMEOUT_MS: '1000' }, configPath: '/not-present/provider.json' });
+  try {
+    await assert.rejects(provider.decide(input), { code: 'MODEL_TIMEOUT' });
+    assert.equal(requests, 1);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
 test('Ollama constrains tool output and short handoffs without removing source evidence or tool schemas', async () => {
   let body;
   const context = { input: { requirements: '原始要求：邮箱唯一。' + '证据'.repeat(1800) + '原文末尾保留' }, taskProgress: { remainingRequiredTools: ['inspect_network'] } };
@@ -263,6 +304,40 @@ test('Ollama prompt limit includes every historical chat content before making a
   const provider = createProvider({ env: ollamaEnv, configPath: '/not-present/provider.json', fetch: async () => { calls += 1; return ollamaResponse(call); } });
   await assert.rejects(provider.decide({ ...input, messages: [{ role: 'assistant', content: 'x'.repeat(360 * 1024) }, { role: 'tool', content: 'y'.repeat(360 * 1024) }] }), { code: 'CONTEXT_TOO_LARGE' });
   assert.equal(calls, 0);
+});
+
+test('Ollama references only large exactly identical workspace evidence and retains every unique source', async () => {
+  const evidence = { ddl: 'CREATE TABLE "unique_evidence"(id INTEGER);' + '原始SQL证据'.repeat(120), tests: [{ name: '真实合同', passed: true }] };
+  const different = { ...evidence, tests: [{ name: '真实合同', passed: false }] };
+  const small = { summary: '小型真实回执保留' };
+  const context = {
+    input: { requirements: '唯一原始需求不可删除' },
+    evidence: [{ task: '实际设计', toolResults: [
+      { tool: 'design_database', result: { summary: '真实设计', evidence } },
+      { tool: 'test_database', result: { evidence } },
+      { tool: 'inspect_network', result: { evidence: small } },
+    ] }],
+    workspace: { toolResults: { design_database: { tests: structuredClone(evidence.tests), ddl: evidence.ddl }, test_database: different, inspect_network: structuredClone(small), unrelated: { source: '唯一工作区资料' } }, artifactCount: 7, uniqueState: '其他工作区字段原样保留' },
+  };
+  const before = structuredClone(context);
+  const messages = [{ role: 'tool', content: '原始工具消息仅此一次：' + evidence.ddl }];
+  let body;
+  const provider = createProvider({ env: ollamaEnv, configPath: '/not-present/provider.json', fetch: async (url, options) => { body = JSON.parse(options.body); return ollamaResponse(call); } });
+  await provider.decide({ ...input, context, messages });
+  const transmitted = JSON.parse(body.messages[0].content.split('\n\n')[1]).context;
+  assert.deepEqual(transmitted.workspace.toolResults.design_database, { evidenceRef: 'context.evidence[0].toolResults[0].result.evidence' });
+  assert.deepEqual(transmitted.evidence, context.evidence);
+  assert.deepEqual(transmitted.workspace.toolResults.test_database, different);
+  assert.deepEqual(transmitted.workspace.toolResults.inspect_network, small);
+  assert.deepEqual(transmitted.workspace.toolResults.unrelated, context.workspace.toolResults.unrelated);
+  assert.deepEqual(transmitted.input, context.input);
+  assert.equal(transmitted.workspace.artifactCount, 7); assert.equal(transmitted.workspace.uniqueState, context.workspace.uniqueState);
+  assert.ok(body.messages[1].content.endsWith(messages[0].content));
+  assert.deepEqual(context, before);
+  const strings = [];
+  const collectStrings = value => { if (typeof value === 'string') strings.push(value); else if (value && typeof value === 'object') Object.values(value).forEach(collectStrings); };
+  collectStrings(transmitted);
+  for (const original of [context.input.requirements, evidence.ddl, small.summary, context.workspace.toolResults.unrelated.source, context.workspace.uniqueState]) assert.ok(strings.includes(original));
 });
 
 test('Ollama rejects verbose or incomplete dispatches and retains authorization and argument validation', async () => {
