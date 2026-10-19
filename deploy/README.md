@@ -8,6 +8,8 @@
 - Python：`/opt/office.laisengou.com/runtime/python/bin/python3`，不会替换系统解释器。
 - TLS：单独 Certbot 配置目录与自动续期任务 `/etc/cron.d/office-laisengou`。
 
+当前生产模型为直连北京地域的阿里云百炼 `qwen3.7-plus-2026-05-26`。本地模型仍保留为手动配置选项，不会自动回退；服务器没有安装代理。
+
 ## 服务端配置
 
 `/opt/office.laisengou.com/office.env` 为 root 所有，权限 0600。配置 `HOST=127.0.0.1`、`PORT=4173`、`OFFICE_PUBLIC_ORIGIN=https://office.laisengou.com`、`OFFICE_DATA_DIR`、`OFFICE_PYTHON`，以及模型和登录变量。
@@ -30,13 +32,13 @@ OFFICE_RECEIPT_HANDOFF=1
 
 模型和 Python 均来自官方发布资产，下载后校验 SHA-256；来源记录在各自安装目录。服务器没有安装代理，也没有复制个人 Codex 登录凭据。
 
-当前服务器使用 CPU 推理，一项多岗位任务包含多次模型决策、工具执行和交接，可能持续数分钟。自动派工不会叠加正在执行的任务。工具的执行回执与模型的文字总结分别展示，实际未通过的测试和审校项始终保留。
+选择本地 CPU 推理时，一项多岗位任务包含多次模型决策、工具执行和交接，耗时可能较长。自动派工不会叠加正在执行的任务。工具的执行回执与模型的文字总结分别展示，实际未通过的测试和审校项始终保留。
 
 `OFFICE_RECEIPT_HANDOFF=1` 让单工具岗位在真实执行成功后直接交接工具回执，减少重复总结的推理。每个岗位仍由模型选择工具并生成参数，报告正文仍由模型编写；工具错误、未通过核查、多工具检索和真人审批继续按原流程处理。
 
 模型服务通过 `LLAMA_ARG_CACHE_RAM=512` 将历史提示缓存限定在 512 MiB，保留 `MemoryMax=10G`。默认 8 GiB 的历史缓存叠加模型与长上下文会触发服务内存上限；安装脚本已包含此配置。参数依据 [llama.cpp 官方运行文档](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，并已用所安装二进制的 `--help` 核对。
 
-## 可选百炼 API（默认不启用）
+## 百炼 API
 
 只有在项目所有者选定付费 API 并提供相同地域密钥后，才修改私有 `/opt/office.laisengou.com/office.env`。保留0600权限，不把环境文件纳入代码包：
 

@@ -4,7 +4,7 @@
 
 ## 服务器与自动派工
 
-生产入口为 [office.laisengou.com](https://office.laisengou.com/)，公网访问需登录。服务器使用独立的 Qwen 4B 本地模型和 Python 运行时，无需代理、云端 API Key 或个人 Codex 登录。
+生产入口为 [office.laisengou.com](https://office.laisengou.com/)，公网访问需登录。服务器直接连接阿里云百炼的 `qwen3.7-plus-2026-05-26`，无需服务器代理或个人 Codex 登录。API 密钥只在私有服务端配置中保存；本机开发仍可复用 Codex，已安装的 Qwen 4B 本地模型可手动选用。
 
 底部“更多操作 → 自动派工”可设置 3–5 分钟随机间隔和任务范围；派工在服务器运行，关闭浏览器也会继续。正在执行或等待真人审批时暂停新任务；停用只停止未来派发。公司背景来自用户提供的主体名称与有来源的官网信息，内部计划、采购筛选上限与数据库测试样本明确标注为草案或假设。缺真实财务、入职、投资和网络资料时不自动执行这些场景。
 
@@ -38,7 +38,7 @@ npm run dev
 
 ### 可选的百炼正式 API
 
-百炼适配已准备，但不会自动切换当前 Ollama 或发起付费调用。选择后，在私有服务端环境中设置 `OFFICE_PROVIDER=dashscope`、`DASHSCOPE_API_KEY` 和 `OFFICE_MODEL=qwen3.7-plus-2026-05-26`。北京地域默认直连 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`；`OFFICE_DASHSCOPE_URL` 可填同地域官方业务空间专属兼容接口。
+百炼通过私有服务端环境显式配置 `OFFICE_PROVIDER=dashscope`、`DASHSCOPE_API_KEY` 和 `OFFICE_MODEL=qwen3.7-plus-2026-05-26`，应用不会静默切换模型。北京地域默认直连 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`；`OFFICE_DASHSCOPE_URL` 可填同地域官方业务空间专属兼容接口。
 
 适配使用原生 Chat Function Calling，模型选择真实岗位工具及参数，服务器仍执行授权、参数校验和实际工具。单轮多个调用全部拒绝，不丢弃后继续执行；历史调用与真实回执配对，孤立纠错仅作为数据。请求超过700 KiB时明确拒绝，不截断资料。工具请求的摘要标为 `tool_call_metadata`，不冒充已执行结果；最终交接正文来自模型内容。`enable_thinking=false`、`parallel_tool_calls=false`，未依赖 Responses 的 `text.format` 兼容假设。
 
