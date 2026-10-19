@@ -4,6 +4,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
   if (typeof mount2D !== 'function') throw new TypeError('缺少 2D 场景。');
   let mode = '2d', pending = false, disposed = false, epoch = 0, lastState = null;
   let topology = true, selectedNode = null, selectedAgent = null, selectedHuman = null;
+  let presence=null;
   const makeLayer = () => {
     const layer = container.ownerDocument.createElement('div');
     layer.className = 'office-view-layer';
@@ -16,7 +17,8 @@ export function createSceneViewController(container, callbacks = {}, options = {
     if (!disposed && currentLayer === layer) return fn(...args);
   }]));
   let currentLayer = makeLayer(), current = mount2D(currentLayer, wrapCallbacks(currentLayer));
-  const restore = scene => {
+  const applyPresence=(scene,layer,positions)=>{if(presence)scene.setPresence?.({...presence,...(positions?{positions}:{}),onSelectEmployee:person=>{if(!disposed&&currentLayer===layer)presence.onSelectEmployee?.(person);}});};
+  const restore = (scene,layer) => {
     // A newly created renderer observes the current snapshot. It must not replay
     // completed handoffs or generate another workflow/approval callback.
     if (lastState) scene.update({ ...lastState, animateEvents:false });
@@ -24,6 +26,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
     scene.setSelectedNode(selectedNode);
     scene.setSelectedAgent(selectedAgent);
     scene.setSelectedHuman?.(selectedHuman);
+    applyPresence(scene,layer,current.getPresenceState?.()?.positions);
   };
   async function setMode(next) {
     if (disposed) return mode;
@@ -43,7 +46,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
           void setMode('2d');
         }
       } });
-      restore(candidate);
+      restore(candidate,layer);
       if (disposed || ticket !== epoch) { candidate.destroy(); layer.remove(); return mode; }
       const previous = current, previousLayer = currentLayer;
       current = candidate; currentLayer = layer; mode = next;
@@ -63,6 +66,8 @@ export function createSceneViewController(container, callbacks = {}, options = {
     setSelectedNode(value) { selectedNode = value; current.setSelectedNode(value); },
     setSelectedAgent(value) { selectedAgent = value; current.setSelectedAgent(value); },
     setSelectedHuman(value) { selectedHuman = value; current.setSelectedHuman?.(value); },
+    setPresence(value) { if(disposed)return;presence={...value,people:Array.isArray(value?.people)?value.people.map(person=>({...person})):[]};applyPresence(current,currentLayer); },
+    getPresenceState:()=>current.getPresenceState?.(),
     getHumanAnchor:(...args) => current.getHumanAnchor?.(...args),
     getNodeAnchor:(...args) => current.getNodeAnchor(...args),
     getAgentAnchor:(...args) => current.getAgentAnchor(...args),

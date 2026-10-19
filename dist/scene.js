@@ -1,6 +1,7 @@
 /* The office is also the network: every visible endpoint is selectable. */
 import { HUMAN_EMPLOYEES } from './people.js';
 import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming } from './scene-motion.js';
+import {createOfficePresenceMotion} from './erp-presence.js';
 const NODE_META = {
   investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
   general_office: { x:650, y:52, label:'总经办协作台', w:82, ly:-12 },
@@ -131,6 +132,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-agent .cnl-ai-aura{fill:#71d8c0;stroke:#399f8b;stroke-width:.75;opacity:.10}.cnl-agent .cnl-agent-ground{fill:#def9ed;stroke:#55ac94;stroke-width:1;opacity:.9}.cnl-agent-ground-grid{fill:none;stroke:#8bcab4;stroke-width:.5;opacity:.7}.cnl-agent .cnl-agent-card{fill:#f5fff9;stroke:#7abca5;stroke-width:.8;stroke-dasharray:none}.cnl-agent .cnl-agent-card-stripe{stroke:#2d9f83;stroke-width:2;stroke-linecap:round}.cnl-agent .cnl-agent-name{fill:#244f46;font-size:7px;font-weight:800}.cnl-agent .cnl-agent-type{fill:#2c917a;font-size:4.8px;letter-spacing:.25px}.cnl-agent .cnl-agent-state{fill:#587d6d;font-size:5.7px}.cnl-agent .cnl-config-dot{stroke:#6ba78d;fill:#effcf4;stroke-width:.7}.cnl-agent.is-configured .cnl-config-dot{fill:#329a7d;stroke:#329a7d}.cnl-agent-headset{fill:none;stroke:#368c81;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}.cnl-agent-headset rect{fill:#d9fbef;stroke:#367e74;stroke-width:.7}.cnl-agent-headset circle{fill:#48b399;stroke:none}.cnl-ai-badge rect{fill:#d5fff1;stroke:#329f84;stroke-width:.6}.cnl-ai-badge path{fill:none;stroke:#2e8c76;stroke-width:.65;stroke-linecap:round}.cnl-ai-badge circle{fill:#2e8c76}.cnl-agent .cnl-pose-seated{display:none}.cnl-agent.is-seated:not(.is-walking):not(.is-delivering) .cnl-pose-standing{display:none}.cnl-agent.is-seated:not(.is-walking):not(.is-delivering) .cnl-pose-seated{display:block}.cnl-agent.is-working .cnl-ai-aura{fill:#9cf0d1;opacity:.24;stroke:#2a9f80}.cnl-agent.is-working .cnl-agent-card{stroke:#3b9e82}.cnl-agent.is-unassigned{opacity:.64}
     .cnl-human .cnl-human-halo-static{fill:#edbd74;stroke:#ba955a;stroke-width:.6;opacity:.12}.cnl-human-ground{fill:#fff4db;stroke:#c8a264;stroke-width:.9}.cnl-human-identity>circle:first-child{fill:#fff5df;stroke:#b98b4c;stroke-width:.8}.cnl-human-identity>circle:nth-child(2){fill:#ab7b3e}.cnl-human-identity path{fill:none;stroke:#ab7b3e;stroke-width:1;stroke-linecap:round}.cnl-human .cnl-human-card{fill:#fff9ec;stroke:#c5a66f;stroke-width:.8}.cnl-human-card-stripe{fill:none;stroke:#bb8b47;stroke-width:2;stroke-linecap:round}.cnl-human .cnl-human-name{fill:#6f542c;font-size:7px}.cnl-human .cnl-human-type{fill:#a1783b;font-size:4.8px}.cnl-human .cnl-human-state{fill:#92764d;font-size:5.5px}.cnl-carry-document{filter:drop-shadow(1px 2px 1px #245a4940)}.cnl-agent .cnl-carry-document{fill:#f4fff9;stroke:#3d9c80}
     @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important;transition:none!important}}
+    .cnl-presence{cursor:pointer;outline:none}.cnl-presence-name{font-size:7px;fill:#4a5149;font-weight:650;paint-order:stroke;stroke:#faf8ef;stroke-width:2.6;stroke-linejoin:round}.cnl-presence[data-current="true"] .cnl-presence-name{fill:#8b4835;font-weight:800}.cnl-presence:hover .cnl-presence-name,.cnl-presence:focus-visible .cnl-presence-name{text-decoration:underline}.cnl-presence-body{transform-origin:0 -12px}
   </style>
 
   <g class="cnl-world">
@@ -256,7 +258,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g class="cnl-investment-room" filter="url(#${uid}-soft)"><path d="M55 13L62 6H499L505 13V98H55Z" fill="#b6c8c9" stroke="#718f8b" stroke-width="1.1"/><rect x="55" y="10" width="450" height="91" rx="8" fill="#e7eef0" stroke="#9ab2af" stroke-width="1.1"/><path d="M56 35H504" stroke="#c0d1cf" stroke-width=".8"/>${title(224,25,'投资者关系部','INVESTOR RELATIONS','#7799a7')}${use('desk',90,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',202,43,.60,'style="--screen:#cbd4b5"')}${use('desk',314,43,.60,'style="--screen:#cabeda"')}${use('desk',426,43,.55,'style="--screen:#e1c29e"')}<path d="M55 101H68M96 101H505" stroke="#8da99b" stroke-width="2"/><rect x="69" y="98" width="26" height="6" fill="#f8f3df"/><path d="M69 99V82H86" fill="none" stroke="#a7b7a2" stroke-width=".8"/></g>
     <g class="cnl-general-office-room" filter="url(#${uid}-soft)"><path d="M527 13L534 6H799L805 13V98H527Z" fill="#c5baa3" stroke="#a29377" stroke-width="1.1"/><rect x="527" y="10" width="278" height="91" rx="8" fill="#f0e9da" stroke="#b6aa90" stroke-width="1.1"/><path d="M528 35H804" stroke="#d8cdb8" stroke-width=".8"/>${title(668,25,'总经办','EXECUTIVE OFFICE','#b48e58')}<g class="cnl-device" data-device="general_office">${use('desk',552,43,.60,'style="--screen:#a4d5ca"')}${use('desk',723,43,.60,'style="--screen:#d5bc94"')}<g transform="translate(657 46)"><rect x="-7" y="-5" width="15" height="11" rx="2" fill="#fffbec" stroke="#ae9470" stroke-width=".7"/><path d="M-3-2H4M-3 0H4M-3 2H2" stroke="#b6a078" stroke-width=".7"/></g></g><path d="M527 101H536M564 101H805" stroke="#a99b7c" stroke-width="2"/><rect x="537" y="98" width="26" height="6" fill="#f8f3df"/><path d="M537 99V82H554" fill="none" stroke="#b5a68a" stroke-width=".8"/>${plant(788,81,.40)}</g>
     <g class="cnl-node-layer">${hotspots}</g>
-    <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g>
+    <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g><g class="cnl-presence-layer"></g>
     <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
   </g>
   </svg>`;
@@ -276,6 +278,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const humanLayer = svg.querySelector('.cnl-human-layer');
   const humanElements = new Map();
   const humanPositions = new Map(HUMAN_EMPLOYEES.map(h => [h.id,{x:h.x,y:h.y}]));
+  const presenceLayer=svg.querySelector('.cnl-presence-layer');
+  const presenceElements=new Map();let presenceState={enabled:false,people:[]},presenceFrame=0,presenceHiddenAt=null;
   const agentElements = new Map();
   const agentPositions = new Map();
   const agentSignatures = new Map();
@@ -301,6 +305,24 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let viewFrame = 0;
   let motionUntil = 0;
   let destroyed = false;
+  const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>setPresencePoint(entry)});
+  function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample}=entry;el.setAttribute('transform',`translate(${point.x} ${point.y})`);humanPositions.set(entry.person.id,{...point});el.dataset.walking=String(!!entry.motion);el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
+    const body=el.querySelector('.cnl-presence-body');if(body)body.style.transform=`translateY(${sample?.bob||0}px) rotate(${sample?.lean||0}deg)`;
+    for(const [selector,sign]of[['.cnl-person-leg-left',1],['.cnl-person-leg-right',-1],['.cnl-person-arm-left',-.65],['.cnl-person-arm-right',.65]]){const limb=el.querySelector(selector);if(limb)limb.style.transform=`rotate(${(sample?.stride||0)*sign}deg)`;}
+  }
+  function ensurePresenceFrame(){if(!presenceFrame&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
+  function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();}
+  function presenceVisibility(){if(document.hidden){presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
+  document.addEventListener?.('visibilitychange',presenceVisibility);
+  function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);const present=new Set(presenceMotion.entries.keys());
+    for(const [id,el]of presenceElements)if(!present.has(id)){el.remove();presenceElements.delete(id);humanElements.delete(id);humanPositions.delete(id);}
+    for(const meta of HUMAN_EMPLOYEES){const el=humanElements.get(meta.id);if(el)el.style.display=presenceState.enabled?'none':'';}humanApproval.style.display=presenceState.enabled?'none':'';
+    for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
+      const p=entry.person;el.dataset.current=String(p.current);el.setAttribute('aria-label',`${p.name}，真实员工${p.title?'，'+p.title:''}，${p.current?'你，':''}在线，查看个人与待办`);el.setAttribute('aria-pressed',String(selectedHuman===id));
+      const signature=JSON.stringify([p.name,p.title,p.current,p.color,p.hair]);if(el.dataset.signature!==signature){el.dataset.signature=signature;el.innerHTML=`<title>${esc(p.name)}${p.title?' · '+esc(p.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(p.color,p.hair,{scale:.66})}<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(p.name.slice(0,9))}${p.name.length>9?'…':''}${p.current?' · 你':''}</text>`;}setPresencePoint(entry);
+    }
+    ensurePresenceFrame();scheduleViewChange();
+  }
 
   const scheduleViewChange = (duration = 0) => {
     motionUntil = Math.max(motionUntil, performance.now() + duration);
@@ -553,7 +575,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   const onMotionPreferenceChange=event=>{
-    reducedMotion=event.matches;if(!reducedMotion||destroyed)return;
+    reducedMotion=event.matches;presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
     cancelAnimationFrame(motionFrame);motionFrame=0;
     for(const [id,motion] of [...motions]) {motions.delete(id);setAgentPoint(id,motion.route.at(-1));clearWalkPose(agentElements.get(id));motion.onArrive?.();}
     scheduleViewChange();
@@ -658,6 +680,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     setSelectedNode,
     setSelectedAgent,
     setSelectedHuman,
+    setPresence,getPresenceState:()=>presenceMotion.snapshot(),
     getHumanAnchor(id='owner') { const el=humanElements.get(id);return el?projectPoint({x:0,y:-15},el):null; },
     focusHuman(id='owner') { const point=humanPositions.get(id);if(!point)return false;panX=point.x-530;panY=point.y-325+52/scale;applyView();return true; },
     getNodeAnchor(id) { const n = NODE_META[id]; return n ? projectPoint(n) : null; },
@@ -680,6 +703,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       destroyed = true;
       resizeObserver.disconnect();
       motionPreference?.removeEventListener?.('change',onMotionPreferenceChange);
+      document.removeEventListener?.('visibilitychange',presenceVisibility);cancelAnimationFrame(presenceFrame);presenceFrame=0;presenceMotion.destroy();presenceElements.clear();
       cancelAnimationFrame(viewFrame);
       resetMotions();
       container.innerHTML = '';

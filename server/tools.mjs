@@ -107,7 +107,7 @@ export async function publicFetch(value,{signal,maxBytes=3*1024*1024,redirects=4
   const abort=()=>{req.destroy();end(new Error('任务已取消'));};signal?.addEventListener('abort',abort,{once:true});timer=setTimeout(()=>{req.destroy();end(new Error('公开网页抓取超时（20秒）'));},20000);req.on('error',end);req.end();
  });
 }
-function reportHtml(markdown){
+export function reportHtml(markdown){
  const lines=String(markdown).split(/\r?\n/),out=[];let paragraph=[],list=null;
  const linkUrl=value=>{try{const url=new URL(value);return ['http:','https:'].includes(url.protocol)?url.href:null;}catch{return null;}};
  const inline=(value,depth=0)=>{

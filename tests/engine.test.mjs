@@ -19,7 +19,7 @@ async function setup(options={}){
    return {definitions:allNames.map(name=>({name,description:name,parameters:{type:'object',properties:{}}})),publicState:()=>({}),artifacts:()=>artifacts,
     async execute(name){await wait(15);if(name==='apply_defense')await approval({title:'隔离测试变更',description:'unit-test-only'});if(name==='write_report'){const p=path.join(runDir,'test-report.txt');await writeFile(p,'unit-test report');artifacts.push({id:'report',name:'test-report.txt',path:p,mimeType:'text/plain',bytes:16});}return {summary:'unit-test tool observed',value:42};}};
  };
- const engine=new OfficeEngine({dataDir,modelCall:model,providerStatus,toolboxFactory,...options});await engine.ready;return {engine,dataDir,clean:()=>rm(dataDir,{recursive:true,force:true})};
+ const engine=new OfficeEngine({dataDir,modelCall:model,providerStatus,toolboxFactory,...options});await engine.ready;return {engine,dataDir,clean:async()=>{await engine.shutdown();await rm(dataDir,{recursive:true,force:true});}};
 }
 function receiptToolbox({beforeExecute=async()=>{},evidenceByTool={},summaryByTool={}}={}){
  return async({runDir,approval,emit})=>{

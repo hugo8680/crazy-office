@@ -1,6 +1,6 @@
 {
   "name": "crazy-network-lab",
-  "version": "2.7.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "description": "A local office with real model-driven virtual employees and verifiable tools.",
@@ -12,6 +12,7 @@
     "dev": "node scripts/server.mjs",
     "start": "node scripts/server.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check scripts/server.mjs && node --check server/network.mjs && node --check server/lifecycle.mjs && node --check server/engine.mjs && node --check server/catalog.mjs && node --check server/provider.mjs && node --check server/dashscope.mjs && node --check server/tools.mjs && node --check server/investment.mjs && node --check server/onboarding.mjs && node --check dist/office.js && node --check dist/scene.js && node --check dist/people.js && node --check dist/scene-motion.js && node --check server/access.mjs && node --check server/automation.mjs && node --check server/company.mjs && node --check dist/login.js && node --check dist/scene-view.js && node --check dist/scene3d.js && node --check dist/scene3d-layout.js && node --check dist/scene3d-actors.js && node --check dist/scene3d-motion.js && node --check server/outcomes.mjs && node --check server/archive.mjs && node --check server/report-document.mjs"
+    "check": "node --check scripts/server.mjs && node --check server/network.mjs && node --check server/lifecycle.mjs && node --check server/engine.mjs && node --check server/catalog.mjs && node --check server/provider.mjs && node --check server/dashscope.mjs && node --check server/tools.mjs && node --check server/investment.mjs && node --check server/onboarding.mjs && node --check dist/office.js && node --check dist/scene.js && node --check dist/people.js && node --check dist/scene-motion.js && node --check server/access.mjs && node --check server/automation.mjs && node --check server/company.mjs && node --check dist/login.js && node --check dist/scene-view.js && node --check dist/scene3d.js && node --check dist/scene3d-layout.js && node --check dist/scene3d-actors.js && node --check dist/scene3d-motion.js && node --check server/outcomes.mjs && node --check server/archive.mjs && node --check server/report-document.mjs && node --check server/erp-identity.mjs && node --check server/erp-store.mjs && node --check server/erp-service.mjs && node --check server/erp-http.mjs && node --check dist/erp.js && node --check dist/erp-ui.mjs && node --check dist/erp-presence.js && node --check dist/join.js",
+    "verify:erp": "node scripts/verify-erp-real.mjs"
   }
 }

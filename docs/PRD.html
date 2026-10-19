@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>疯狂办公室 ERP 产品需求文档</title>
+  <style>
+    :root{color-scheme:light;--paper:#fffdf7;--ink:#292d27;--muted:#646c5d;--line:#d4d4c9;--brick:#9e4537;--surface:#f0eee5}
+    *{box-sizing:border-box}
+    html{background:#ebe9e0;-webkit-text-size-adjust:100%}
+    body{margin:0;color:var(--ink);font:15px/1.95 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+    .report-document{width:min(100% - 48px,1020px);margin:40px auto 64px;padding:58px 68px 68px;background:var(--paper);border:1px solid #d4d2c7}
+    .report-header{margin:0 0 38px;padding:0 0 29px;border-bottom:1px solid var(--line)}
+    h1,h2{font-family:"Songti SC",STSong,"Noto Serif CJK SC",SimSun,serif;font-weight:650}
+    h1{font-size:37px;line-height:1.48;letter-spacing:-.7px;margin:0;overflow-wrap:anywhere;text-wrap:balance}
+    h2{font-size:25px;line-height:1.55;letter-spacing:-.3px;margin:39px 0 17px;break-after:avoid-page}
+    h3{font-size:17px;line-height:1.7;font-weight:650;margin:29px 0 13px;break-after:avoid-page}
+    h4{font-size:14px;line-height:1.8;font-weight:650;color:var(--brick);margin:24px 0 11px;break-after:avoid-page}
+    .report-body>:first-child{margin-top:0}
+    .report-body>p:first-child{font-size:16px;line-height:2;color:#3f4539;margin-bottom:25px}
+    p{margin:15px 0;overflow-wrap:anywhere;orphans:3;widows:3}
+    strong{font-weight:650;color:#30352c}
+    ul,ol{margin:16px 0 22px;padding-left:1.55em}
+    li{padding-left:.25em;margin:8px 0;overflow-wrap:anywhere}
+    li::marker{color:#6c7561}
+    a{color:var(--brick);text-decoration-thickness:1px;text-underline-offset:3px;overflow-wrap:anywhere}
+    a:hover{color:#763427}
+    a:focus-visible,.table-wrap:focus-visible{outline:2px solid var(--brick);outline-offset:4px}
+    code{font:12.5px/1.8 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;background:#efede5;color:#4f5649;border-radius:2px;padding:2px 5px;overflow-wrap:anywhere}
+    pre{margin:23px 0;padding:19px 21px;background:var(--surface);overflow:auto;max-width:100%;border:0;border-radius:2px;tab-size:2;break-inside:avoid-page}
+    pre code{background:transparent;border:0;border-radius:0;padding:0;color:#434a3e;font-size:12px;line-height:1.85;white-space:pre;overflow-wrap:normal}
+    .table-wrap{max-width:100%;overflow:auto;margin:23px 0 28px;scrollbar-width:thin;scrollbar-color:#b7bcad #efeee6}
+    table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.8;text-align:left;font-variant-numeric:tabular-nums}
+    th,td{min-width:110px;max-width:340px;padding:12px 14px;vertical-align:top;overflow-wrap:anywhere;border:0;border-bottom:1px solid #d4d4ca}
+    th{background:#343a31;color:#fffdf2;font-size:12px;font-weight:600;border-bottom-color:#343a31;white-space:normal}
+    th strong,th code{color:inherit;background:transparent}
+    tbody tr:nth-child(even){background:#f4f3eb}
+    tbody tr:last-child td{border-bottom-color:#c4c5b8}
+    blockquote{margin:24px 0;padding:17px 20px;background:#efeee5;color:#626a58;border:0;border-radius:2px}
+    blockquote>:first-child{margin-top:0}blockquote>:last-child{margin-bottom:0}
+    hr{border:0;border-top:1px solid var(--line);margin:33px 0}
+    @media(max-width:640px){
+      .report-document{width:100%;margin:0;padding:32px 22px 42px;border:0}
+      .report-header{margin-bottom:28px;padding-bottom:22px}
+      h1{font-size:29px;line-height:1.5;letter-spacing:-.4px}h2{font-size:22px;margin-top:32px}h3{font-size:16px}
+      body{font-size:14px;line-height:1.95}.report-body>p:first-child{font-size:15px}
+      pre{padding:15px 16px}th,td{padding:10px 12px;min-width:105px}
+    }
+    @page{size:A4;margin:17mm 15mm 18mm}
+    @media print{
+      :root{--paper:#fff;--ink:#252a21;--muted:#666d5e}
+      html,body{background:white}body{font-size:10pt;line-height:1.75}
+      .report-document{width:auto;max-width:none;margin:0;padding:0;border:0;background:white}
+      .report-header{margin-bottom:22pt;padding-bottom:17pt}h1{font-size:25pt;line-height:1.5}
+      h2{font-size:17pt;margin:25pt 0 12pt}h3{font-size:12pt;margin:19pt 0 9pt}h4{font-size:10pt;margin:16pt 0 8pt}
+      .report-body>p:first-child{font-size:10.8pt;line-height:1.85}p{margin:10pt 0}
+      ul,ol{margin:11pt 0 15pt}li{margin:5pt 0}
+      a{color:#6e3f2a;text-decoration:underline}a[href]::after{content:" (" attr(href) ")";font-size:8pt;color:#6f675b;overflow-wrap:anywhere}
+      .table-wrap{overflow:visible;max-width:none;margin:16pt 0 20pt}
+      table{width:100%;min-width:0;table-layout:fixed;font-size:8pt;line-height:1.65}
+      th,td{min-width:0;max-width:none;padding:7pt 6pt;overflow-wrap:anywhere}
+      th{background:#e5e5da;color:#343a2e;font-size:8pt;border-bottom:1px solid #b6bbab}
+      thead{display:table-header-group}tfoot{display:table-footer-group}tr{break-inside:avoid-page}
+      tbody tr:nth-child(even){background:#f6f6ef}
+      pre{white-space:pre-wrap;overflow:visible;padding:12pt 14pt;break-inside:auto}
+      pre code{white-space:pre-wrap;overflow-wrap:anywhere;font-size:8pt}
+      blockquote{padding:12pt 14pt}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
+  </style>
+</head>
+<body>
+  <main class="report-document">
+    <header class="report-header"><h1>疯狂办公室 ERP 产品需求文档</h1></header>
+    <article class="report-body"><p>版本 1.0　更新日期 2026年10月20日　首期范围 单公司八条业务链路</p>
+<p>本产品以现有 2D 平面办公室和 3D 正交沙盘为主界面。真实员工使用独立账号入驻，向虚拟员工交代任务，在办公室里查看工作、交接证据并办理审批。虚拟员工通过真实模型和岗位工具处理业务。项目、产品、人员、单据和库存使用持续保存的业务台账。</p>
+<p>首期交付八条闭环链路。每条链路包含真实输入、两个独立虚拟岗位、工具回执、真人确认和可追溯结果。首期验收通过后可进入单公司试用；商业发布还须由实际业务负责人、产品、技术、测试和运维人员按本文件签核。自动测试通过不能代替这些人的签核。</p>
+<h2>1 产品原则</h2>
+<h3>1.1 办公室作为工作界面</h3>
+<p>保留现有办公室布局、2D 与 3D 切换、房间和人物入口。项目工作台、仓储、人员、审批、报表在场景内展开。数据多时使用大工作台和可滚动表格，关闭后回到同一场景。底部只保留常用动作，不新增传统 ERP 的顶部模块导航。</p>
+<p>人物移动和文件交接随实际事件发生。模型调用、单据提交和审批不等待动画结束。用户可以直接打开待办、搜索单据和办理工作。减少动态效果时保留状态与交接文字。刷新、切换视角和查看历史不得重新派工或重复落账。</p>
+<h3>1.2 真人与虚拟员工的职责</h3>
+<p>真人对应独立登录身份、岗位和权限。虚拟员工对应职责提示、可用工具、授权数据、独立上下文和行动记录。虚拟员工可以提出方案、核对资料和生成草案；实际到货、实际发货、业务验收和规定的审批由真实账号确认。</p>
+<p>模型给出的文字不是业务事实。数量、金额、库存、办理状态和报表从已确认单据与真实工具回执计算。模型失败时任务明确失败，不能回退为假执行。用户可以重试，重试不得复制已确认单据。</p>
+<h3>1.3 清晰的界面与文案</h3>
+<p>每个工作项始终回答四个问题：谁负责、正在做什么、还缺什么、下一步由谁操作。优先显示“等待财务审批”“已收货 2 台，还差 1 台”“库存不足，缺 2 台”等具体信息。</p>
+<p>虚拟员工保留统一制服、耳侧模块和芯片标识；真实员工采用便服与工作证，全部使用实体材质。新工作台沿用暖白、木色、鼠尾草绿和砖红色。不使用投影、光晕、装饰侧边条或大段宣传文字。</p>
+<h2>2 首期业务边界</h2>
+<p>首期面向吉林云投莱森购数字科技有限公司的单公司工作场景。公司名称是默认主体，客户、员工、库存、业绩和经营金额须由实际使用者录入，不能预填为公司既有事实。</p>
+<p>首期支持一个仓库、人民币整数分金额和整数数量产品。数量以产品单位记录。库存为已确认收发和调整流水的净额。采购金额、销售单金额与项目汇总均为业务台账口径，不自动形成法定会计账、税务申报或收入确认。</p>
+<p>首期不包含制造、批次保质期、序列号资产折旧、多币种结算、支付、外部电商下单、自动签约、薪资发放和复杂绩效评分。已有独立网络演练、投前研究等实验室功能可供管理员继续使用，权限与 ERP 业务分开。</p>
+<h2>3 人员入驻与权限</h2>
+<h3>3.1 账号生命周期</h3>
+<p>管理员创建邀请，填写账号、姓名、部门、岗位和角色。邀请链接只显示一次，使用随机凭证，服务端仅存摘要，默认有效期 72 小时。员工打开链接自行设置至少 12 位密码，成功后邀请失效。邀请不能公开注册、重复兑换或改成其他角色。邀请凭证放在 URL 片段中，不进入服务器访问日志。</p>
+<p>员工可以修改自己的密码。管理员可以停用账号、调整角色或发起密码重设；这些变更立即撤销原会话。旧审批记录仍保留原操作者。最后一个管理员不能被停用或移除管理角色。原部署管理员继续使用原登录凭据，不自动更改密码。</p>
+<p>停用员工的未办事项留在待办中，由管理员指定在岗人员继续处理；历史单据、审批和贡献不能删除。首期通过重新指定项目成员和任务负责人办理接替，不自动把停用账号的权限转交给其他人。</p>
+<h3>3.2 角色</h3>
+<div class="table-wrap" role="region" tabindex="0" aria-label="报告数据表，可横向滚动"><table><thead><tr><th scope="col">角色</th><th scope="col">主要职责</th><th scope="col">数据范围</th></tr></thead><tbody><tr><td>管理员</td><td>邀请员工、设置角色、维护基础资料、查看审计和运行状态</td><td>公司范围，仍不得审批自己发起的单据</td></tr><tr><td>部门负责人</td><td>审查需求、采购、资源和项目工作</td><td>所在部门及授权项目</td></tr><tr><td>项目负责人</td><td>项目成员、任务、交付和周报核对</td><td>自己负责或参与的项目</td></tr><tr><td>采购</td><td>整理采购需求与供应商资料，执行已批准采购记录</td><td>授权采购与关联项目</td></tr><tr><td>仓管</td><td>真实收货、发货、领用、归还和盘点</td><td>库存及相关已批准单据</td></tr><tr><td>财务</td><td>核对采购和销售金额、库存差异及业务报表</td><td>所需成本和单据，不自动取得身份管理权限</td></tr><tr><td>人事</td><td>岗位资源准备与人员资料管理</td><td>人事工作单及必要员工字段</td></tr><tr><td>员工</td><td>提交业务需求、办理本人任务和查看结果</td><td>本人及已参与项目</td></tr></tbody></table></div>
+<p>服务端同时检查角色、项目范围、申请人、当前审批层级和单据版本。界面隐藏按钮不能代替接口检查。同一个人不得发起并批准自己的单据，也不得连续完成同一张单据的两级审批。管理员使用其他人的单据时可以履行管理审批，仍须遵守人员分离。</p>
+<p>首期部门和角色由管理员维护；项目通过负责人和成员授权。产品参考价与公司库存数量向在岗员工开放；授权项目成员可查看该项目单据及业务金额，公司级经营汇总由管理和财务角色查看。更细的字段级价格遮罩在后续数据权限迭代实现。邀请列表不返回凭证，员工目录不返回密码摘要或会话信息。</p>
+<h2>4 办公室交互</h2>
+<h3>4.1 场景入口</h3>
+<p>开放办公区承载员工、岗位资源和个人待办。业务管理室承载项目、任务和产品。接待区承载客户需求、采购和销售工作单。仓储入口承载库存、盘点、收发与领用。财务办公室承载金额核对与报表。总经办承载分级审批和公司概览。</p>
+<p>点击虚拟员工可以交代任务并查看正在处理的工作；点击真实员工查看本人或有权查看的任务。人物旁只出现简短行动提示，完整证据放在工作台。审批打开大屏对话框，显示申请人、关键数据、虚拟员工检查、当前层级与批准或退回动作。</p>
+<h3>4.2 真人在线与移动</h3>
+<p>登录员工拥有在线人物和当前所在区域，其他员工可看到其姓名、岗位与在线状态。首期采用点击目的地区域自动移动，位置由服务器同步；不强制键盘操作。离线后显示离线，虚拟员工继续处理，真人审批保留待办。人物移动不构成已阅读或已审批。</p>
+<h3>4.3 业务工作台</h3>
+<p>工作台包含待我处理、全部可见工作、项目、产品、库存、任务、报表和人员管理。列表支持状态筛选和搜索。详情显示原始需求、关联对象、行项目、Agent 行动、检查结果、审批记录、已执行数量和后续动作。</p>
+<p>创建动作使用“交给虚拟员工”，处理中显示实际岗位和工具；人工动作使用“批准”“退回”“确认收货”“确认发货”“确认领用”“确认交付”。保存期间禁止重复点击，但服务端仍必须防重复。</p>
+<h2>5 八条业务链路</h2>
+<h3>5.1 W01 项目立项与任务准备</h3>
+<p>用户登记项目名称、客户、负责人、成员、目标和预期日期。业务虚拟员工读取需求与项目，提出范围、工作步骤和验收事项；独立审校核对遗漏、冲突和资料缺口。项目负责人和部门负责人依次确认，形成已批准立项记录。负责人据此建立真实任务并分派人员。</p>
+<p>必需输入为项目、目标和负责人。输出为立项工作单、范围与检查结果、两级审批及关联任务。缺负责人、无项目权限、审批人与申请人相同或 Agent 证据不足时不得通过。项目档案的创建与立项批准分开记录。</p>
+<p>验收用例 W01 A：同一已授权项目可完成需求到批准记录；W01 B：其他项目员工不能查看；W01 C：退回后修改并重新处理会清空旧审批；W01 D：无真实模型回执不得提交审批。</p>
+<h3>5.2 W02 项目交付与验收</h3>
+<p>项目员工提供本次交付内容、验收标准和实际成果引用，虚拟员工整理交付清单并逐项对照，独立审校标出未覆盖项。项目负责人和部门负责人确认后，记录本次交付。任务完成记录与交付批准分别保存，不能用一句“已完成”代替交付证据。</p>
+<p>输出为交付说明、验收核对、审批和项目事实记录。资料不足允许退回或形成明确的未通过结论。只有已完成且经确认的记录进入贡献报表。首期只保存文本与来源引用；外部附件保存原链接，不假称已经读取二进制文件。</p>
+<p>验收 W02 A：多项验收标准均可追溯到交付；W02 B：空交付、错误项目和越权验收被拒绝；W02 C：失败与退回不生成已验收贡献。</p>
+<h3>5.3 W03 项目采购与分批收货</h3>
+<p>申请人选择产品、数量、预估单价、供应商和关联项目。采购虚拟员工核对需求与库存，真实检索公开来源并提取报价，独立审校核对规格、币种、含税、运输与缺项。缺少有效报价时显示待询价；用户可以补充真实供应商报价依据后重新处理。预估价与已取得报价必须分开。</p>
+<p>部门负责人和财务依次批准内部采购记录。实际采购由授权员工办理。仓管输入实际收货数量和收货凭证，允许分批；累计不得超过批准数量。每次确认生成库存入库流水，全部收完后完成工作单。批准本身不增加库存。</p>
+<p>输出为报价来源、方案、两级审批、收货记录和库存流水。首期不发送询价消息、不下单或付款。报价结论不得承诺穷尽互联网，网页失败不得填入猜测价格。</p>
+<p>验收 W03 A：批准 3 台，先收 1 再收 2，库存净增 3；W03 B：重复请求不重复入库；W03 C：多收、负数和过期版本被拒绝；W03 D：网页内容不能改变岗位权限；W03 E：报价缺失明确保留待询价与人工核对。</p>
+<h3>5.4 W04 销售备货与项目发货</h3>
+<p>申请人登记客户、产品、数量、业务单价和项目。虚拟员工核对产品和当前库存，整理备货及交付检查；审校员工检查数量、金额和缺货风险。部门负责人及财务批准后，仓管根据实际发货凭证分批确认出库。</p>
+<p>每次发货在数据库事务内重新检查库存，不以方案生成时的库存为准。首期不承诺库存预留，实际出库不足则停止并保留待发数量。销售业务单金额与已发数量分别展示；不自动确认为收入或已收款。</p>
+<p>验收 W04 A：库存不足不能发出；W04 B：并发发货合计不超过库存；W04 C：单据重复提交不重复出库；W04 D：累计发货不能超过批准数量。</p>
+<h3>5.5 W05 库存盘点与差异调整</h3>
+<p>仓管提交产品实盘数量，系统冻结提交时的账面数量。虚拟员工计算差异、检查异常和关联流水，独立审校检查差异依据。部门负责人和财务确认后，授权仓管提交调整。</p>
+<p>如果审批期间库存发生变化，原盘点基线失效，要求重新核对，不允许覆盖新流水。实盘数量可以为零；调整以独立流水记录，不直接改写历史记录。</p>
+<p>验收 W05 A：差异为正和为负均准确；W05 B：基线变化后禁止旧盘点落账；W05 C：缺少原因或未经审批不能调整；W05 D：历史流水保持可追溯。</p>
+<h3>5.6 W06 办公物品领用与归还</h3>
+<p>员工选择物品、数量、用途和领取人。虚拟员工检查库存与原领用记录并准备交接事项，独立审校检查重复和归还范围。部门负责人、仓管依次批准，仓管确认实物交接后出库并记录领用余额。</p>
+<p>归还单关联原领用单，归还数量不得超过尚未归还数量。仓管确认后入库并减少领用余额。首期按产品数量办理，不宣称具有逐件资产序列号管理能力。</p>
+<p>验收 W06 A：领用和分次归还后库存与借用余额相符；W06 B：不能归还其他员工或其他产品的领用；W06 C：重复归还和超额归还被拒绝。</p>
+<h3>5.7 W07 项目周报与人员贡献核对</h3>
+<p>负责人选择项目、起止日期和补充说明。虚拟员工读取授权范围内的实际任务与已确认业务，整理本期分配、提交、验收的任务，期末待办、逾期和已确认交付；独立审校逐项检查来源。项目负责人及部门负责人确认后保存该期报告与事实快照。</p>
+<p>员工贡献展示完成任务、确认的交付与业务参与，不由模型自动打绩效分、不自动排名、不生成录用、奖惩或薪资决定。首期展示工作事实，销售归属和贡献分配须由真人明确确认后才可扩展；任务历时不作为实际工时。采购金额不能作为员工销售业绩。</p>
+<p>验收 W07 A：每个数字可回到原记录；W07 B：日期范围和项目范围正确；W07 C：真人与虚拟员工分别记录；W07 D：未确认、取消及失败工作不混入已完成业绩。</p>
+<h3>5.8 W08 入驻员工岗位资源准备</h3>
+<p>为已经由管理员邀请的员工提交岗位、部门与办公资源需求。虚拟员工整理准备清单、负责人和验收方法，独立审校检查缺项及过度权限。人事和部门负责人依次批准后，保存岗位准备记录，关联实际员工及后续资源领用。</p>
+<p>账号邀请、行政准备和实物领用分别办理。本链路不决定录用资格，不收集身份证、银行卡、薪资或健康资料，不把准备清单描述成外部账号或设备已经开通。首次入驻账户由邀请兑换完成，不依赖本链路替用户设置密码。</p>
+<p>验收 W08 A：只接受已有在册员工；W08 B：缺岗位或需求时要求补充；W08 C：批准后能关联领用，但不能凭准备报告增加库存或开通外部权限。</p>
+<h2>6 单据与状态</h2>
+<h3>6.1 公共状态</h3>
+<p>单据创建后进入草稿，交给真实 Agent 后进入处理中。两个岗位成功交付并完成工具核对后，进入第一级审批。两级审批全部通过后，进入已批准；采购、销售和资源工作等待真实业务操作，其他链路由有权人员确认记录后完成。失败显示失败原因和已保留证据。退回记录意见并保留历史，修订后重新处理。</p>
+<p>单据包含类型、编号、版本、申请人、项目、输入、产品行、方案、证据、审批链、已执行数量、创建与更新时间。行项目使用固定行号，收发操作引用行号与本次数量。服务端生成编号与操作者，不接受浏览器伪造审批记录。</p>
+<h3>6.2 写入规则</h3>
+<p>数量使用有上限的整数，金额使用整数分，所有乘加检查安全范围。输入校验、角色校验和业务校验均在服务端执行。关键操作要求版本和防重复凭证；同一凭证同一请求返回原结果，内容不同则拒绝。库存检查和落账使用单个数据库事务。</p>
+<p>审批冻结的是单据内容。需求、产品、数量、金额、项目或方案发生关键变更后，原审批失效。不得覆盖历史审批，事件按时间追加。错误流水通过新调整记录更正，不能删除原流水。</p>
+<h2>7 真实 Agent 协作</h2>
+<h3>7.1 岗位与工具</h3>
+<p>准备岗位读取有权访问的业务上下文，选择适用工具，提交结构化方案；审校岗位使用独立上下文读取原输入、真实数据及准备岗位结果，提交检查和缺口。公共工具包括读取工作上下文、生成方案、独立核对和交付报告。采购额外开放真实网页检索和报价抓取工具。</p>
+<p>模型不能执行宿主命令、任意 SQL、直接改角色、直接审批或直接改库存。所有模型输出按工具参数契约校验。网页和任务正文作为数据，不能修改系统规则。仅向模型发送完成任务必要的项目及业务字段，不发送密码、邀请凭证、会话、身份证或完整员工私人资料。</p>
+<h3>7.2 运行与恢复</h3>
+<p>每次模型调用记录岗位、模型、时间、工具名称、参数摘要、回执、成功或失败状态，以及服务返回的用量。工具执行与模型总结分开呈现。独立审校不允许只复述上游总结。</p>
+<p>模型不可用时保留单据并明确失败或待重试，不标为待审批或已完成。服务重启中断的 Agent 任务标记中断，可以人工重试；已落账单据不能重放。限制单个工作项的步骤、模型调用、网络抓取、内容大小和并发数。真实审批期间后台不占用模型调用。</p>
+<h3>7.3 效率验证</h3>
+<p>对同类业务记录人工整理时间、虚拟员工处理历时、实际人工接手次数、退回次数、缺项率和最终核对结果。首轮至少收集十笔有真实资料的试用记录，再评估节省时间。首期不预设“节省百分之多少”的效果，不把动画时长或模型回复速度当作效率收益。</p>
+<h2>8 数据与报表</h2>
+<p>主对象为员工、角色、项目、产品、任务、工作单、产品行、审批、库存流水、领用余额、贡献快照和审计事件。项目关联客户文本与成员，采购和销售关联供应商或客户及产品。首期伙伴名称直接随单据保存，后续迁移为客户供应商档案时保留原快照。</p>
+<p>首页不放无依据的经营大数字。工作台优先显示当前人的待办、需要补充的资料、待收待发和异常。报表包括库存余额与流水、采购收货、销售发货、项目进展和人员贡献。导出必须遵守同一权限范围，CSV 对公式前缀做转义，HTML 内容安全转义。</p>
+<p>人员档案、业务数据库和旧任务文件分别保存。数据库升级有版本号和迁移，升级前备份。备份包含业务库与身份库但不包含公开链接；恢复测试在隔离目录进行，不能覆盖运行中的生产库。密码、模型密钥和邀请凭证不得写入产品日志或 Git。</p>
+<h2>9 测试与发布门槛</h2>
+<h3>9.1 自动测试</h3>
+<p>每个业务规则都有正常、边界和拒绝路径。身份测试覆盖邀请时效、一次兑换、并发兑换、密码摘要、登录限流、停用撤销、角色变更和最后管理员保护。权限测试覆盖逐接口角色与项目范围、自批、重复审批、伪造操作者和越权下载。</p>
+<p>业务测试覆盖金额精度、整数上限、负数、重复产品、库存不足、并发写入、分批收发、超额收发、归还范围、盘点过期、防重复键冲突和事务回滚。Agent 测试覆盖真实工具门槛、未知工具、恶意任务、错误参数、模型超时、重启和失败重试。UI 测试覆盖状态、错误提示、按钮权限、视角切换和表单保留。</p>
+<p>已有实验室回归必须通过，ERP 变更不得破坏原 2D 和 3D、登录、审批、模型和文件下载。测试用的固定模型只用于异常与确定性回归，不能作为真实 Agent 验收证据。</p>
+<h3>9.2 真实模型验收</h3>
+<p>八条链路各至少跑通一笔明确标记的隔离验收业务，覆盖两个真实虚拟岗位、两个不同审批账号、实际数据库记录和结果下载。另跑采购缺价、库存不足、越权、自批、退回、停用和重启中断。真实模型服务、模型名、工具次数与核验结果保存在验收记录中。</p>
+<p>验收不得伪造收到货物、实际客户验收或正式员工审批。功能测试使用隔离账号、隔离库存和明确标记的测试凭证。正式试用由实际员工完成自己的业务操作。</p>
+<h3>9.3 上线签核</h3>
+<div class="table-wrap" role="region" tabindex="0" aria-label="报告数据表，可横向滚动"><table><thead><tr><th scope="col">审核人</th><th scope="col">通过条件</th><th scope="col">留存内容</th></tr></thead><tbody><tr><td>业务负责人</td><td>八链流程与职责正确，报表可回溯，异常可处理</td><td>真实试用记录和业务签核</td></tr><tr><td>产品负责人</td><td>场景入口、操作顺序与文案可理解</td><td>验收清单和已处理问题</td></tr><tr><td>技术负责人</td><td>权限、事务、幂等、模型工具边界正确</td><td>代码审查和架构记录</td></tr><tr><td>测试负责人</td><td>自动回归与真实模型验收通过，无阻塞缺陷</td><td>测试报告和证据</td></tr><tr><td>运维负责人</td><td>HTTPS、备份恢复、日志、监控与回滚可执行</td><td>发布与恢复演练记录</td></tr></tbody></table></div>
+<p>阻塞缺陷包括越权读写、冒充真人审批、库存或金额错账、重复落账、无法恢复的数据丢失、模型假完成和流程无法继续。阻塞缺陷未清零不得商业发布。性能目标在单公司 20 名在线用户、4 个并行 Agent 工作项的试用负载下验证，普通业务请求 P95 不超过 1 秒；外部模型和网页处理单独计时。上线前必须记录实际测量，不把目标当成实测结果。</p>
+<h2>10 逐步实施</h2>
+<h3>10.1 第一阶段 首期业务闭环</h3>
+<p>S1A 账号与数据底座：员工邀请、自设密码、独立登录、角色与项目范围、项目产品档案、事务台账、审计、备份设计。通过身份、权限及事务测试后开放给内部验收账号。</p>
+<p>S1B 八条链路：按 W01 项目立项、W03 采购收货、W04 销售发货、W06 领用归还、W05 盘点调整、W02 交付验收、W07 周报贡献、W08 岗位资源的顺序接入。每条完成工具、真实 Agent、审批、异常、台账和导出后才计为完成。共同能力复用，不能用相似界面代替不同业务校验。</p>
+<p>S1C 办公室整合与验收：接入真实账号在线人物、部门入口、场景内工作台、2D 与 3D 状态一致、审批直达与动作提示。完成全量自动检查、八链真实模型验收、角色攻击测试和备份恢复，进入单公司试用。</p>
+<p>S1D 商业发布评审：至少十笔真实业务试用，核对人工接手量与实际效率，清理阻塞缺陷，由五类负责人签核。未通过前保留试用状态，不能在产品中显示“已商业验收”。</p>
+<h3>10.2 第二阶段 协作扩展</h3>
+<p>根据首期记录决定是否增加可配置审批、委托与转办、附件存储、全文检索、订阅通知、客户供应商档案、退货、库存预留和更精细的数据范围。引入企业消息、邮件或企业账号连接时，逐项定义授权、发送确认和失败补偿。</p>
+<h3>10.3 第三阶段 企业集成</h3>
+<p>在已有单公司验证的基础上评估多仓库、序列号资产、财务软件对接、企业身份单点登录、多组织、外部合作方与更复杂的项目绩效口径。所有扩展沿用同一办公室交互与证据机制。</p>
+<h2>11 需求追踪</h2>
+<div class="table-wrap" role="region" tabindex="0" aria-label="报告数据表，可横向滚动"><table><thead><tr><th scope="col">需求组</th><th scope="col">稳定编号</th><th scope="col">对应验收</th></tr></thead><tbody><tr><td>办公室与人物</td><td>UI01 至 UI06</td><td>入口、移动、在线、工作台、审批、视角状态一致</td></tr><tr><td>员工入驻</td><td>ID01 至 ID08</td><td>邀请、注册、登录、改密、重设、停用、角色、审计</td></tr><tr><td>业务八链</td><td>W01 至 W08</td><td>本文每条链路验收用例</td></tr><tr><td>Agent</td><td>AG01 至 AG06</td><td>真模型、独立岗位、工具、权限、证据、失败恢复</td></tr><tr><td>数据与权限</td><td>DT01 至 DT08</td><td>事务、幂等、版本、金额、库存、项目范围、导出、恢复</td></tr><tr><td>发布</td><td>QA01 至 QA05</td><td>自动测试、真实模型、人工试用、代码审查、运维签核</td></tr></tbody></table></div>
+<p>开发状态单独记录在 docs/IMPLEMENTATION.md，功能编号不随迭代改名。需求变更写明影响的链路、数据、权限与测试；商业发布范围调整必须更新本文件版本及签核清单。</p></article>
+  </main>
+</body>
+</html>

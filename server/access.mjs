@@ -40,7 +40,7 @@ export async function hashAccessPassword(password){
   return ['scrypt',SCRYPT.N,SCRYPT.r,SCRYPT.p,salt.toString('base64url'),key.toString('base64url')].join('$');
 }
 
-export function createAccessGate({env=process.env,now=Date.now}={}){
+export function createAccessGate({env=process.env,now=Date.now,identity=null}={}){
   const originValue=String(env.OFFICE_PUBLIC_ORIGIN||'').trim();let publicOrigin='';
   if(originValue){
     let url;try{url=new URL(originValue);}catch{throw new Error('OFFICE_PUBLIC_ORIGIN需要有效的HTTPS来源地址。');}
@@ -61,17 +61,20 @@ export function createAccessGate({env=process.env,now=Date.now}={}){
   const sign=body=>createHmac('sha256',secret).update(body).digest();
   const cookie=value=>`${COOKIE}=${value}; Path=/; Max-Age=${SESSION_SECONDS}; Secure; HttpOnly; SameSite=Strict`;
   function authenticate(req){
-    if(!enabled)return {username:null,expiresAt:null};
+    if(!enabled){const actor=identity?.resolveLegacy(null);return identity?(actor?{...actor,expiresAt:null}:null):{username:null,expiresAt:null};}
     const token=cookieToken(req);if(!token||token.length>2048)return null;
     const pieces=token.split('.');if(pieces.length!==2)return null;
     const [body,signature]=pieces,key=decode(signature,32);
     if(!key||!/^[-_A-Za-z0-9]+$/.test(body)||!timingSafeEqual(sign(body),key))return null;
     let session;try{session=JSON.parse(Buffer.from(body,'base64url').toString('utf8'));}catch{return null;}
     const current=Math.floor(now()/1000);
-    if(session?.v!==1||session.sub!==username||!Number.isInteger(session.iat)||!Number.isInteger(session.exp)||session.iat>current+60||session.exp-session.iat!==SESSION_SECONDS||session.exp<=current||typeof session.nonce!=='string'||!decode(session.nonce,16))return null;
-    return {username,expiresAt:new Date(session.exp*1000).toISOString()};
+    if(![1,2].includes(session?.v)||!Number.isInteger(session.iat)||!Number.isInteger(session.exp)||session.iat>current+60||session.exp-session.iat!==SESSION_SECONDS||session.exp<=current||typeof session.nonce!=='string'||!decode(session.nonce,16))return null;
+    const expiresAt=new Date(session.exp*1000).toISOString();
+    if(session.v===1){if(session.sub!==username)return null;const actor=identity?.resolveLegacy(username);return identity?(actor?{...actor,expiresAt}:null):{username,expiresAt};}
+    if(!identity||typeof session.sub!=='string'||session.sub.length>80||!Number.isSafeInteger(session.epoch)||session.epoch<1)return null;
+    const actor=identity.resolveSession({id:session.sub,epoch:session.epoch});return actor?{...actor,expiresAt}:null;
   }
-  function publicSession(req){const user=authenticate(req);return {enabled,authenticated:Boolean(user),...(user||{})};}
+  function publicSession(req){const user=authenticate(req);return {enabled,authenticated:Boolean(user),...(user||{}),...(identity&&user?{actor:user}:{})};}
   function bucketFor(address){
     const cutoff=now()-WINDOW_MS;
     for(const [key,bucket] of clients){bucket.failures=bucket.failures.filter(time=>time>cutoff);if(!bucket.failures.length&&!bucket.pending&&bucket.updatedAt<=cutoff)clients.delete(key);}
@@ -93,13 +96,20 @@ export function createAccessGate({env=process.env,now=Date.now}={}){
       // A wrong account still performs the same password derivation. Neither
       // credentials nor the configured key are returned or written to disk.
       const supplied=validShape?credentials.password:'invalid-credential-placeholder';
-      const candidate=await scrypt(supplied,passwordHash.salt,64,SCRYPT);
-      const accepted=Boolean(validShape&&equalText(credentials.username,username)&&timingSafeEqual(candidate,passwordHash.key));
+      let actor=null,accepted=false;
+      if(identity&&(!validShape||!equalText(credentials.username,username))){
+        actor=await identity.authenticate(validShape?credentials:{});accepted=Boolean(actor);
+      }else{
+        const candidate=await scrypt(supplied,passwordHash.salt,64,SCRYPT);
+        accepted=Boolean(validShape&&equalText(credentials.username,username)&&timingSafeEqual(candidate,passwordHash.key));
+        if(accepted&&identity){actor=identity.resolveLegacy(username);accepted=Boolean(actor);}
+      }
       if(!accepted){bucket.failures.push(now());bucket.updatedAt=now();throw failure('账号或密码错误。');}
       bucket.failures=[];bucket.updatedAt=now();
-      const issued=Math.floor(now()/1000),body=Buffer.from(JSON.stringify({v:1,sub:username,iat:issued,exp:issued+SESSION_SECONDS,nonce:randomBytes(16).toString('base64url')})).toString('base64url');
+      const issued=Math.floor(now()/1000),body=Buffer.from(JSON.stringify({v:actor?.source==='employee'?2:1,sub:actor?.source==='employee'?actor.id:username,...(actor?.source==='employee'?{epoch:actor.epoch}:{}),iat:issued,exp:issued+SESSION_SECONDS,nonce:randomBytes(16).toString('base64url')})).toString('base64url');
       const value=body+'.'+sign(body).toString('base64url');
-      return {cookie:cookie(value),session:{enabled:true,authenticated:true,username,expiresAt:new Date((issued+SESSION_SECONDS)*1000).toISOString()}};
+      const user={...(actor||{username}),expiresAt:new Date((issued+SESSION_SECONDS)*1000).toISOString()};
+      return {cookie:cookie(value),session:{enabled:true,authenticated:true,...user,...(identity?{actor:user}:{})}};
     }finally{bucket.pending--;}
   }
   return {enabled,authenticate,login,publicSession,logoutCookie:()=>`${COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`};

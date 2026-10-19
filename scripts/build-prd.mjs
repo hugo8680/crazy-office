@@ -1,0 +1,10 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {reportDocument} from '../server/report-document.mjs';
+import {reportHtml} from '../server/tools.mjs';
+const source=fileURLToPath(new URL('../docs/PRD.md',import.meta.url));
+const markdown=await readFile(source,'utf8');
+const title=markdown.split('\n')[0].replace(/^#\s*/, '');
+const html=reportDocument({title,body:reportHtml(markdown.split('\n').slice(1).join('\n'))});
+const destination=fileURLToPath(new URL('../docs/PRD.html',import.meta.url));
+await writeFile(destination,html);console.log('PRD reading copy generated: '+destination);

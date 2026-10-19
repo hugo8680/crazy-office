@@ -67,6 +67,12 @@ npm run check
 
 先完成上述测试与语法检查，打包 dist、server、scripts、tools、data、config、deploy、package*.json 与已安装的 undici 依赖。排除 `.office-data`、`.env`、`.git`、个人资料、录屏和运行产物。
 
+ERP v3.0.0 还需包含 `docs/` 与 `node_modules/three`。身份文件为 `data/erp/identities.json`，业务库为 `data/erp/office-erp.sqlite`，协作记录为 `data/erp/runs/`；这里的 data 指 `OFFICE_DATA_DIR`，不是代码内示例目录。首次启动仅创建原管理员身份，不导入示例员工和业务。原实验室只对管理员开放，普通员工使用自己的项目和业务工作台。
+
+发布前先停用未来自动派工，再重新查询活动任务，不能将停用理解为当前任务已经结束。确认无活动或待审批任务后再停止服务。生产回滚演练必须保持业务无活动；旧版不使用新增 ERP 文件，切回新版后仍需核对业务库和身份库。
+
+管理员可通过 `POST /api/erp/backup` 在私有 `backups/` 下生成 SQLite 在线备份、身份库副本和摘要清单。备份文件不通过下载接口公开，权限为 0600。备份恢复先放入隔离目录，核对 SQLite integrity_check、身份账号、摘要及业务记录；不得直接覆盖运行中数据库。运维仍需安排定期备份和留存策略。
+
 解压到新的 `releases/<版本>`，文件为 root 所有、应用只读。原子替换 current 软链接，再重启 `office-lab`；Nginx 修改前必须 `nginx -t`。模型无需随前端升级重启。回滚时切回上一个 release 并重启应用。
 
 更新前先查询当前运行任务，等待任务与真人审批完成或由使用者取消；服务重启会明确标记中断任务，不假装自动续跑。

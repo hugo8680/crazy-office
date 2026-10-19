@@ -1,0 +1,107 @@
+{
+  "version": "3.0.0",
+  "deployment": "20261020-v3.0.0-erp",
+  "url": "https://office.laisengou.com",
+  "checks": {
+    "https": true,
+    "secureCookie": true,
+    "anonymousErpDenied": true,
+    "crossOriginDenied": true,
+    "administratorLogin": true,
+    "eightWorkflowCatalog": true,
+    "noTestAccountsOrBusinessData": true,
+    "noEmployeeSecretsInDirectory": true,
+    "moduleMime": true,
+    "modelConnected": true,
+    "backupIntegrity": true
+  },
+  "provider": "dashscope",
+  "model": "qwen3.7-plus-2026-05-26",
+  "assets": [
+    {
+      "file": "index.html",
+      "sha256": "67afb09622c2e8cf0de277c2d46fdd3b8caa7fb5a3b24324e3dbdeac9110f624"
+    },
+    {
+      "file": "office.js",
+      "sha256": "e76bc330e9228a2f1e888d3042637ae831f4d3cf4e12d378a36c75682d3f2ef6"
+    },
+    {
+      "file": "erp.js",
+      "sha256": "9ff5ade996c5f430d2e439db9705795888385a89ffeab56f292d288605606dd9"
+    },
+    {
+      "file": "erp-ui.mjs",
+      "sha256": "52b3dc88f6220f964a09f0b62cf1e32ae52869d10964d282770238ccf02f3625"
+    },
+    {
+      "file": "erp.css",
+      "sha256": "0dbed8cd7cfc385a8e443715d94135279da8e6fa0ec91de8e63b88f040720cad"
+    },
+    {
+      "file": "erp-office.css",
+      "sha256": "52be03090d6dd6155f6a2d0b855345a81fb666446f27eba23abfd42a3b2e6f1b"
+    },
+    {
+      "file": "erp-presence.js",
+      "sha256": "339f2684d60019bba8420c544b1f8dacde4aa6fff178e005f436c9888b5eea93"
+    },
+    {
+      "file": "scene.js",
+      "sha256": "3d96ba5530a0afecd43617d3af37a8c5b1a7dfb10eadeacd853f5ec00af8f9ad"
+    },
+    {
+      "file": "scene-view.js",
+      "sha256": "9cb422c7968610b0c8282d128b5ce6dbeae2c319c473f886ddec23db6cccfb40"
+    },
+    {
+      "file": "scene3d.js",
+      "sha256": "fba339b4ee5061b153d193393f9abff4066d6475ac67d4786fee6ce13493fcb0"
+    },
+    {
+      "file": "join.js",
+      "sha256": "ce5fd02ba8f391e47d133ce0a4ad636510788fce2bda53c24398003345d78cce"
+    }
+  ],
+  "backup": {
+    "id": "2026-10-19T18-25-52-980Z-6d8b2d44",
+    "createdAt": "2026-10-19T18:25:53.045Z",
+    "database": {
+      "bytes": 172032,
+      "sha256": "90357f2eb2ac2e6cec410e15678ef084e5ffa0bbc2a72ac8a009e2e0f606af5d",
+      "integrity": "ok"
+    },
+    "identity": {
+      "bytes": 327,
+      "sha256": "1714ba3f1ff907d67429d4b835b0af64c1a1a52763f9de0dcf97a1f74c9eac1d"
+    }
+  },
+  "operations": {
+    "rollbackListener": true,
+    "returnedToNewRelease": true,
+    "databaseRestoreIntegrity": "ok",
+    "restoredTableCount": 16,
+    "identityRestore": true,
+    "coldBackupSha256": true,
+    "otherNginxUnchanged": true
+  },
+  "automatedTests": {
+    "local": {
+      "passed": 443,
+      "failed": 0
+    },
+    "server": {
+      "passed": 443,
+      "failed": 0
+    },
+    "syntax": "passed"
+  },
+  "browser": {
+    "environment": "local isolated fixtures",
+    "sizes": [
+      "1280x720",
+      "390x844"
+    ],
+    "productionBrowserVerified": false
+  }
+}

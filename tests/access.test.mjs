@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { createAccessGate, hashAccessPassword } from '../server/access.mjs';
+import { createErpIdentity } from '../server/erp-identity.mjs';
 
 const PASSWORD='an-isolated-test-password-2026';
 const HASH=await hashAccessPassword(PASSWORD);
@@ -71,4 +75,64 @@ test('并发错误登录不能超过8个在途校验以绕过限速',async()=>{
 test('自定义账号被纳入签名会话，切换密钥使旧会话失效',async()=>{
   const gate=createAccessGate({env:{...configuration,OFFICE_ACCESS_USERNAME:'office-owner'}});const {cookie}=await gate.login(request(),{username:'office-owner',password:PASSWORD});assert.equal(gate.publicSession(withCookie(cookie)).username,'office-owner');
   const rotated=createAccessGate({env:{...configuration,OFFICE_ACCESS_USERNAME:'office-owner',OFFICE_SESSION_SECRET:'another-test-only-session-secret-over-32-bytes'}});assert.equal(rotated.publicSession(withCookie(cookie)).authenticated,false);
+});
+
+async function identityFixture(t){
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'office-access-identity-'));t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+  const identity=await createErpIdentity({filePath:path.join(directory,'identity.json'),legacyUsername:'office'});
+  const invitation=await identity.createInvitation('bootstrap',{username:'zhang',name:'张明',department:'采购部',title:'采购员',roles:['procurement']});
+  const employee=await identity.acceptInvitation({token:invitation.token,password:PASSWORD});
+  return {identity,employee,gate:createAccessGate({env:configuration,identity})};
+}
+
+test('身份模块接入后员工登录使用 v2 安全会话，响应仅包含可信角色',async t=>{
+  const {gate,employee}=await identityFixture(t);const result=await gate.login(request(),{username:'zhang',password:PASSWORD,roles:['admin'],id:'bootstrap'});
+  assert.equal(result.session.id,employee.id);assert.deepEqual(result.session.roles,['procurement']);assert.equal(result.session.actor.id,employee.id);
+  assert.equal(JSON.stringify(result).includes(PASSWORD),false);assert.equal(JSON.stringify(result).includes('passwordHash'),false);
+  assert.match(result.cookie,/Secure; HttpOnly; SameSite=Strict/);
+  const raw=result.cookie.split(';')[0].split('=')[1],body=JSON.parse(Buffer.from(raw.split('.')[0],'base64url').toString('utf8'));
+  assert.equal(body.v,2);assert.equal(body.sub,employee.id);assert.equal(body.epoch,employee.epoch);assert.equal(body.roles,undefined);
+  const session=gate.publicSession(withCookie(result.cookie));assert.equal(session.authenticated,true);assert.equal(session.actor.username,'zhang');
+  assert.equal(createAccessGate({env:configuration}).authenticate(withCookie(result.cookie)),null);
+});
+
+test('员工的角色更新、停用与改密均撤销 v2 Cookie；个人资料读取最新值',async t=>{
+  const {gate,identity,employee}=await identityFixture(t);const first=await gate.login(request(),{username:'zhang',password:PASSWORD});
+  await identity.updateEmployee('bootstrap',employee.id,{name:'张明宇'});assert.equal(gate.authenticate(withCookie(first.cookie)).name,'张明宇');
+  await identity.updateEmployee('bootstrap',employee.id,{roles:['warehouse']});assert.equal(gate.authenticate(withCookie(first.cookie)),null);
+  const second=await gate.login(request(),{username:'zhang',password:PASSWORD});assert.deepEqual(second.session.roles,['warehouse']);
+  await identity.updateEmployee('bootstrap',employee.id,{active:false});assert.equal(gate.authenticate(withCookie(second.cookie)),null);
+  await assert.rejects(gate.login(request(),{username:'zhang',password:PASSWORD}),e=>e.status===401&&e.message==='账号或密码错误。');
+  await identity.updateEmployee('bootstrap',employee.id,{active:true});const third=await gate.login(request(),{username:'zhang',password:PASSWORD});
+  await identity.changePassword(employee.id,{currentPassword:PASSWORD,newPassword:PASSWORD+'-changed'});assert.equal(gate.authenticate(withCookie(third.cookie)),null);
+});
+
+test('原管理员密码与旧 v1 Cookie 兼容，身份停用后旧 Cookie 不再有效',async t=>{
+  const {gate,identity,employee}=await identityFixture(t);const oldGate=createAccessGate({env:configuration});const old=await oldGate.login(request(),{username:'office',password:PASSWORD});
+  assert.equal(gate.authenticate(withCookie(old.cookie)).id,'bootstrap');assert.deepEqual(gate.authenticate(withCookie(old.cookie)).roles,['admin']);
+  assert.equal((await gate.login(request(),{username:'office',password:PASSWORD})).session.actor.id,'bootstrap');
+  await identity.updateEmployee('bootstrap',employee.id,{roles:['admin']});await identity.updateEmployee(employee.id,'bootstrap',{active:false});
+  assert.equal(gate.authenticate(withCookie(old.cookie)),null);await assert.rejects(gate.login(request(),{username:'office',password:PASSWORD}),e=>e.status===401);
+});
+
+test('员工登录沿用来源检查、统一错误与失败次数限制',async t=>{
+  const {gate}=await identityFixture(t);
+  await assert.rejects(gate.login(request('203.0.113.7',{origin:'https://evil.example.test'}),{username:'zhang',password:PASSWORD}),e=>e.status===403);
+  for(let i=0;i<8;i++)await assert.rejects(gate.login(request(),{username:i%2?'none':'zhang',password:'incorrect'}),e=>e.status===401&&e.message==='账号或密码错误。');
+  await assert.rejects(gate.login(request(),{username:'zhang',password:PASSWORD}),e=>e.status===429);
+  assert.equal((await gate.login(request('203.0.113.8'),{username:'zhang',password:PASSWORD})).session.actor.username,'zhang');
+});
+
+test('身份会话不信任签名之外的角色或篡改 epoch，测试签名旧版本也无法冒充员工',async t=>{
+  const {gate,employee}=await identityFixture(t);const {cookie}=await gate.login(request(),{username:'zhang',password:PASSWORD});
+  const original=JSON.parse(Buffer.from(cookie.split(';')[0].split('=')[1].split('.')[0],'base64url').toString('utf8'));
+  const signed=patch=>{const body=Buffer.from(JSON.stringify({...original,...patch})).toString('base64url');return '__Host-office_session='+body+'.'+createHmac('sha256',SECRET).update(body).digest('base64url');};
+  for(const patch of [{epoch:employee.epoch+1},{epoch:0},{epoch:'2'},{sub:'missing'},{v:1,sub:'zhang'},{v:3}])assert.equal(gate.authenticate(request('203.0.113.7',{cookie:signed(patch)})),null);
+  assert.deepEqual(gate.authenticate(request('203.0.113.7',{cookie:signed({roles:['admin']})})).roles,['procurement']);
+});
+
+test('本机未启用登录时可映射管理员，但不配置身份模块的旧行为保持不变',async t=>{
+  const {identity}=await identityFixture(t);const gate=createAccessGate({env:{},identity});assert.equal(gate.enabled,false);
+  assert.equal(gate.publicSession(request()).actor.id,'bootstrap');assert.equal(gate.authenticate(request()).id,'bootstrap');
+  assert.equal((await gate.login(request(),{})).session.actor.id,'bootstrap');
 });

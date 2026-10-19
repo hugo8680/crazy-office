@@ -4,6 +4,7 @@ import { HUMAN_EMPLOYEES } from './people.js';
 import { OFFICE3D_ROOMS, AGENT3D_HOMES, OFFICE3D_COLORS, createOffice3DAssets, createOffice3DLayout } from './scene3d-layout.js';
 import { createOffice3DActor } from './scene3d-actors.js';
 import { createScene3DMotion } from './scene3d-motion.js';
+import { createOfficePresenceMotion } from './erp-presence.js';
 
 export class Scene3DUnavailableError extends Error {
   constructor(message='当前设备无法创建 3D 画面',cause){super(message,{cause});this.name='Scene3DUnavailableError';this.code='WEBGL_UNAVAILABLE';}
@@ -47,6 +48,7 @@ export function mountScene3D(container,{
   const camera=new THREE.OrthographicCamera(-600,600,450,-450,1,6000),target=new THREE.Vector3(527.5,35,309),offset=new THREE.Vector3(...OFFICE3D_CAMERA_OFFSET);
   const nodeButtons=new Map(),agentButtons=new Map(),humanButtons=new Map(),roomButtons=new Map();
   const agents=new Map(),humans=new Map(),background=[];const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),picks=[];
+  const actualPeople=new Map(),employeeButtons=new Map();let presenceState={enabled:false,people:[]};
   const links=new THREE.Group(),routes=new THREE.Group();scene.add(links,routes);
   const linkMaterials=new Map();
   const pickMaterial=new THREE.MeshBasicMaterial({visible:false});
@@ -61,15 +63,17 @@ export function mountScene3D(container,{
   const schedule=()=>{if(!frame&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
   const markDirty=()=>{labelsDirty=true;schedule();};
   const controller=createScene3DMotion({agents,humans,reducedMotion,onDelivery:event=>{onDelivery(event);markDirty();},onChange:markDirty});
+  const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>positionEmployee(entry)});
   function listen(element,type,handler,options){element.addEventListener(type,handler,options);disposables.push(()=>element.removeEventListener(type,handler,options));}
   function button(className,label,select){const el=document.createElement('button');el.type='button';el.className=className;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed','false');el.style.position='absolute';el.style.pointerEvents='auto';
     listen(el,'pointerdown',e=>e.stopPropagation());listen(el,'click',e=>{e.stopPropagation();if(performance.now()<suppressClickUntil)return;select();});labels.append(el);return el;}
   function select(type,id,notify=true){
     if(type==='node')selectedNode=id;else if(id)selectedNode=null;
     if(type==='agent')selectedAgent=id;else if(id)selectedAgent=null;
-    if(type==='human')selectedHuman=id;else if(id)selectedHuman=null;
+    if(type==='human'||type==='employee')selectedHuman=id;else if(id)selectedHuman=null;
     for(const [key,el]of nodeButtons)el.setAttribute('aria-pressed',String(key===selectedNode));for(const [key,el]of agentButtons)el.setAttribute('aria-pressed',String(key===selectedAgent));for(const [key,el]of humanButtons)el.setAttribute('aria-pressed',String(key===selectedHuman));
-    if(notify&&id)({node:onSelectNode,agent:onSelectAgent,human:onSelectHuman})[type]?.(id);markDirty();}
+    for(const [key,el]of employeeButtons)el.setAttribute('aria-pressed',String(key===selectedHuman));
+    if(notify&&id){if(type==='employee'){const person=presenceMotion.entries.get(id)?.person;if(presenceState.enabled&&person)presenceState.onSelectEmployee({...person});}else({node:onSelectNode,agent:onSelectAgent,human:onSelectHuman})[type]?.(id);}markDirty();}
   function addPick(root,type,id,x=0,y=25,z=0,w=1,h=1,d=1){const hit=new THREE.Mesh(pickGeometry,pickMaterial);hit.position.set(x,y,z);hit.scale.set(w,h,d);hit.userData={type,id};root.add(hit);picks.push(hit);}
   function setActorInitial(actor,meta){actor.point={x:meta.x,y:meta.y};actor.setPosition(actor.point);if(meta.seated||['owner','investment_owner'].includes(meta.id)){actor.setPose({seated:true});actor.root.rotation.y=Math.PI;actor.animate(0,{reducedMotion:true});}scene.add(actor.root);}
   for(const [id,home]of Object.entries(AGENT3D_HOMES)){
@@ -113,6 +117,16 @@ export function mountScene3D(container,{
   const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0);
   function updateActorInstances(){for(const batch of actorBatches.values()){batch.sources.forEach((source,index)=>{let visible=true;for(let parent=source.parent;parent&&parent!==scene;parent=parent.parent)if(!parent.visible){visible=false;break;}batch.mesh.setMatrixAt(index,visible?source.matrixWorld:zeroMatrix);});batch.mesh.instanceMatrix.needsUpdate=true;}}
   const approvalMarker=button('office3d-approval-marker','需要你审批',()=>select('human',latestState.approvalHumanId||'owner'));approvalMarker.textContent='!';approvalMarker.hidden=true;
+  function positionEmployee(entry){const actor=actualPeople.get(entry.person.id);if(!actor)return;actor.point={...entry.point};actor.setPosition(entry.point);actor.setPose({seated:false,walking:!!entry.motion,heading:entry.sample?.heading||'down',stride:entry.sample?.stride||0,bob:entry.sample?.bob||0});}
+  function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);const wanted=new Set(presenceMotion.entries.keys());
+    for(const [id,actor]of actualPeople)if(!wanted.has(id)){for(let i=picks.length-1;i>=0;i--)if(picks[i].userData.type==='employee'&&picks[i].userData.id===id)picks.splice(i,1);scene.remove(actor.root);humans.delete(id);actualPeople.delete(id);employeeButtons.get(id)?.remove();employeeButtons.delete(id);}
+    for(const meta of HUMAN_EMPLOYEES){const actor=humans.get(meta.id);if(actor)actor.root.visible=!presenceState.enabled;const el=humanButtons.get(meta.id);if(el)el.hidden=presenceState.enabled;}
+    for(const [id,entry]of presenceMotion.entries){let actor=actualPeople.get(id);if(!actor){actor=createOffice3DActor(assets,{...entry.person,id},{scale:1.12});scene.add(actor.root);actualPeople.set(id,actor);humans.set(id,actor);addPick(actor.root,'employee',id);
+        const el=document.createElement('button');el.type='button';el.className='office3d-hotspot office3d-person-hit';el.style.position='absolute';el.style.pointerEvents='auto';el.dataset.employee=id;el.onpointerdown=e=>e.stopPropagation();el.onclick=e=>{e.stopPropagation();if(!destroyed&&performance.now()>=suppressClickUntil)select('employee',id);};const name=document.createElement('span');name.className='office3d-person-label';el.append(name);labels.append(el);employeeButtons.set(id,el);}
+      const p=entry.person,el=employeeButtons.get(id);el.setAttribute('aria-label',`${p.name}，真实员工${p.title?'，'+p.title:''}，${p.current?'你，':''}在线，查看个人与待办`);el.dataset.current=String(p.current);el.firstChild.textContent=p.name+(p.current?' · 你':'');positionEmployee(entry);
+    }
+    markDirty();if(document.hidden)paintStatic();
+  }
   function addLine(group,a,b,material,radius=.65){const from=new THREE.Vector3(a.x,a.height??3.1,a.y),to=new THREE.Vector3(b.x,b.height??3.1,b.y),delta=to.clone().sub(from),length=delta.length();if(length<.01)return null;const mesh=new THREE.Mesh(assets.geometries.cylinder,material);mesh.position.copy(from).add(to).multiplyScalar(.5);mesh.quaternion.setFromUnitVectors(Y_AXIS,delta.normalize());mesh.scale.set(radius,length,radius);group.add(mesh);return mesh;}
   for(const [a,b]of OFFICE3D_LINKS){const na=NODE_META[a],nb=NODE_META[b];const route=a==='internet'?[{x:na.x,y:na.y},{x:na.x,y:119},{x:553,y:119},{x:553,y:nb.y}]:a==='investment'?[{x:75,y:52},{x:75,y:108},{x:650,y:108},{x:650,y:52}]:b==='investment'?[{x:na.x,y:na.y},{x:32,y:na.y},{x:32,y:107},{x:75,y:107},{x:75,y:52}]:[{x:na.x,y:na.y},{x:na.x,y:411},{x:nb.x,y:411},{x:nb.x,y:nb.y}];
     const group=new THREE.Group();group.userData={a,b};for(let i=1;i<route.length;i++)addLine(group,route[i-1],route[i],linkMaterial());links.add(group);}
@@ -153,8 +167,9 @@ export function mountScene3D(container,{
     for(const room of OFFICE3D_ROOMS){const el=roomButtons.get(room.id);place(el,{x:room.label[0],y:room.label[1]},30);el.dataset.awaiting=String(!!latestState.humanApproval&&HUMAN_EMPLOYEES.find(h=>h.id===(latestState.approvalHumanId||'owner'))?.nodeId===room.id);}
     for(const [id,el]of nodeButtons){const anchor=layout.nodeAnchors.get(id)||{x:NODE_META[id].x,y:8,z:NODE_META[id].y};place(el,{x:anchor.x,y:anchor.z,height:anchor.y+5});const node=nodeStatus(latestState.nodes,id),visible=fixedLabels.has(id)||selectedNode===id||node!=='online';el.dataset.showLabel=String(visible);el.dataset.status=node;el.hidden=!topologyVisible&&selectedNode!==id&&node==='online';}
     for(const [id,el]of agentButtons){const actor=agents.get(id),data=(latestState.agents||[]).find?.(a=>a.id===id)||{};place(el,actor.point,actor.height*.56);const active=data.selected!==false&&(data.status==='working'||controller.queue.locked(id));el.dataset.active=String(active||selectedAgent===id);el.dataset.working=String(data.status==='working');el.setAttribute('aria-label',`${data.name||AGENT3D_HOMES[id].name}，虚拟员工，${data.role||AGENT3D_HOMES[id].role}，${controller.queue.locked(id)?'证据交接中':data.status==='working'?'执行任务中':'查看任务与配置'}`);}
-    for(const [id,el]of humanButtons){const actor=humans.get(id),approval=!!latestState.humanApproval&&id===(latestState.approvalHumanId||'owner');place(el,actor.point,actor.height*.56);el.dataset.active=String(approval||selectedHuman===id);el.dataset.awaiting=String(approval);}
-    approvalMarker.hidden=!latestState.humanApproval;const owner=humans.get(latestState.approvalHumanId||'owner');if(owner)place(approvalMarker,owner.point,owner.height+10);
+    for(const [id,el]of humanButtons){const actor=humans.get(id),approval=!!latestState.humanApproval&&id===(latestState.approvalHumanId||'owner');place(el,actor.point,actor.height*.56);el.dataset.active=String(approval||selectedHuman===id);el.dataset.awaiting=String(approval);el.hidden=presenceState.enabled;}
+    for(const [id,el]of employeeButtons){const actor=actualPeople.get(id),entry=presenceMotion.entries.get(id);place(el,actor.point,actor.height*.56);el.dataset.active=String(selectedHuman===id||!!entry?.person.current);el.dataset.working='false';}
+    approvalMarker.hidden=presenceState.enabled||!latestState.humanApproval;const owner=humans.get(latestState.approvalHumanId||'owner');if(owner)place(approvalMarker,owner.point,owner.height+10);
     wrapper.dataset.deliveryPending=String(controller.pendingCount);wrapper.dataset.deliveryActive=String(controller.activeCount);
   }
   function paintStatic(){
@@ -164,7 +179,7 @@ export function mountScene3D(container,{
   }
   function resize(){if(destroyed)return;const rect=container.getBoundingClientRect();width=Math.max(1,rect.width);height=Math.max(1,rect.height);renderer.setSize(width,height,false);canvas.style.width='100%';canvas.style.height='100%';setCamera();markDirty();if(document.hidden)paintStatic();}
   function renderFrame(time){frame=0;if(destroyed||contextLost||document.hidden)return;const {render,delta}=scene3DFramePolicy(lastFrame,time,{reducedMotion});if(!render){schedule();return;}lastFrame=time;
-    const wasBusy=controller.walks.size>0||controller.exchanges.size>0,busy=controller.tick(time);updateRoutes();for(const actor of [...agents.values(),...humans.values(),...background])actor.animate(time,{reducedMotion,delta});
+    const wasBusy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;const busy=controller.tick(time)||presenceMotion.busy;presenceMotion.tick(time,{isPaused:id=>controller.queue.locked(id)});updateRoutes();for(const actor of [...agents.values(),...humans.values(),...background])actor.animate(time,{reducedMotion,delta});
     scene.updateMatrixWorld();updateExchangeFiles();updateActorInstances();renderer.render(scene,camera);if(labelsDirty||wasBusy||busy){updateLabels();labelsDirty=false;onViewChange();}if(!reducedMotion||busy)schedule();}
   function update(state={}){if(destroyed)return;latestState={...state,agents:Array.isArray(state.agents)?state.agents:Object.values(state.agents||{})};
     for(const [id,light]of layout.statusLights){const status=nodeStatus(state.nodes,id);light.material=assets.material(({online:'#81a078',warning:'#ba944f',offline:'#be614d',recovering:'#8aa893'})[status]);}
@@ -175,21 +190,23 @@ export function mountScene3D(container,{
   function focusPoint(point){if(!point)return false;const frameInfo=office3DFrustum(width/height),diff=new THREE.Vector3(point.x-target.x,0,point.y-target.z);panX=diff.dot(frameInfo.right);panY=diff.dot(frameInfo.up)-48/height*frameInfo.height/scale;applyView();return true;}
   const onDown=e=>{if(e.button!==0)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false};};
   const onMove=e=>{if(!drag||drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<5)return;drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');const frameInfo=office3DFrustum(width/height);panX-=(e.clientX-drag.lastX)*frameInfo.width/scale/width;panY+=(e.clientY-drag.lastY)*frameInfo.height/scale/height;drag.lastX=e.clientX;drag.lastY=e.clientY;applyView();};
-  const onUp=e=>{if(!drag||drag.id!==e.pointerId)return;const moved=drag.moved;drag=null;if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);wrapper.classList.remove('is-panning');if(moved){suppressClickUntil=performance.now()+180;return;}const rect=canvas.getBoundingClientRect();pointer.set((e.clientX-rect.left)/Math.max(1,rect.width)*2-1,-(e.clientY-rect.top)/Math.max(1,rect.height)*2+1);scene.updateMatrixWorld();raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(picks,false)[0];if(hit)select(hit.object.userData.type,hit.object.userData.id);};
+  const visiblePick=object=>{for(let p=object;p&&p!==scene;p=p.parent)if(!p.visible)return false;return true;};
+  const onUp=e=>{if(!drag||drag.id!==e.pointerId)return;const moved=drag.moved;drag=null;if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);wrapper.classList.remove('is-panning');if(moved){suppressClickUntil=performance.now()+180;return;}const rect=canvas.getBoundingClientRect();pointer.set((e.clientX-rect.left)/Math.max(1,rect.width)*2-1,-(e.clientY-rect.top)/Math.max(1,rect.height)*2+1);scene.updateMatrixWorld();raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(picks.filter(visiblePick),false)[0];if(hit)select(hit.object.userData.type,hit.object.userData.id);};
   const onCancel=e=>{if(drag?.id!==e.pointerId)return;drag=null;wrapper.classList.remove('is-panning');if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
   listen(canvas,'pointerdown',onDown);listen(canvas,'pointermove',onMove);listen(canvas,'pointerup',onUp);listen(canvas,'pointercancel',onCancel);listen(canvas,'wheel',e=>{e.preventDefault();zoom(-Math.max(-.15,Math.min(.15,e.deltaY*.0015)));},{passive:false});
   listen(canvas,'webglcontextlost',e=>{e.preventDefault();if(destroyed)return;contextLost=true;cancelAnimationFrame(frame);frame=0;controller.reset();const error=new Scene3DUnavailableError('3D 图形连接已中断，请切回 2D 视图');onUnavailable(error);container.dispatchEvent?.(new CustomEvent('scene3d-unavailable',{detail:error,bubbles:true}));});
-  listen(document,'visibilitychange',()=>{if(document.hidden){hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;}else{if(hiddenAt!==null)controller.shiftTime(performance.now()-hiddenAt);hiddenAt=null;lastFrame=0;schedule();}});
-  const onPreference=event=>{reducedMotion=event.matches;controller.setReducedMotion(reducedMotion);markDirty();};motionPreference?.addEventListener?.('change',onPreference);
+  listen(document,'visibilitychange',()=>{if(document.hidden){hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;schedule();}});
+  const onPreference=event=>{reducedMotion=event.matches;controller.setReducedMotion(reducedMotion);presenceMotion.setReducedMotion(reducedMotion);markDirty();};motionPreference?.addEventListener?.('change',onPreference);
   const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);resize();update({animateEvents:false});
   return {
     update,setTopology(visible){topologyVisible=!!visible;links.visible=topologyVisible;wrapper.dataset.topology=String(topologyVisible);markDirty();},
     setSelectedNode(id){select('node',id,false);},setSelectedAgent(id){select('agent',id,false);},setSelectedHuman(id){select('human',id,false);},
+    setPresence,getPresenceState:()=>presenceMotion.snapshot(),
     getHumanAnchor(id='owner'){const actor=humans.get(id);return actor?project(actor.point,actor.height*.55):null;},
     getNodeAnchor(id){const anchor=layout.nodeAnchors.get(id),meta=NODE_META[id];return anchor?project({x:anchor.x,y:anchor.z,height:anchor.y+4}):meta?project(meta,10):null;},
     getAgentAnchor(id){const actor=agents.get(id);return actor?project(actor.point,actor.height*.55):null;},
     focusHuman(id='owner'){return focusPoint(humans.get(id)?.point);},focusAgent(id){return focusPoint(agents.get(id)?.point);},focusNode(id){return focusPoint(NODE_META[id]);},
     zoom,resetView(){scale=1;panX=0;panY=0;applyView();},
-    destroy(){if(destroyed)return;destroyed=true;cancelAnimationFrame(frame);frame=0;controller.destroy();resizeObserver.disconnect();motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
+    destroy(){if(destroyed)return;destroyed=true;cancelAnimationFrame(frame);frame=0;controller.destroy();presenceMotion.destroy();actualPeople.clear();employeeButtons.clear();resizeObserver.disconnect();motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
   };
 }

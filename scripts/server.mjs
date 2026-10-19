@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve, extname, sep } from 'node:path';
+import { resolve, extname, sep, join } from 'node:path';
 import { OfficeEngine } from '../server/engine.mjs';
 import { publicCatalog, getScenario } from '../server/catalog.mjs';
 import { getProviderStatus } from '../server/provider.mjs';
@@ -9,6 +9,10 @@ import { createNetworkPolicy } from '../server/network.mjs';
 import { createShutdown } from '../server/lifecycle.mjs';
 import { AutomationController } from '../server/automation.mjs';
 import { createAccessGate } from '../server/access.mjs';
+import {createErpIdentity} from '../server/erp-identity.mjs';
+import {createErpStore} from '../server/erp-store.mjs';
+import {ErpService} from '../server/erp-service.mjs';
+import {createErpHttp} from '../server/erp-http.mjs';
 import { buildArtifactArchive, MAX_ARCHIVE_FILES, MAX_ARCHIVE_BYTES } from '../server/archive.mjs';
 
 const projectRoot=fileURLToPath(new URL('../',import.meta.url));
@@ -16,10 +20,14 @@ const root=resolve(projectRoot,'dist');
 const port=Number(process.env.PORT||4173);
 const bindHost=process.env.HOST||'0.0.0.0';
 const networkPolicy=createNetworkPolicy({port,bindHost,publicOrigin:process.env.OFFICE_PUBLIC_ORIGIN||''});
-const access=createAccessGate();
-let engine,automation,recoveryTimer;let shuttingDown=false,lastRecoveryProbe=0,recovering=false,recoveryDelay=300000;
+const dataDir=resolve(process.env.OFFICE_DATA_DIR||resolve(projectRoot,'.office-data'));
+const identityPath=join(dataDir,'erp','identities.json');
+const identity=await createErpIdentity({filePath:identityPath});
+const access=createAccessGate({identity});
+const erpStore=createErpStore({dataDir});
+let erp,erpHttp,engine,automation,recoveryTimer;let shuttingDown=false,lastRecoveryProbe=0,recovering=false,recoveryDelay=300000;
 const sseResponses=new Set(),probeController=new AbortController();
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
+const types={'.mjs':'text/javascript; charset=utf-8','.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.woff2':'font/woff2'};
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
 async function body(req,limit=12*1024*1024){
   let total=0;const chunks=[];
@@ -35,19 +43,23 @@ const server=createServer(async(req,res)=>{
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   try{
     const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
+    if(pathname==='/api/erp/invitations/accept'&&req.method==='POST')return void await erpHttp({req,res,pathname,actor:null,body,json});
     if(pathname==='/api/session'&&req.method==='GET')return json(res,200,{session:access.publicSession(req)});
     if(pathname==='/api/session/login'&&req.method==='POST'){
       const result=await access.login(req,await body(req,8192));if(result.cookie)res.setHeader('Set-Cookie',result.cookie);return json(res,200,{session:result.session});
     }
     if(pathname==='/api/session/logout'&&req.method==='POST'){res.setHeader('Set-Cookie',access.logoutCookie());return json(res,200,{ok:true});}
     const authenticated=access.authenticate(req);
-    if(!authenticated&&!['/login','/login.html','/login.js','/login.css'].includes(pathname)){
+    if(!authenticated&&!['/login','/login.html','/login.js','/login.css','/join','/join.html','/join.js','/join.css'].includes(pathname)){
       if(pathname.startsWith('/api/'))return json(res,401,{error:'请登录办公室。'});
       res.writeHead(303,{'Location':'/login','Cache-Control':'no-store'});return res.end();
     }
     if((pathname==='/login'||pathname==='/login.html')&&authenticated){res.writeHead(303,{'Location':'/','Cache-Control':'no-store'});return res.end();}
     if(pathname.startsWith('/api/')){
-      if(pathname==='/api/health'&&req.method==='GET')return json(res,200,{ok:true,provider:await getProviderStatus(),activeRuns:(await engine.list()).filter(r=>['queued','running','awaiting_approval'].includes(r.status)).length});
+      if(pathname.startsWith('/api/erp/'))return void await erpHttp({req,res,pathname,actor:authenticated,body,json});
+      const isAdmin=authenticated?.roles?.includes('admin');
+      if(!isAdmin){if(pathname==='/api/runs'&&req.method==='GET')return json(res,200,{runs:[]});if(pathname.startsWith('/api/runs')||pathname.startsWith('/api/automation')||pathname==='/api/provider/check')return json(res,403,{error:'此操作需要管理员权限。请在业务工作台办理自己的工作。'});}
+      if(pathname==='/api/health'&&req.method==='GET')return json(res,200,{ok:true,provider:await getProviderStatus(),activeRuns:(await engine.list()).filter(r=>['queued','running','awaiting_approval'].includes(r.status)).length,erpActiveRuns:erp.controls.size});
       if(pathname==='/api/catalog'&&req.method==='GET')return json(res,200,publicCatalog());
       if(pathname==='/api/provider/check'&&req.method==='POST')return json(res,200,{provider:await getProviderStatus({refresh:true,signal:probeController.signal})});
       if(pathname==='/api/automation'&&req.method==='GET')return json(res,200,{automation:await automation.publicStatus()});
@@ -94,17 +106,20 @@ const server=createServer(async(req,res)=>{
       }
       return json(res,404,{error:'接口不存在。'});
     }
-    const requested=resolve(root,'.'+(pathname==='/'?'/index.html':pathname==='/login'?'/login.html':pathname));
+    const requested=resolve(root,'.'+(pathname==='/'?'/index.html':pathname==='/login'?'/login.html':pathname==='/join'?'/join.html':pathname));
     if(!requested.startsWith(root+sep))return void res.writeHead(403).end('Forbidden');
     const info=await stat(requested);if(!info.isFile())throw Object.assign(new Error('文件不存在。'),{status:404});
     const data=await readFile(requested);res.writeHead(200,{'Content-Type':types[extname(requested)]||'application/octet-stream','Cache-Control':'no-cache','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"});res.end(req.method==='HEAD'?undefined:data);
   }catch(error){if(error.retryAfter)res.setHeader('Retry-After',String(error.retryAfter));if(!res.headersSent)json(res,error.status||500,{error:error.code==='ENOENT'?'文件或示例不存在。':String(error.message||'服务异常').slice(0,1600)});else res.end();}
 });
 server.requestTimeout=30000;server.headersTimeout=15000;
-const shutdown=createShutdown({server,getEngine:()=>engine,sseResponses,probeController,onStart:()=>{shuttingDown=true;clearInterval(recoveryTimer);automation?.shutdown().catch(()=>{});}});
+const shutdown=createShutdown({server,getEngine:()=>engine,sseResponses,probeController,onStart:()=>{shuttingDown=true;void erp?.shutdown().catch(()=>{});clearInterval(recoveryTimer);automation?.shutdown().catch(()=>{});}});
 server.listen(port,bindHost,()=>{
   // Only the process that successfully owns the listener may recover/write run state.
-  engine=new OfficeEngine({dataDir:resolve(process.env.OFFICE_DATA_DIR||resolve(projectRoot,'.office-data')),receiptHandoff:process.env.OFFICE_RECEIPT_HANDOFF==='1'});
+  erp=new ErpService({store:erpStore,identity,dataDir});
+  erpHttp=createErpHttp({service:erp,identity,store:erpStore,dataDir,identityPath});
+  erp.ready.catch(error=>{console.error('ERP initialization:',error.message);onSignal();});
+  engine=new OfficeEngine({dataDir,receiptHandoff:process.env.OFFICE_RECEIPT_HANDOFF==='1'});
   automation=new AutomationController({engine,providerStatus:getProviderStatus,stateFile:resolve(engine.dataDir,'automation.json'),companyFile:process.env.OFFICE_COMPANY_FILE||undefined});
   automation.ready.catch(error=>{console.error('Automation initialization:',error.message);onSignal();});
   const probe=async(force=false)=>{
@@ -122,5 +137,5 @@ server.listen(port,bindHost,()=>{
   if(!urls.local&&!urls.lan.length)console.log(`Office listening on ${bindHost}:${port}`);
 });
 let exiting=false;
-const onSignal=()=>{if(exiting)return;exiting=true;shutdown().then(()=>process.exit(0),error=>{console.error('Office shutdown:',String(error.message||error).slice(0,300));process.exit(1);});};
+const onSignal=()=>{if(exiting)return;exiting=true;Promise.all([shutdown(),erp?.shutdown()]).then(()=>process.exit(0),error=>{console.error('Office shutdown:',String(error.message||error).slice(0,300));process.exit(1);});};
 process.on('SIGTERM',onSignal);process.on('SIGINT',onSignal);
