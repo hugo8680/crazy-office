@@ -83,7 +83,7 @@ test('public office HTTP entry, real login cookie and protected automation work 
 
   await t.test('unauthenticated data is 401, root redirects, and login assets stay reachable',async()=>{
     const session=await call(port,'/api/session');assert.equal(session.data.session.enabled,true);assert.equal(session.data.session.authenticated,false);
-    for(const path of ['/api/catalog','/api/runs','/api/automation']){const result=await call(port,path);assert.equal(result.status,401,path);assert.equal(result.headers['set-cookie'],undefined);}
+    for(const path of ['/api/catalog','/api/runs','/api/automation','/api/runs/00000000-0000-4000-8000-000000000000/download']){const result=await call(port,path);assert.equal(result.status,401,path);assert.equal(result.headers['set-cookie'],undefined);}
     const home=await call(port,'/');assert.equal(home.status,303);assert.equal(home.headers.location,'/login');
     const login=await call(port,'/login');assert.equal(login.status,200);assert.match(login.headers['content-type'],/text\/html/);assert.match(login.text,/<form\b/);assert.match(login.headers['content-security-policy'],/default-src 'self'/);
     assert.equal((await call(port,'/login.js')).status,200);
@@ -121,13 +121,25 @@ test('public office HTTP entry, real login cookie and protected automation work 
     const status=(await call(port,'/api/automation',{cookie})).data.automation;assert.equal(status.enabled,false);assert.deepEqual(status.scenarioIds,['finance','onboarding']);assert.equal(status.nextRunAt,null);
   });
 
+  await t.test('authenticated bulk download returns 404 for an unknown run without starting work',async()=>{
+    const requestsBefore=modelRequests.length;
+    const missing=await call(port,'/api/runs/00000000-0000-4000-8000-000000000000/download',{cookie});
+    assert.equal(missing.status,404);assert.match(missing.data.error,/找不到这个任务/);
+    assert.equal(missing.headers['content-disposition'],undefined);assert.match(missing.headers['content-type'],/application\/json/);
+    assert.equal(modelRequests.length,requestsBefore,'a missing download must not invoke the model');
+  });
+
   await t.test('manual HTTP submission cannot forge automatic origin and never receives synthetic approval',async()=>{
     const modelDeadline=Date.now()+4000;let connected=false;
     while(Date.now()<modelDeadline){const health=await call(port,'/api/health',{cookie});if(health.data.provider.ready){connected=true;break;}await delay(25);}
     assert.equal(connected,true,'the fake local Ollama probe should be ready');
     const submitted=await call(port,'/api/runs',{method:'POST',cookie,origin:ORIGIN,body:{scenarioId:'delivery',input:{company:'HTTP隔离测试',requirements:'仅验证HTTP任务来源，不请求业务工具或账号。',dailyRate:1500},source:'automation',automation:{companyName:'forged-company',templateId:'forged-template'}}});
     assert.equal(submitted.status,202);assert.equal(submitted.data.run.source,'manual');assert.equal(submitted.data.run.automation,undefined);assert.equal(submitted.data.run.approval,null);
-    const id=submitted.data.run.id;const stopped=await call(port,`/api/runs/${id}/cancel`,{method:'POST',cookie,origin:ORIGIN,body:{}});assert.equal(stopped.status,200);assert.ok(['cancelled','failed'].includes(stopped.data.run.status));
+    const id=submitted.data.run.id;
+    const emptyDownload=await call(port,`/api/runs/${id}/download`,{cookie});
+    assert.equal(emptyDownload.status,409);assert.match(emptyDownload.data.error,/尚无可下载文件/);
+    assert.equal(emptyDownload.headers['content-disposition'],undefined);assert.match(emptyDownload.headers['content-type'],/application\/json/);
+    const stopped=await call(port,`/api/runs/${id}/cancel`,{method:'POST',cookie,origin:ORIGIN,body:{}});assert.equal(stopped.status,200);assert.ok(['cancelled','failed'].includes(stopped.data.run.status));
     const run=(await call(port,`/api/runs/${id}`,{cookie})).data.run;assert.equal(run.source,'manual');assert.equal(run.approval,null);assert.ok(run.tasks.every(task=>task.toolCalls===0));assert.ok(run.events.every(event=>event.type!=='approval'&&event.type!=='tool'));
     assert.equal((await call(port,'/api/automation',{cookie})).data.automation.lastRunId,null);
     assert.ok(modelRequests.length>0);assert.ok(modelRequests.every(item=>item.path==='/api/chat'&&item.body.model==='http-test-stub'));

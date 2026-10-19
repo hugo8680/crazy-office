@@ -9,6 +9,8 @@
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./office.css">
+  <link rel="stylesheet" href="./view-controls.css">
+  <link rel="stylesheet" href="./office3d.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true"><defs>
@@ -45,7 +47,7 @@
     <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 4L6 8H2v8h4l5 4zM16 9l6 6M22 9l-6 6"/></symbol>
   </defs></svg>
 
-  <main id="lab" aria-label="疯狂办公室，全屏 虚拟员工协作场景">
+  <main data-view="2d" id="lab" aria-label="疯狂办公室，全屏 虚拟员工协作场景">
     <div id="office-scene"></div>
     <button id="network-hud" class="network-hud glass" data-open="connection" aria-label="查看模型连接"><span class="status-dot"></span><span id="online-count">正在连接模型</span><span class="hud-divider"></span><span id="availability">Codex</span></button>
     <button id="configuration-hud" class="configuration-hud glass" data-open="employees"><svg class="icon"><use href="#i-users"/></svg><span id="squad-label">虚拟员工 · 点人配置</span><svg class="icon small"><use href="#i-chevron"/></svg></button>

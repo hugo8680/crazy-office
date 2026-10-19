@@ -12,6 +12,7 @@ import {fileURLToPath} from 'node:url';
 import {AGENTS} from './catalog.mjs';
 import {INVESTMENT_TOOL_DEFINITIONS,createInvestmentFunctions} from './investment.mjs';
 import {ONBOARDING_TOOL_DEFINITIONS,createOnboardingFunctions} from './onboarding.mjs';
+import {reportDocument} from './report-document.mjs';
 
 const projectDir=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const PYTHON=process.env.OFFICE_PYTHON || '/usr/bin/python3';
@@ -107,13 +108,56 @@ export async function publicFetch(value,{signal,maxBytes=3*1024*1024,redirects=4
  });
 }
 function reportHtml(markdown){
- const lines=String(markdown).split(/\r?\n/);const out=[];let paragraph=[];let list=false;const inline=s=>escape(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');const flush=()=>{if(paragraph.length){out.push('<p>'+paragraph.map(inline).join('<br>')+'</p>');paragraph=[];}if(list){out.push('</ul>');list=false;}};const cells=s=>s.trim().replace(/^\||\|$/g,'').split('|').map(x=>x.trim());
- for(let i=0;i<lines.length;i++){const line=lines[i];if(/^\s*```/.test(line)){flush();const code=[];for(i++;i<lines.length&&!/^\s*```/.test(lines[i]);i++)code.push(lines[i]);out.push('<pre><code>'+escape(code.join('\n'))+'</code></pre>');continue;}
-  const heading=line.match(/^(#{1,4})\s+(.+)$/);if(heading){flush();const n=heading[1].length;out.push('<h'+n+'>'+inline(heading[2])+'</h'+n+'>');continue;}
-  if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i+1])){flush();const headers=cells(line);i++;const rows=[];while(i+1<lines.length&&lines[i+1].includes('|')&&lines[i+1].trim()){i++;rows.push(cells(lines[i]));}out.push('<div class="table-wrap"><table><thead><tr>'+headers.map(x=>'<th>'+inline(x)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(x=>'<td>'+inline(x)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>');continue;}
-  const item=line.match(/^\s*[-*]\s+(.+)$/);if(item){if(paragraph.length){out.push('<p>'+paragraph.map(inline).join('<br>')+'</p>');paragraph=[];}if(!list){out.push('<ul>');list=true;}out.push('<li>'+inline(item[1])+'</li>');continue;}
-  if(!line.trim()){flush();continue;}if(list){out.push('</ul>');list=false;}paragraph.push(line);
- }flush();return out.join('\n');
+ const lines=String(markdown).split(/\r?\n/),out=[];let paragraph=[],list=null;
+ const linkUrl=value=>{try{const url=new URL(value);return ['http:','https:'].includes(url.protocol)?url.href:null;}catch{return null;}};
+ const inline=(value,depth=0)=>{
+  const source=String(value),tokens=/(`+)([^\n]+?)\1|\*\*([^\n]+?)\*\*|(?<!!)\[([^\]\n]+)\]\(([^\s)]+)\)|(https?:\/\/[^\s<>()\[\]，。；！？、]+)/g;let html='',end=0;
+  for(const match of source.matchAll(tokens)){
+   html+=escape(source.slice(end,match.index));
+   if(match[1])html+='<code>'+escape(match[2])+'</code>';
+   else if(match[3])html+='<strong>'+(depth<2?inline(match[3],depth+1):escape(match[3]))+'</strong>';
+   else{const raw=match[5]||match[6],suffix=match[6]?.match(/[.,;]+$/)?.[0]||'',url=linkUrl(suffix?raw.slice(0,-suffix.length):raw);html+=url?'<a href="'+escape(url)+'" target="_blank" rel="noopener noreferrer">'+escape(match[4]||raw.slice(0,raw.length-suffix.length))+'</a>'+escape(suffix):escape(match[0]);}
+   end=match.index+match[0].length;
+  }
+  return html+escape(source.slice(end));
+ };
+ const flushParagraph=()=>{if(paragraph.length){out.push('<p>'+paragraph.map(line=>inline(line)).join('<br>')+'</p>');paragraph=[];}};
+ const closeList=()=>{if(list){out.push('</'+list+'>');list=null;}};
+ const flush=()=>{flushParagraph();closeList();};
+ const cells=value=>{
+  let row=value.trim();if(row.startsWith('|'))row=row.slice(1);if(row.endsWith('|')&&!row.endsWith('\\|'))row=row.slice(0,-1);
+  const result=[];let cell='',fence=0;
+  for(let at=0;at<row.length;at++){
+   if(row[at]==='\\'&&row[at+1]==='|'){cell+='|';at++;continue;}
+   if(row[at]==='`'){let end=at+1;while(row[end]==='`')end++;const size=end-at;fence=fence===size?0:fence||size;cell+=row.slice(at,end);at=end-1;continue;}
+   if(row[at]==='|'&&!fence){result.push(cell.trim());cell='';}else cell+=row[at];
+  }
+  result.push(cell.trim());return result;
+ };
+ for(let i=0;i<lines.length;i++){
+  const line=lines[i],fence=line.match(/^ {0,3}(`{3,}|~{3,})([^\r\n]*)$/);
+  if(fence){
+   flush();const code=[],character=fence[1][0],size=fence[1].length;const closing=new RegExp('^ {0,3}'+character+'{'+size+',}\\s*$');
+   for(i++;i<lines.length&&!closing.test(lines[i]);i++)code.push(lines[i]);
+   out.push('<pre><code>'+escape(code.join('\n'))+'</code></pre>');continue;
+  }
+  const heading=line.match(/^ {0,3}(#{1,4})\s+(.+)$/);
+  if(heading){flush();const level=Math.max(2,heading[1].length);out.push('<h'+level+'>'+inline(heading[2])+'</h'+level+'>');continue;}
+  if(line.includes('|')&&i+1<lines.length&&/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i+1])){
+   flush();const headers=cells(line);i++;const rows=[];
+   while(i+1<lines.length&&lines[i+1].includes('|')&&lines[i+1].trim()){i++;rows.push(cells(lines[i]));}
+   out.push('<div class="table-wrap" role="region" tabindex="0" aria-label="报告数据表，可横向滚动"><table><thead><tr>'+headers.map(value=>'<th scope="col">'+inline(value)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(row=>'<tr>'+row.map(value=>'<td>'+inline(value)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>');continue;
+  }
+  const item=line.match(/^\s*(?:([-*+])|(\d{1,9})[.)])\s+(.+)$/);
+  if(item){flushParagraph();const type=item[2]?'ol':'ul';if(list!==type){closeList();out.push(type==='ol'&&Number(item[2])!==1?'<ol start="'+Number(item[2])+'">':'<'+type+'>');list=type;}out.push('<li'+(type==='ol'?' value="'+Number(item[2])+'"':'')+'>'+inline(item[3])+'</li>');continue;}
+  if(/^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)){flush();out.push('<hr>');continue;}
+  if(/^ {0,3}>\s?/.test(line)){
+   flush();const quote=[];while(i<lines.length&&/^ {0,3}>\s?/.test(lines[i])){quote.push(lines[i].replace(/^ {0,3}>\s?/,''));i++;}i--;
+   out.push('<blockquote><p>'+quote.map(value=>inline(value)).join('<br>')+'</p></blockquote>');continue;
+  }
+  if(!line.trim()){flush();continue;}closeList();paragraph.push(line);
+ }
+ flush();return out.join('\n');
 }
 
 function sourceText(value){if(value==null)return '';if(typeof value==='string')return value;if(value.text!=null)return String(value.text);if(value.base64){const b=Buffer.from(value.base64,'base64');if(/\.xlsx$/i.test(value.name||''))return '[用户上传XLSX二进制文件，使用专用导入工具读取]';return b.toString('utf8');}return JSON.stringify(value,null,2);}
@@ -225,7 +269,15 @@ export async function createToolbox({runDir,input={},emit=()=>{},signal,approval
   async review_delivery(args){
    const req=requirementDoc||await fs.readFile(safe('delivery/requirements.json'),'utf8').then(JSON.parse).catch(()=>null);if(!req)throw new Error('没有已保存的需求底稿');const plan=deliveryPlan||await fs.readFile(safe('delivery/plan.json'),'utf8').then(JSON.parse).catch(()=>null);const missing=plan?req.requirements.filter(r=>!plan.requirementsCovered.includes(r.id)).map(r=>r.id):req.requirements.map(r=>r.id);const issues=[...(args.issues||[])];const checks={sourceQuotesMatch:req.requirements.every(r=>req.source.includes(r.source)),uniqueRequirementIds:new Set(req.requirements.map(r=>r.id)).size===req.requirements.length,planExists:!!plan,coverageComplete:!!plan&&!missing.length,calculationConsistent:plan?Math.abs(plan.totalCost-(plan.packages.reduce((n,p)=>n+p.cost,0)+plan.contingency))<0.011:false,dependencyScheduleValid:plan?plan.packages.every(p=>p.dependsOn.every(id=>p.startDay>=plan.packages.find(x=>x.id===id).endDay)):false};if(!plan)issues.push('尚无工作包计划；数据库需求场景只校验需求来源，不能宣称工期预算已核算');if(missing.length)issues.push('尚未由工作包覆盖的需求: '+missing.join(','));const checklist=req.requirements.map(r=>({id:r.id,acceptance:r.acceptance,coveredBy:plan?.packages.filter(p=>p.requirementIds.includes(r.id)).map(p=>p.id)||[],status:'待交付后验收，非已通过'}));const result={passed:Object.values(checks).every(Boolean)&&!issues.length,checks,missingRequirementIds:missing,issues,risks:args.risks||[],openQuestions:req.questions,assumptions:req.assumptions,checklist,customerApproved:false,notContractQuote:true};const name='delivery/review-'+(++serial)+'.json';await put(name,result);await put('delivery/acceptance-checklist.csv','\ufeff'+[['需求ID','验收条件','覆盖工作包','状态'],...checklist.map(r=>[r.id,r.acceptance,r.coveredBy.join(';'),r.status])].map(r=>r.map(csvCell).join(',')).join('\r\n'));return {summary:'独立审校'+(result.passed?'通过底稿一致性检查':'发现待确认或缺失项')+'；客户验收尚未执行',evidence:result,files:[name,'delivery/acceptance-checklist.csv']};
   },
-  async write_report(args){const title=String(args.title||'').trim();const content=String(args.content||'').trim();if(!title||content.length<100)throw new Error('报告需标题及至少100字符实际正文；不得只写完成或引用文件名');const name='reports/'+sanitizeName(title)+'-'+(++serial);await put(name+'.md',content.startsWith('# '+title+'\n')?content+'\n':'# '+title+'\n\n'+content+'\n');const reportContent=content.replace(/^#\s+([^\n]+)\n+/, (match,heading)=>heading.trim()===title?'':match);const body=reportHtml(reportContent);await put(name+'.html','<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>'+escape(title)+'</title><style>body{font:16px/1.75 system-ui;max-width:1000px;margin:40px auto;padding:0 24px;color:#1d3029}h1,h2,h3,h4{line-height:1.3}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border:1px solid #cedbd3;padding:8px 10px;text-align:left;vertical-align:top}th{background:#edf4ef}pre{padding:16px;background:#f0f4f1;border-radius:8px;overflow:auto}code{font-family:ui-monospace,monospace;font-size:.9em}.table-wrap{overflow:auto}p{white-space:normal;overflow-wrap:anywhere}a{color:#28755e}@media print{body{margin:0}}</style><h1>'+escape(title)+'</h1>'+body+'</html>');return {summary:'正式报告已保存：'+title,evidence:{title,characters:content.length,sourceToolResults:Object.keys(outputs),sentExternally:false},files:[name+'.md',name+'.html']};},
+  async write_report(args){
+   const title=String(args.title||'').trim(),content=String(args.content||'').trim();
+   if(!title||content.length<100)throw new Error('报告需标题及至少100字符实际正文；不得只写完成或引用文件名');
+   const name='reports/'+sanitizeName(title)+'-'+(++serial),leadingHeading=content.match(/^#\s+([^\r\n]+)(?:\r?\n|$)/),includesTitle=leadingHeading?.[1].trim()===title;
+   await put(name+'.md',includesTitle?content+'\n':'# '+title+'\n\n'+content+'\n');
+   const reportContent=includesTitle?content.slice(leadingHeading[0].length).replace(/^(?:\r?\n)+/,''):content;
+   await put(name+'.html',reportDocument({title,body:reportHtml(reportContent)}));
+   return {summary:'正式报告已保存：'+title,evidence:{title,characters:content.length,sourceToolResults:Object.keys(outputs),sentExternally:false},files:[name+'.md',name+'.html']};
+  },
   async list_artifacts(){return {summary:'本次已有'+registry.size+'个真实文件',evidence:{artifacts:[...registry.values()].map(({path,...x})=>x),toolResults:outputs}};},
  };
  return {definitions:TOOL_DEFINITIONS,async execute(name,args={},role){

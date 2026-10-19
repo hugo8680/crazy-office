@@ -6,6 +6,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { AGENTS, getScenario } from './catalog.mjs';
 import { getProviderStatus, decide } from './provider.mjs';
 import { createToolbox } from './tools.mjs';
+import { buildRunOutcome } from './outcomes.mjs';
 
 const DATA = resolve(process.env.OFFICE_DATA_DIR || '.office-data');
 const MAX_STEPS = 9;
@@ -95,7 +96,7 @@ export class OfficeEngine extends EventEmitter {
       const tasks=run.tasks.filter(t=>t.agentId===a.id),active=tasks.find(t=>t.status==='running'),last=tasks.filter(t=>t.startedAt).at(-1),c=configs?.[a.id]||a;
       return {id:a.id,name:a.name,role:a.role,color:a.color,nodeId:(active||last)?.nodeId||a.nodeId,status:active?'working':tasks.some(t=>t.status==='failed')?'error':tasks.length&&tasks.every(t=>t.status==='done')?'done':'idle',task:active?.title||last?.title||'待命',action:active?.action||last?.action||'',result:last?.result||'',configured:true,selected:tasks.length>0,instructions:c.instructions,tools:c.tools};
     });
-    return {...visible,agents,elapsedSeconds:Math.max(0,Math.round(((run.finishedAt?Date.parse(run.finishedAt):Date.now())-Date.parse(run.createdAt))/1000)),artifacts:(run.artifacts||[]).map(({path,...a})=>({...a,url:`/api/runs/${run.id}/artifacts/${encodeURIComponent(a.id)}`}))};
+    return {...visible,agents,outcome:buildRunOutcome(run),elapsedSeconds:Math.max(0,Math.round(((run.finishedAt?Date.parse(run.finishedAt):Date.now())-Date.parse(run.createdAt))/1000)),artifacts:(run.artifacts||[]).map(({path,...a})=>({...a,url:`/api/runs/${run.id}/artifacts/${encodeURIComponent(a.id)}`}))};
   }
   async list(){await this.ready;return [...this.runs.values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,60).map(r=>this.publicRun(r));}
   async get(id){await this.ready;const r=this.runs.get(id);if(!r)throw apiError('找不到这个任务。',404);return r;}

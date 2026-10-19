@@ -9,6 +9,7 @@ import { createNetworkPolicy } from '../server/network.mjs';
 import { createShutdown } from '../server/lifecycle.mjs';
 import { AutomationController } from '../server/automation.mjs';
 import { createAccessGate } from '../server/access.mjs';
+import { buildArtifactArchive, MAX_ARCHIVE_FILES, MAX_ARCHIVE_BYTES } from '../server/archive.mjs';
 
 const projectRoot=fileURLToPath(new URL('../',import.meta.url));
 const root=resolve(projectRoot,'dist');
@@ -60,7 +61,7 @@ const server=createServer(async(req,res)=>{
         const data=JSON.parse(await readFile(resolve(projectRoot,'data/examples',example[1]+'.json'),'utf8'));
         return json(res,200,{input:{...(data.input||data),example:true}});
       }
-      const matched=pathname.match(/^\/api\/runs\/([a-z0-9-]+)(?:\/(events|approval|cancel|retry|artifacts)(?:\/([^/]+))?)?$/i);
+      const matched=pathname.match(/^\/api\/runs\/([a-z0-9-]+)(?:\/(events|approval|cancel|retry|artifacts|download)(?:\/([^/]+))?)?$/i);
       if(matched){
         const [,id,action,artifactId]=matched;
         if(!action&&req.method==='GET')return json(res,200,{run:engine.publicRun(await engine.get(id))});
@@ -72,6 +73,20 @@ const server=createServer(async(req,res)=>{
         if(action==='approval'&&req.method==='POST')return json(res,200,{run:await engine.approve(id,await body(req))});
         if(action==='cancel'&&req.method==='POST')return json(res,200,{run:await engine.cancel(id)});
         if(action==='retry'&&req.method==='POST')return json(res,202,{run:await engine.retry(id)});
+        if(action==='download'&&req.method==='GET'){
+          const run=structuredClone(await engine.get(id)),registered=run.artifacts||[];
+          if(!registered.length)throw Object.assign(new Error('当前任务尚无可下载文件。'),{status:409});
+          if(registered.length>MAX_ARCHIVE_FILES||registered.reduce((sum,a)=>sum+Math.max(0,Number(a.bytes)||0),0)>MAX_ARCHIVE_BYTES)throw Object.assign(new Error('文件过多或总量超过 100 MiB，请分别下载。'),{status:413});
+          const files=[];let total=0;
+          for(const record of registered){
+            const artifact=await engine.artifact(id,record.id),bytes=await readFile(artifact.path);total+=bytes.length;
+            if(total>MAX_ARCHIVE_BYTES)throw Object.assign(new Error('总文件量超过 100 MiB，请分别下载。'),{status:413});
+            files.push({id:artifact.id,name:artifact.name,bytes});
+          }
+          let archive;try{archive=buildArtifactArchive({run,files});}catch(error){if(error instanceof RangeError)error.status=413;throw error;}
+          const name=(run.title||'办公任务')+'-'+id.slice(0,8)+'.zip';
+          res.writeHead(200,{'Content-Type':'application/zip','Content-Length':archive.length,'Cache-Control':'no-store','Content-Disposition':`attachment; filename="office-delivery.zip"; filename*=UTF-8''${encodeURIComponent(name)}`});res.end(archive);return;
+        }
         if(action==='artifacts'&&artifactId&&req.method==='GET'){
           const artifact=await engine.artifact(id,artifactId),bytes=await readFile(artifact.path);
           res.writeHead(200,{'Content-Type':artifact.mimeType||'application/octet-stream','Content-Length':bytes.length,'Cache-Control':'no-store','Content-Disposition':`attachment; filename="download${extname(artifact.name).replace(/[^.a-z0-9]/gi,'')}"; filename*=UTF-8''${encodeURIComponent(artifact.name)}`});res.end(bytes);return;
