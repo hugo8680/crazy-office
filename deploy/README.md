@@ -25,11 +25,14 @@ OFFICE_PROBE_TIMEOUT_MS=120000
 OFFICE_MODEL_RETRIES=0
 OFFICE_OLLAMA_CONTEXT=16384
 OFFICE_OLLAMA_THREADS=6
+OFFICE_RECEIPT_HANDOFF=1
 ```
 
 模型和 Python 均来自官方发布资产，下载后校验 SHA-256；来源记录在各自安装目录。服务器没有安装代理，也没有复制个人 Codex 登录凭据。
 
 当前服务器使用 CPU 推理，一项多岗位任务包含多次模型决策、工具执行和交接，可能持续数分钟。自动派工不会叠加正在执行的任务。工具的执行回执与模型的文字总结分别展示，实际未通过的测试和审校项始终保留。
+
+`OFFICE_RECEIPT_HANDOFF=1` 让单工具岗位在真实执行成功后直接交接工具回执，减少重复总结的推理。每个岗位仍由模型选择工具并生成参数，报告正文仍由模型编写；工具错误、未通过核查、多工具检索和真人审批继续按原流程处理。
 
 模型服务通过 `LLAMA_ARG_CACHE_RAM=512` 将历史提示缓存限定在 512 MiB，保留 `MemoryMax=10G`。默认 8 GiB 的历史缓存叠加模型与长上下文会触发服务内存上限；安装脚本已包含此配置。参数依据 [llama.cpp 官方运行文档](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)，并已用所安装二进制的 `--help` 核对。
 

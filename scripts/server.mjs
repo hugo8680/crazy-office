@@ -89,7 +89,7 @@ server.requestTimeout=30000;server.headersTimeout=15000;
 const shutdown=createShutdown({server,getEngine:()=>engine,sseResponses,probeController,onStart:()=>{shuttingDown=true;clearInterval(recoveryTimer);automation?.shutdown().catch(()=>{});}});
 server.listen(port,bindHost,()=>{
   // Only the process that successfully owns the listener may recover/write run state.
-  engine=new OfficeEngine({dataDir:resolve(process.env.OFFICE_DATA_DIR||resolve(projectRoot,'.office-data'))});
+  engine=new OfficeEngine({dataDir:resolve(process.env.OFFICE_DATA_DIR||resolve(projectRoot,'.office-data')),receiptHandoff:process.env.OFFICE_RECEIPT_HANDOFF==='1'});
   automation=new AutomationController({engine,providerStatus:getProviderStatus,stateFile:resolve(engine.dataDir,'automation.json'),companyFile:process.env.OFFICE_COMPANY_FILE||undefined});
   automation.ready.catch(error=>{console.error('Automation initialization:',error.message);onSignal();});
   const probe=async(force=false)=>{

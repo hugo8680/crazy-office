@@ -38,24 +38,43 @@ CREATE TABLE candidates(id INTEGER PRIMARY KEY,supplier_id INTEGER NOT NULL REFE
 CREATE TABLE quotes(id INTEGER PRIMARY KEY,candidate_id INTEGER NOT NULL REFERENCES candidates(id),source_url TEXT NOT NULL,fetched_at TEXT NOT NULL,currency TEXT NOT NULL CHECK(currency IN ('CNY','USD')),price REAL CHECK(price IS NULL OR price>=0),tax_known INTEGER NOT NULL CHECK(tax_known IN (0,1)));
 CREATE INDEX candidate_quotes ON quotes(candidate_id,fetched_at);`;
 
+test('SQL that was double escaped gets an actionable error and never becomes a successful design',async()=>{
+ await withBox({},async(box,dir)=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl.replaceAll('\n','\\n')},'zhang'),/实际换行或分号.*不要对JSON字符串中的SQL再次转义/);assert.equal(box.artifacts().length,0);await assert.rejects(fs.stat(path.join(dir,'database/schema.sql')),error=>error.code==='ENOENT');});
+});
+
 test('explicit database contracts reject missing currency/price CHECK before saving DDL, then corrected design builds and independently passes',async()=>{
  const input=companyTaskInput('database',{name:COMPANY_NAME,verifiedFacts:[]}).input;
- assert.equal(input.example,undefined);assert.equal(input.isExample,true);assert.equal(input.databaseChecks.length,9);assert.match(input.requirements,/不代表公司既有生产表结构/);
+ assert.equal(input.example,undefined);assert.equal(input.isExample,true);assert.equal(input.databaseChecks.length,11);assert.match(input.requirements,/不代表公司既有生产表结构/);
  const samples=JSON.parse(input.data.text);assert.deepEqual(Object.values(samples).map(rows=>rows.length),[1,1,1]);assert.match(samples.suppliers[0].name,/sample/);assert.match(samples.candidates[0].model,/sample/);assert.equal(samples.quotes[0].source_url,'https://example.invalid/sample-quote');assert.equal(samples.quotes[0].fetched_at,'2000-01-01T00:00:00Z');assert.equal(samples.quotes[0].price,null);
  await withBox(input,async(box,dir)=>{
   const omitted=procurementPrototypeDdl.replace(" CHECK(currency IN ('CNY','USD'))",'').replace(' CHECK(price IS NULL OR price>=0)','');
   await assert.rejects(()=>box.execute('design_database',{ddl:omitted,description:'故意遗漏两个CHECK的回归设计'},'zhang'),error=>/报价拒绝CNY和USD之外的币种/.test(error.message)&&/报价已知价格必须非负/.test(error.message));
   assert.equal(box.artifacts().length,0);for(const name of ['schema.sql','design.json','design-checks.json'])await assert.rejects(fs.stat(path.join(dir,'database',name)),error=>error.code==='ENOENT');
   const designed=await box.execute('design_database',{ddl:procurementPrototypeDdl,description:'依据显式合同修正DDL'},'zhang');
-  assert.equal(designed.evidence.designChecks.passed,true);assert.equal(designed.evidence.designChecks.testCount,9);assert(designed.evidence.designChecks.tests.every(row=>row.passed));assert(designed.artifacts.some(file=>file.name==='design-checks.json'));
-  const receipt=JSON.parse(await fs.readFile(path.join(dir,'database/design-checks.json'),'utf8'));assert.equal(receipt.allChangesRolledBack,true);assert.equal(receipt.tests.filter(row=>row.constraintError).length,7);
+  assert.equal(designed.evidence.designChecks.passed,true);assert.equal(designed.evidence.designChecks.testCount,11);assert(designed.evidence.designChecks.tests.every(row=>row.passed));assert(designed.artifacts.some(file=>file.name==='design-checks.json'));
+  const receipt=JSON.parse(await fs.readFile(path.join(dir,'database/design-checks.json'),'utf8'));assert.equal(receipt.allChangesRolledBack,true);assert.equal(receipt.tests.filter(row=>row.constraintError).length,9);
   const built=await box.execute('build_database',{},'ops');assert.equal(built.evidence.importedRows,3);assert.equal(built.evidence.importedBusinessRows,0);assert.equal(built.evidence.validationSampleRows,3);assert.equal(built.evidence.validationSamplesOnly,true);assert.equal(built.evidence.sampleSource,'explicit_example_input');
-  const verified=await box.execute('test_database',{queries:['SELECT COUNT(*) AS n FROM suppliers;','SELECT COUNT(*) AS n FROM candidates;','SELECT COUNT(*) AS n FROM quotes;','SELECT price,source_url FROM quotes;']},'liu');assert.equal(verified.evidence.passed,true);assert.equal(verified.evidence.contractTests.length,9);assert(verified.evidence.contractTests.every(row=>row.passed));assert.deepEqual(verified.evidence.queries.slice(0,3).map(query=>query.rows[0].n),[1,1,1]);assert.equal(verified.evidence.queries[3].rows[0].price,null);
+  const verified=await box.execute('test_database',{queries:['SELECT COUNT(*) AS n FROM suppliers;','SELECT COUNT(*) AS n FROM candidates;','SELECT COUNT(*) AS n FROM quotes;','SELECT price,source_url FROM quotes;']},'liu');assert.equal(verified.evidence.passed,true);assert.equal(verified.evidence.contractTests.length,11);assert(verified.evidence.contractTests.every(row=>row.passed));assert.deepEqual(verified.evidence.queries.slice(0,3).map(query=>query.rows[0].n),[1,1,1]);assert.equal(verified.evidence.queries[3].rows[0].price,null);
  });
 });
 
 test('expected database constraint failures do not accept SQL syntax errors, missing tables or missing columns',async()=>{
  for(const sql of ['INSERT INTO nonexistent(id) VALUES(1);','INSERT INTO suppliers(unknown_column) VALUES(1);','INSERT INTO suppliers(id,name) VALUES(1,);'])await withBox({databaseChecks:[{name:'必须真实触发约束',sql,expectError:true}]},async(box,dir)=>{await assert.rejects(()=>box.execute('design_database',{ddl:procurementPrototypeDdl},'zhang'),/SQL执行错误不能作为约束拒绝/);assert.equal(box.artifacts().length,0);await assert.rejects(fs.stat(path.join(dir,'database/schema.sql')),error=>error.code==='ENOENT');});
+});
+
+test('rejected design feedback includes executable NULL-currency and negative-price cases with SQLite constraint guidance',async()=>{
+ const input=companyTaskInput('database',{name:COMPANY_NAME,verifiedFacts:[]}).input;
+ const ddl=procurementPrototypeDdl.replace("currency TEXT NOT NULL CHECK(currency IN ('CNY','USD'))","currency TEXT CHECK(currency IN ('CNY','USD'))").replace(' CHECK(price IS NULL OR price>=0)','');
+ await withBox(input,async(box,dir)=>{
+  await assert.rejects(()=>box.execute('design_database',{ddl},'zhang'),error=>{
+   assert.match(error.message,/CHECK结果为NULL不会拒绝/);assert.match(error.message,/必填列需NOT NULL/);assert.match(error.message,/非负限制必须落到DDL CHECK而非说明文字/);
+   assert.match(error.message,/报价币种不能为NULL/);assert.match(error.message,/报价已知价格必须非负/);assert.match(error.message,/实际未被拒绝的SQL：INSERT INTO quotes/);
+   assert(error.message.includes("VALUES(930005,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z',NULL,100,0)"));
+   assert(error.message.includes("VALUES(930006,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',-1,0)"));
+   return true;
+  });
+  assert.equal(box.artifacts().length,0);await assert.rejects(fs.stat(path.join(dir,'database/schema.sql')),error=>error.code==='ENOENT');
+ });
 });
 
 test('contract setup IntegrityError cannot masquerade as expected failure of the tested SQL',async()=>{

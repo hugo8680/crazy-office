@@ -21,6 +21,59 @@ async function setup(options={}){
  };
  const engine=new OfficeEngine({dataDir,modelCall:model,providerStatus,toolboxFactory,...options});await engine.ready;return {engine,dataDir,clean:()=>rm(dataDir,{recursive:true,force:true})};
 }
+function receiptToolbox({beforeExecute=async()=>{},evidenceByTool={},summaryByTool={}}={}){
+ return async({runDir,approval,emit})=>{
+  const artifacts=[];
+  return {definitions:allNames.map(name=>({name})),publicState:()=>({}),artifacts:()=>artifacts,
+   execute:async(name,args)=>{
+    await beforeExecute(name,args);let decision=null;
+    if(name==='apply_defense')decision=await approval({title:'真实审批测试',description:'仅测试隔离工具等待人工选择'});
+    const filename=name+'-receipt.txt',artifact={id:'receipt-'+name,name:filename,path:filename,mimeType:'text/plain',bytes:0};
+    const summary=Object.hasOwn(summaryByTool,name)?summaryByTool[name]:'工具测试回执：'+name;
+    const content=JSON.stringify({tool:name,args,decision,summary});await writeFile(path.join(runDir,filename),content);artifact.bytes=Buffer.byteLength(content);artifacts.push(artifact);emit({type:'artifact',text:'实际写入测试回执',artifact});
+    return {summary,evidence:{...(evidenceByTool[name]||{}),...(decision?{approved:decision.approved}:{})},artifacts:[artifact]};
+   }};
+ };
+}
+
+test('回执交接开关默认关闭；启用后每岗位仍先请求模型选工具且不再冗余请求finish',async()=>{
+ for(const enabled of [false,true]){
+  const calls=[];const {engine,clean}=await setup({...(enabled?{receiptHandoff:true}:{}),toolboxFactory:receiptToolbox(),modelCall:async request=>{calls.push({role:request.role.id,context:structuredClone(request.context)});return model(request);}});
+  try{
+   const started=await engine.create({scenarioId:'finance',input:{company:'receipt-mode test',year:2025,data:'explicit test source'}});await until(()=>engine.runs.get(started.id).status==='completed');const run=await engine.get(started.id);
+   assert.equal(calls.length,enabled?4:8);for(const role of ['ops','finance','liu','lead'])assert.equal(calls.filter(call=>call.role===role).length,enabled?1:2);
+   assert(run.tasks.every(task=>task.toolCalls===1&&task.toolResults.length===1&&task.artifactIds.length===1));assert(run.tasks.every(task=>task.summarySource===(enabled?'tool_receipt':'model')));
+   if(enabled){assert(run.tasks.every(task=>task.output==='工具测试回执：'+task.toolResults[0].tool));assert(run.events.filter(event=>event.type==='result'&&event.taskId).every(event=>event.summarySource==='tool_receipt'));
+    const received=calls.find(call=>call.role==='lead').context.evidence;assert.equal(received.length,2);assert(received.every(item=>item.toolResults.length===1&&item.toolResults[0].result.artifacts.length===1));
+    const handoff=run.events.find(event=>event.deliveryKind==='evidence'&&event.sourceAgentId==='finance'&&event.targetAgentId==='lead');assert.deepEqual(handoff.artifactIds,['receipt-calculate_finance']);
+   }
+   assert(run.artifacts.some(artifact=>artifact.id==='receipt-write_report'));assert(run.events.some(event=>event.deliveryKind==='final_delivery'));
+  }finally{await engine.shutdown();await clean();}
+ }
+});
+
+test('回执交接仍把工具错误交还模型修正，成功后才完成该岗位',async()=>{
+ const calls=[];let failed=false;
+ const {engine,clean}=await setup({receiptHandoff:true,toolboxFactory:receiptToolbox({beforeExecute:async name=>{if(name==='import_finance'&&!failed){failed=true;throw new Error('unit-test source needs correction');}}}),modelCall:async request=>{calls.push({role:request.role.id,progress:structuredClone(request.context.taskProgress)});return {action:'tool',tool:request.context.taskProgress.remainingRequiredTools[0],args:{attempt:request.messages.length?2:1},summary:'模型根据实际反馈选择工具'};}});
+ try{const started=await engine.create({scenarioId:'finance',input:{company:'correction test',year:2025,data:'explicit input'}});await until(()=>engine.runs.get(started.id).status==='completed');const run=await engine.get(started.id);assert.equal(calls.length,5);const ingest=calls.filter(call=>call.role==='ops');assert.equal(ingest.length,2);assert.match(ingest[1].progress.lastToolError,/needs correction/);assert.equal(run.tasks[0].toolCalls,2);assert.equal(run.tasks[0].toolResults.length,1);assert.equal(run.tasks[0].summarySource,'tool_receipt');assert.equal(run.tasks[0].toolResults[0].result.artifacts[0].id,'receipt-import_finance');}
+ finally{await engine.shutdown();await clean();}
+});
+
+test('passed=false或没有真实summary的回执不能免去模型后续判断',async()=>{
+ for(const options of [{evidenceByTool:{audit_finance:{passed:false}}},{summaryByTool:{audit_finance:''}}]){
+  const calls=[];const {engine,clean}=await setup({receiptHandoff:true,toolboxFactory:receiptToolbox(options),modelCall:async request=>{calls.push(request.role.id);return model(request);}});
+  try{const started=await engine.create({scenarioId:'finance',input:{company:'negative receipt',year:2025,data:'explicit source'}});await until(()=>engine.runs.get(started.id).status==='completed');const run=await engine.get(started.id);assert.equal(calls.length,5);assert.equal(calls.filter(role=>role==='liu').length,2);const audit=run.tasks.find(task=>task.id==='audit');assert.equal(audit.summarySource,'model');if(options.evidenceByTool)assert.equal(audit.toolResults[0].result.evidence.passed,false);assert(run.tasks.filter(task=>task.id!=='audit').every(task=>task.summarySource==='tool_receipt'));}
+  finally{await engine.shutdown();await clean();}
+ }
+});
+
+test('回执交接等待真实审批；verifiedRestored=false保留模型判断且不被当成恢复',async()=>{
+ const calls=[];const {engine,clean}=await setup({receiptHandoff:true,toolboxFactory:receiptToolbox({evidenceByTool:{verify_network:{verifiedRestored:false}}}),modelCall:async request=>{calls.push(request.tools[0].name);return model(request);}});
+ try{const started=await engine.create({scenarioId:'ddos',input:{requirements:'isolated actual approval test',logs:'explicit logs'}});const pending=await until(()=>{const run=engine.runs.get(started.id);return run.status==='awaiting_approval'&&run;});
+  assert.equal(calls.length,3);await wait(25);assert.equal(calls.length,3);const defense=pending.tasks.find(task=>task.id==='defense');assert.equal(defense.status,'running');assert.equal(defense.summarySource,undefined);assert.equal(defense.toolResults?.length||0,0);assert.equal(calls.includes('verify_network'),false);
+  await engine.approve(started.id,{approved:true,approvalId:pending.approval.id});await until(()=>engine.runs.get(started.id).status==='completed');const run=await engine.get(started.id);assert.equal(calls.length,6);assert.equal(calls.filter(tool=>tool==='verify_network').length,2);assert.equal(run.tasks.find(task=>task.id==='defense').summarySource,'tool_receipt');const verified=run.tasks.find(task=>task.id==='verify');assert.equal(verified.summarySource,'model');assert.equal(verified.toolResults[0].result.evidence.verifiedRestored,false);assert.equal(run.nodes.server.status,'warning');assert(run.events.some(event=>event.actor==='human'&&event.data.approved===true));
+ }finally{await engine.shutdown();await clean();}
+});
 test('真实执行引擎按依赖交接，不同角色并行，同角色互斥，并登记实际文件',async()=>{
  const {engine,clean}=await setup();try{
  let parallel=false;engine.on('newListener',()=>{});
@@ -87,7 +140,7 @@ test('取消后晚到的工具文件登记不会丢失可下载执行记录',asy
 });
 test('采购检索不能只抓一个页面就遗漏其他用户指定供应商',async()=>{
  const urls=['https://vendor-one.example/server','https://vendor-two.example/server'];let prevented=false;
- const {engine,clean}=await setup({modelCall:async input=>{
+ const {engine,clean}=await setup({receiptHandoff:true,modelCall:async input=>{
   if(!input.tools.some(t=>t.name==='fetch_quote'))return model(input);
   const calls=input.messages.filter(m=>m.role==='assistant').map(m=>JSON.parse(m.content));
   if(!calls.some(c=>c.tool==='search_web'))return {action:'tool',tool:'search_web',args:{},summary:'search'};
@@ -193,6 +246,17 @@ test('模型格式错误最多纠正两次，仍由模型返回合法工具请�
   return remaining.length?{action:'tool',tool:remaining[0],args:{},summary:'corrected actual tool request'}:{action:'finish',summary:'actual receipts checked',output:'unit-test evidence complete'};
  }});
  try{const run=await engine.create({scenarioId:'finance',input:{company:'format correction',year:2025,data:'explicit input'}});await until(()=>engine.runs.get(run.id).status==='completed');const done=await engine.get(run.id);assert.equal(malformed,2);assert.equal(done.tasks[0].toolCalls,1);assert.equal(done.events.filter(e=>e.formatCorrection).length,2);assert.ok(feedback.some(text=>text.includes('未执行任何工具')&&text.includes('不要擅自传null')));}
+ finally{await engine.shutdown();await clean();}
+});
+
+test('Ollama格式纠正只要求原生args对象，不要求args_json字符串',async()=>{
+ let malformed=false;const corrections=[];
+ const {engine,clean}=await setup({receiptHandoff:true,providerStatus:async()=>({provider:'ollama',ready:true,model:'unit-test-only'}),modelCall:async request=>{
+  if(request.role.id==='ops'&&!malformed){malformed=true;throw new ProviderError('MALFORMED_ARGUMENTS','unit-test native args shape',{toolName:'import_finance'});}
+  corrections.push(...request.messages.filter(message=>message.role==='tool'&&message.content.includes('格式校验失败')).map(message=>message.content));
+  return {action:'tool',tool:request.context.taskProgress.remainingRequiredTools[0],args:{},summary:'原生参数格式纠正后选择工具'};
+ }});
+ try{const started=await engine.create({scenarioId:'finance',input:{company:'native args test',year:2025,data:'explicit input'}});await until(()=>engine.runs.get(started.id).status==='completed');assert.equal(corrections.length,1);assert.match(corrections[0],/args必须是原生JSON对象，不能生成args_json字段/);assert.equal(corrections[0].includes('args_json必须是JSON对象字符串'),false);assert.equal((await engine.get(started.id)).tasks[0].summarySource,'tool_receipt');}
  finally{await engine.shutdown();await clean();}
 });
 

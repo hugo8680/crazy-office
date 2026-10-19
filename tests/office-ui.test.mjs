@@ -235,6 +235,10 @@ test('workflow delivery with failed verification cannot imply accepted results i
  const h=harness(),task={id:'verify',title:'数据库测试',agentId:'liu',status:'done',dependencies:[],result:'全部验收通过',output:'全部验收通过',toolResults:[{tool:'test_database',result:{summary:'有失败项',evidence:{passed:false,tests:[{name:'唯一约束',passed:false,error:'未满足预期'}]}}}]};h.scope.completed=makeRun({scenarioId:'database',status:'completed',summary:'全部验收通过',tasks:[task],events:[{id:'summary-result',type:'result',agentId:'liu',taskId:'verify',text:'全部验收通过'}]});h.eval('receive(completed)');const progress=h.eval('renderProgress()');assert.match(progress,/流程交付不代表验收通过/);assert.match(progress,/员工交付总结/);assert.equal(h.eval('run.status'),'completed');assert.match(h.element('#incident-hud').innerHTML,/已交付 · 存在未通过项/);assert.match(h.element('#incident-hud').className,/degraded/);assert.doesNotMatch(h.element('#incident-hud').className,/completed/);assert.match(h.eval('noticeLayer.innerHTML'),/存在未通过项/);assert.doesNotMatch(h.eval('noticeLayer.innerHTML'),/全部验收通过/);h.eval('panel={type:"agent",id:"liu",tab:"work"}');assert.match(h.eval('renderAgent()'),/存在未通过项，请查看下方任务/);
 });
 
+test('a direct receipt handoff is labeled as the actual tool receipt',()=>{
+ const h=harness();h.scope.task={id:'receipt',title:'真实建库',agentId:'ops',status:'done',summarySource:'tool_receipt',result:'SQLite已创建，导入3条验证记录',output:'SQLite已创建，导入3条验证记录',toolResults:[{tool:'build_database',result:{summary:'SQLite已创建，导入3条验证记录',evidence:{importedRows:3}}}]};const html=h.eval('taskMarkup(task)');assert.match(html,/<em>工具回执<\/em>SQLite已创建/);assert.doesNotMatch(html,/<em>员工总结<\/em>/);
+});
+
 test('unverified or successful receipts never manufacture a failed-verification banner',()=>{
  const h=harness();h.scope.task={id:'good',title:'测试执行',agentId:'liu',status:'done',dependencies:[],result:'普通总结',output:'普通总结',toolResults:[{tool:'test_database',result:{evidence:{passed:true}}},{tool:'list_artifacts',result:{evidence:{artifacts:[]}}}]};const html=h.eval('taskMarkup(task)');assert.doesNotMatch(html,/verification-failure|存在未通过项|has-verification-issues/);assert.match(html,/<em>结果<\/em>普通总结/);
 });

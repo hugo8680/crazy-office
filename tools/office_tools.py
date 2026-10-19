@@ -270,7 +270,11 @@ def database_checks(c, checks, require_names=False):
 
 def db_design(inp,args):
     ddl=args.get('ddl',args.get('sql'))
-    ss=safe_sql(ddl,'design')
+    try:ss=safe_sql(ddl,'design')
+    except ValueError as e:
+        if isinstance(ddl,str) and ('\\n' in ddl or '\\r' in ddl):
+            raise ValueError(str(e)+'。SQL语句间请使用实际换行或分号，不能使用字面反斜杠n/r作为分隔；不要对JSON字符串中的SQL再次转义。')
+        raise
     c=sqlite3.connect(':memory:');c.execute('PRAGMA foreign_keys=ON');c.set_authorizer(authorizer)
     budget=[0]
     def progress():
@@ -286,7 +290,13 @@ def db_design(inp,args):
         if inp.get('databaseChecks') is not None:
             tests=database_checks(c,inp['databaseChecks'],True)
             failed=[t for t in tests if not t['passed']]
-            if failed:raise ValueError('DDL未通过显式数据库验收：'+'；'.join(t['name']+'（'+t['reason']+'）' for t in failed)+ '。请按input.databaseChecks修改DDL后重新调用design_database，不能把语法错误或缺列当成约束通过。')
+            if failed:
+                details=[]
+                for t in failed:
+                    detail=t['name']+'（'+t['reason']
+                    if t['expectedError'] and t['error'] is None:detail+='；实际未被拒绝的SQL：'+t['sql'][:240]
+                    details.append(detail+'）')
+                raise ValueError('SQLite验收提示：CHECK结果为NULL不会拒绝；必填列需NOT NULL；非负限制必须落到DDL CHECK而非说明文字。DDL未通过显式数据库验收：'+'；'.join(details)+ '。请按input.databaseChecks修改DDL后重新调用design_database，不能把语法错误或缺列当成约束通过。')
             contract={'passed':True,'tests':tests,'allChangesRolledBack':True,'validationEnvironment':'本次DDL的独立内存SQLite；SQL合同仅证明实际执行的用例，不代表生产部署','testCount':len(tests)}
     finally:c.close()
     evidence={'tables':tables,'schema':schema,'description':str(args.get('description','')),'assumptions':args.get('assumptions',[]),'sourceRequirements':str(inp.get('requirements',''))}

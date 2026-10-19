@@ -11,12 +11,14 @@ function prototypeDatabaseChecks(){
   const setup=clear+supplier+candidate;
   const quote=(id,currency,price,candidateId=920001)=>"INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES("+id+","+candidateId+",'https://example.invalid/sample-quote','2000-01-01T00:00:00Z',"+currency+","+price+",0);";
   return [
-    {name:'CNY与USD合法，未知价格可保留NULL',setupSql:setup,sql:quote(930001,"'CNY'",100)+quote(930002,"'USD'",20)+quote(930003,"'CNY'",'NULL')+'SELECT id,currency,price FROM quotes ORDER BY id;',expectedRows:3},
+    {name:'CNY与USD及税费标记0或1合法，零价格和NULL价格合法',setupSql:setup,sql:quote(930001,"'CNY'",0)+quote(930002,"'USD'",20)+quote(930003,"'CNY'",'NULL')+'UPDATE quotes SET tax_known=1 WHERE id=930002; SELECT id,currency,price FROM quotes ORDER BY id;',expectedRows:3},
     {name:'供应商内部编号唯一',setupSql:clear+supplier,sql:"INSERT INTO suppliers(id,name) VALUES(910001,'sample-duplicate-supplier');",expectError:true},
     {name:'供应商名称不能为NULL',setupSql:clear,sql:'INSERT INTO suppliers(id,name) VALUES(910002,NULL);',expectError:true},
     {name:'报价拒绝CNY和USD之外的币种',setupSql:setup,sql:quote(930004,"'EUR'",100),expectError:true},
     {name:'报价币种不能为NULL',setupSql:setup,sql:quote(930005,'NULL',100),expectError:true},
     {name:'报价已知价格必须非负',setupSql:setup,sql:quote(930006,"'CNY'",-1),expectError:true},
+    {name:'税费是否已知只接受0或1',setupSql:setup,sql:quote(930009,"'CNY'",0).replace(',0);',',2);'),expectError:true},
+    {name:'税费是否已知不能为NULL',setupSql:setup,sql:quote(930010,"'CNY'",0).replace(',0);',',NULL);'),expectError:true},
     {name:'服务器候选拒绝悬空供应商',setupSql:clear+supplier,sql:"INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920002,919999,'sample-orphan-server',32,1024);",expectError:true},
     {name:'报价拒绝悬空服务器候选',setupSql:setup,sql:quote(930007,"'CNY'",100,929999),expectError:true},
     {name:'能查询候选关联报价的来源与抓取时间',setupSql:setup+quote(930008,"'CNY'",'NULL'),sql:"SELECT c.model,q.source_url,q.fetched_at FROM candidates c JOIN quotes q ON q.candidate_id=c.id WHERE c.id=920001 AND q.source_url='https://example.invalid/sample-quote' AND q.fetched_at='2000-01-01T00:00:00Z';",expectedRows:1},
