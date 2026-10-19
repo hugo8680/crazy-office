@@ -34,6 +34,7 @@ Environment="OLLAMA_MAX_LOADED_MODELS=1"
 Environment="OLLAMA_CONTEXT_LENGTH=8192"
 Environment="OLLAMA_KEEP_ALIVE=15m"
 Environment="OLLAMA_LOAD_TIMEOUT=5m"
+Environment="LLAMA_ARG_CACHE_RAM=512"
 UnsetEnvironment=HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
 Restart=on-failure
 RestartSec=5
