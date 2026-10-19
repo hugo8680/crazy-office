@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildDashscopeRequest,parseDashscopeResponse,DEFAULT_DASHSCOPE_MODEL,DASHSCOPE_MAX_REQUEST_BYTES,DashscopeAdapterError} from '../server/dashscope.mjs';
+import {buildDashscopeRequest,parseDashscopeResponse,resolveDashscopeEndpoint,DEFAULT_DASHSCOPE_URL,DEFAULT_DASHSCOPE_MODEL,DASHSCOPE_MAX_REQUEST_BYTES,DashscopeAdapterError} from '../server/dashscope.mjs';
 import {parseDecision} from '../server/provider.mjs';
 
 const sql="CREATE TABLE quotes(id INTEGER PRIMARY KEY,price REAL CHECK(price >= 0));\nCREATE INDEX quote_price ON quotes(price);";
@@ -8,6 +8,11 @@ const tool={name:'design_database',description:'真实内存执行模型DDL后�
 const input={role:{id:'zhang',name:'小张',instructions:'仅设计隔离工作区数据库，等待独立验收。',tools:['design_database']},goal:'根据真实需求设计三表并保留约束。',context:{input:{requirements:'必须保存真实来源，未知价格保留NULL。',data:{preview:'所有原始文本均需保留。'}}},messages:[],tools:[tool]};
 const response=(message,finish_reason='tool_calls',extra={})=>({model:'official-test-fixture-model',choices:[{index:0,message:{role:'assistant',...message},finish_reason}],usage:{prompt_tokens:51,completion_tokens:27,total_tokens:78},...extra});
 const toolResponse=args=>response({content:null,tool_calls:[{id:'call_test_1',type:'function',function:{name:tool.name,arguments:JSON.stringify(args)}}]});
+
+test('DashScope endpoint permits only Beijing official HTTPS compatibility URLs',()=>{
+ assert.equal(resolveDashscopeEndpoint(),DEFAULT_DASHSCOPE_URL);assert.equal(resolveDashscopeEndpoint('https://dashscope.aliyuncs.com/compatible-mode/v1/'),DEFAULT_DASHSCOPE_URL);assert.equal(resolveDashscopeEndpoint('https://llm-workspace-17.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'),'https://llm-workspace-17.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions');
+ for(const value of ['http://dashscope.aliyuncs.com/compatible-mode/v1','https://127.0.0.1/compatible-mode/v1','https://dashscope.aliyuncs.com.evil.test/compatible-mode/v1','https://user:secret@dashscope.aliyuncs.com/compatible-mode/v1','https://dashscope.aliyuncs.com:8443/compatible-mode/v1','https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses','https://dashscope.aliyuncs.com/compatible-mode/v1?key=secret','https://dashscope-intl.aliyuncs.com/compatible-mode/v1'])assert.throws(()=>resolveDashscopeEndpoint(value),error=>error.code==='INVALID_CONFIG'&&!error.message.includes('secret'));
+});
 
 test('native Chat request preserves role, goal, full context and authorized tool schema without JSON response wrappers',()=>{
  const before=structuredClone(input),body=buildDashscopeRequest(input);assert.equal(body.model,DEFAULT_DASHSCOPE_MODEL);assert.equal(body.enable_thinking,false);assert.equal(body.parallel_tool_calls,false);assert.equal(body.max_tokens,4096);assert.equal(body.stream,false);assert.equal(body.tool_choice,'auto');assert.equal('response_format' in body,false);assert.equal('text' in body,false);assert.deepEqual(body.tools,[{type:'function',function:tool}]);

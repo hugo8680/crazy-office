@@ -260,6 +260,18 @@ test('Ollama格式纠正只要求原生args对象，不要求args_json字符串'
  finally{await engine.shutdown();await clean();}
 });
 
+test('DashScope岗位目标和格式纠正使用原生Function Calling且仍真实执行工具',async()=>{
+ let malformed=false;const corrections=[];
+ const {engine,clean}=await setup({receiptHandoff:true,providerStatus:async()=>({provider:'dashscope',ready:true,model:'unit-test-only'}),modelCall:async request=>{
+  assert.match(request.goal,/原生Function Calling请求本轮授权工具/);assert.equal(request.goal.includes('本轮只生成外部办公服务器的JSON调用请求'),false);
+  if(request.role.id==='ops'&&!malformed){malformed=true;throw new ProviderError('MALFORMED_ARGUMENTS','unit-test native args shape',{toolName:'import_finance'});}
+  corrections.push(...request.messages.filter(message=>message.role==='tool'&&message.content.includes('格式校验失败')).map(message=>message.content));
+  return {action:'tool',tool:request.context.taskProgress.remainingRequiredTools[0],args:{},summary:'原生参数格式纠正后选择工具'};
+ }});
+ try{const started=await engine.create({scenarioId:'finance',input:{company:'native args test',year:2025,data:'explicit input'}});await until(()=>engine.runs.get(started.id).status==='completed');assert.equal(corrections.length,1);assert.match(corrections[0],/原生Function Calling.*function.arguments.*不输出action\/args_json调度包/);assert.equal(corrections[0].includes('args_json必须是JSON对象字符串'),false);assert.equal((await engine.get(started.id)).tasks[0].summarySource,'tool_receipt');}
+ finally{await engine.shutdown();await clean();}
+});
+
 test('持续模型格式错误第三次硬失败，不执行任何业务工具',async()=>{
  let calls=0,executions=0;
  const {engine,clean}=await setup({modelCall:async()=>{calls++;throw new ProviderError('MALFORMED_ARGUMENTS','unit-test invalid schema',{toolName:'import_finance'});},toolboxFactory:async()=>({definitions:allNames.map(name=>({name})),artifacts:()=>[],publicState:()=>({}),execute:async()=>{executions++;return {};}})});

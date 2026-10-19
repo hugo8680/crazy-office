@@ -36,6 +36,14 @@ npm run dev
 
 可选 `OFFICE_PROVIDER=openai`、`OPENAI_API_KEY`、`OFFICE_MODEL` 使用 OpenAI Responses API，密钥只从服务端环境读取；也可使用 `OFFICE_PROVIDER=ollama`、`OFFICE_MODEL=<已安装模型>` 连接本机 Ollama，不会自动下载模型。API 和本地模型都不会静默替代 Codex，失败时保留实际错误。
 
+### 可选的百炼正式 API
+
+百炼适配已准备，但不会自动切换当前 Ollama 或发起付费调用。选择后，在私有服务端环境中设置 `OFFICE_PROVIDER=dashscope`、`DASHSCOPE_API_KEY` 和 `OFFICE_MODEL=qwen3.7-plus-2026-05-26`。北京地域默认直连 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`；`OFFICE_DASHSCOPE_URL` 可填同地域官方业务空间专属兼容接口。
+
+适配使用原生 Chat Function Calling，模型选择真实岗位工具及参数，服务器仍执行授权、参数校验和实际工具。单轮多个调用全部拒绝，不丢弃后继续执行；历史调用与真实回执配对，孤立纠错仅作为数据。请求超过700 KiB时明确拒绝，不截断资料。工具请求的摘要标为 `tool_call_metadata`，不冒充已执行结果；最终交接正文来自模型内容。`enable_thinking=false`、`parallel_tool_calls=false`，未依赖 Responses 的 `text.format` 兼容假设。
+
+未配置密钥时连接状态为未就绪，不发起模型请求。启用后的启动探测、手动连接检查及自动恢复探测均可能计费；正式切换需用同一地域密钥，并重新完成业务验收。按量价格与额度以 [百炼官方计费](https://help.aliyun.com/zh/model-studio/model-pricing) 和账户控制台为准，不预设免费额度。密钥创建参考 [官方 API Key 说明](https://help.aliyun.com/en/model-studio/get-api-key)。
+
 ## 局域网访问
 
 默认监听 `0.0.0.0:4173`，同一网络的设备可使用启动时打印的 `Office LAN` IP 地址。地址以当前网卡为准，DHCP 变化后重新查询即可；IP 中的零段不代表它无效，需要结合子网掩码判断。

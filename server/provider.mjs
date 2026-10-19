@@ -5,9 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify, isDeepStrictEqual } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
+import { buildDashscopeRequest, parseDashscopeResponse, resolveDashscopeEndpoint, DEFAULT_DASHSCOPE_MODEL, DEFAULT_DASHSCOPE_URL, DashscopeAdapterError } from './dashscope.mjs';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PROVIDERS = new Set(['codex', 'openai', 'ollama']);
+const PROVIDERS = new Set(['codex', 'openai', 'ollama', 'dashscope']);
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const MAX_PROMPT_BYTES = 700 * 1024;
 const execFileAsync = promisify(execFile);
@@ -133,7 +134,7 @@ function validArguments(value, schema, depth = 0) {
 
 function classifyFailure(text = '', fallback = '模型请求失败，请重新连接后重试。') {
   if (/unauthorized|authentication|invalid.api.key|not.logged.in|login required|401|token.*expired/i.test(text))
-    return new ProviderError('AUTH_REQUIRED', '模型登录已失效或未授权。Codex 请在终端运行 codex login；API 请检查 OPENAI_API_KEY。');
+    return new ProviderError('AUTH_REQUIRED', '模型登录已失效或未授权。Codex 请在终端运行 codex login；API 请检查所选服务的密钥（OPENAI_API_KEY 或 DASHSCOPE_API_KEY）。');
   if (/429|rate.limit|quota|usage.limit|too.many.requests|insufficient_quota/i.test(text))
     return new ProviderError('RATE_LIMIT', '模型额度或并发限制已达到，请检查账户用量后重试。');
   if (/model.*not.found|model.*not.support|invalid.model|does.not.exist|404/i.test(text))
@@ -342,8 +343,8 @@ export function createProvider({ env = process.env, spawn = nodeSpawn, fetch: su
       if (error.code !== 'ENOENT') throw error instanceof ProviderError ? error : new ProviderError('INVALID_CONFIG', '本地模型配置文件不是有效 JSON。');
     }
     const provider = env.OFFICE_PROVIDER || local.provider || 'codex';
-    if (!PROVIDERS.has(provider)) throw new ProviderError('INVALID_CONFIG', '模型服务只支持 codex、openai、ollama。');
-    const model = env.OFFICE_MODEL || local.model || (provider === 'codex' ? await configuredCodexModel(env) : provider === 'openai' ? 'gpt-6-luna' : '');
+    if (!PROVIDERS.has(provider)) throw new ProviderError('INVALID_CONFIG', '模型服务只支持 codex、openai、ollama、dashscope。');
+    const model = env.OFFICE_MODEL || local.model || (provider === 'codex' ? await configuredCodexModel(env) : provider === 'openai' ? 'gpt-6-luna' : provider === 'dashscope' ? DEFAULT_DASHSCOPE_MODEL : '');
     if (typeof model !== 'string' || model.length > 160 || /[\r\n\x00]/.test(model)) throw new ProviderError('INVALID_CONFIG', '模型名称无效。');
     const cli = env.OFFICE_CODEX_BIN || local.cli || 'codex';
     if (typeof cli !== 'string' || cli.length > 1024 || /[\r\n\x00]/.test(cli)) throw new ProviderError('INVALID_CONFIG', 'Codex 程序路径无效。');
@@ -355,13 +356,21 @@ export function createProvider({ env = process.env, spawn = nodeSpawn, fetch: su
     try { parsed = new URL(ollamaBase); } catch { throw new ProviderError('INVALID_CONFIG', 'Ollama 地址无效。'); }
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname) || !['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash)
       throw new ProviderError('INVALID_CONFIG', 'Ollama 仅连接本机服务，例如 http://127.0.0.1:11434。');
+    let dashscopeEndpoint=DEFAULT_DASHSCOPE_URL;
+    if(provider==='dashscope'){
+      try{dashscopeEndpoint=resolveDashscopeEndpoint(env.OFFICE_DASHSCOPE_URL||local.dashscopeBase||DEFAULT_DASHSCOPE_URL);}
+      catch(error){if(error instanceof DashscopeAdapterError)throw new ProviderError(error.code,error.message);throw error;}
+    }
+    const dashscopeKeyPresent=typeof env.DASHSCOPE_API_KEY==='string'&&Boolean(env.DASHSCOPE_API_KEY.trim());
     const ollamaContext=Math.floor(boundedNumber(env.OFFICE_OLLAMA_CONTEXT,16384,8192,32768));
     const ollamaThreads=Math.floor(boundedNumber(env.OFFICE_OLLAMA_THREADS,6,1,16));
-    return { provider, model, cli, timeoutMs, probeTimeoutMs, retries: Math.floor(retries), ollamaBase: parsed.origin,ollamaContext,ollamaThreads };
+    return { provider, model, cli, timeoutMs, probeTimeoutMs, retries: Math.floor(retries), ollamaBase: parsed.origin,ollamaContext,ollamaThreads,dashscopeEndpoint,dashscopeKeyPresent };
   }
 
-  function cacheKey(config) { return JSON.stringify([config.provider, config.model, config.cli, config.ollamaBase]); }
-  function initialStatus(config) { return { provider: config.provider, ready: false, model: config.model, message: '尚未验证模型连接，点击“检查模型连接”后开始任务。' }; }
+  function cacheKey(config) { return JSON.stringify([config.provider, config.model, config.cli, config.ollamaBase, config.dashscopeEndpoint, config.provider==='dashscope'?config.dashscopeKeyPresent:null]); }
+  function initialStatus(config) {
+    return {provider:config.provider,ready:false,model:config.model,message:config.provider==='dashscope'&&!config.dashscopeKeyPresent?'未设置 DASHSCOPE_API_KEY，请在服务端私有环境文件配置百炼密钥。':'尚未验证模型连接，点击“检查模型连接”后开始任务。'};
+  }
 
   async function codexDecision(config, input, timeoutMs) {
     // Validate before creating any CLI process: invalid/oversized input must not leave
@@ -462,6 +471,23 @@ export function createProvider({ env = process.env, spawn = nodeSpawn, fetch: su
 
   async function remoteDecision(config, input, timeoutMs) {
     activity(input.onActivity, '请求真实模型分析当前任务与工具返回值。');
+    if (config.provider === 'dashscope') {
+      if(!config.dashscopeKeyPresent)throw new ProviderError('AUTH_REQUIRED','未设置 DASHSCOPE_API_KEY，请在服务端私有环境文件配置百炼密钥。');
+      const apiKey=env.DASHSCOPE_API_KEY.trim();
+      if(/[\r\n\s]/.test(apiKey)||apiKey.length>4096)throw new ProviderError('AUTH_REQUIRED','百炼密钥格式无效，请检查服务端 DASHSCOPE_API_KEY。');
+      try{
+        const request=buildDashscopeRequest(input,config.model);
+        const response=await jsonRequest(config.dashscopeEndpoint,{
+          method:'POST',redirect:'error',headers:{'content-type':'application/json',authorization:`Bearer ${apiKey}`},body:JSON.stringify(request),
+        },input,timeoutMs);
+        const wire=parseDashscopeResponse(response,input.tools,config.model);
+        const decision=parseDecision(JSON.stringify(wire.decision),input.tools,wire.model,wire.usage);
+        return {...decision,summarySource:wire.summarySource,...(wire.nativeToolCallId?{nativeToolCallId:wire.nativeToolCallId}:{}),...(wire.modelContent!==undefined?{modelContent:wire.modelContent}:{})};
+      }catch(error){
+        if(error instanceof DashscopeAdapterError)throw new ProviderError(error.code,error.message,{toolName:error.toolName});
+        throw error;
+      }
+    }
     if (config.provider === 'openai') {
       if (!env.OPENAI_API_KEY) throw new ProviderError('AUTH_REQUIRED', '未设置 OPENAI_API_KEY，请在启动服务的终端设置 API 密钥。');
       const response = await jsonRequest('https://api.openai.com/v1/responses', {
