@@ -1,0 +1,98 @@
+# 疯狂办公室 · Server
+
+原生 Go 服务端，运行不依赖 Node.js、npm 或 Python。客户端源码和构建产物由 `../client` 独立维护，本项目只提供 API、事件流和业务文件。
+
+## 开发
+
+需要 Go 1.26+。
+
+```sh
+go mod download
+go run ./cmd/office
+```
+
+默认监听 `127.0.0.1:8080`。客户端开发服务器将 4173 端口的 `/api` 请求转发过来。开发环境没有公开来源及登录配置时使用本机管理员；公开部署必须配置原有账号散列、会话密钥和 HTTPS 来源。开发时不要加载生产登录密钥。
+
+可通过 `HOST`、`PORT`、`OFFICE_DATA_DIR`、`OFFICE_ASSETS_DIR` 配置运行，或使用 `--listen`、`--data-dir`。入口在成功取得监听端口后才恢复任务，端口冲突的第二个进程不会改写在途记录。
+
+## 真实模型
+
+正式环境沿用服务器私有 `office.env` 中的百炼配置，不复制个人登录信息，不增加代理。模型选型与密钥只在服务端：
+
+```ini
+OFFICE_PROVIDER=dashscope
+OFFICE_MODEL=qwen3.7-plus-2026-05-26
+DASHSCOPE_API_KEY=<仅填写到私有环境文件>
+OFFICE_DASHSCOPE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+```
+
+本机也可使用已有 Codex CLI 登录或显式配置 Ollama；程序不把连接失败替换为模拟结果。兼容已有私有 `provider.json`。环境变量优先，未显式指定时再读取本项目私有选择；不会修改全局配置。
+
+私有环境文件可以显式加载，权限须为 0600：
+
+```sh
+OFFICE_PROVIDER=dashscope go run ./cmd/office \
+  --env-file .office-data/dashscope-private.env
+```
+
+连接探测、实际 Agent 和自动恢复会请求真实模型，按照所选账户计费。普通状态查询只读缓存。生产密钥、密码、身份库、任务原文和邀请凭证不得提交版本库。
+
+## 目录
+
+- `cmd/office`：API 启动、端口所有权、配置和优雅关闭。
+- `cmd/verify-erp`：显式开启的真实模型隔离验收。
+- `cmd/verify-lab`：原实验室七场景的真实模型隔离验收。
+- `internal/httpapi`：现有 `/api` 契约及 HTTP 访问边界。
+- `internal/identity`、`access`、`network`：员工、邀请、口令、会话及来源校验。
+- `internal/erp`：原生 SQLite 事务、权限、审批、库存、借还、任务与事实报表。
+- `internal/erpflow`：八类 ERP 工作、两个独立虚拟岗位、工具与复核门槛。
+- `internal/model`、`agent`、`tools`：真实模型、实验室七场景、工具执行、自动派工、事件与文件。
+- `internal/report`：沿用现有文档样式的安全 HTML 与打印版。
+- `data`、`config`：可发布的公开示例和公司背景；不放私有运行数据。
+- `docs`：PRD、实施记录、迁移与验收。
+
+## 数据兼容
+
+生产继续使用 `/opt/office.laisengou.com/data`，本机默认为 `.office-data`。保留原 SQLite 表、JSON 字段、身份文件、scrypt 口令格式、会话签名、历史任务和产物。原有路径无需复制到客户端。
+
+ERP 数据库在 `erp/office-erp.sqlite`，身份库在 `erp/identities.json`，ERP 模型记录在 `erp/runs/`；实验室任务仍以任务编号分目录保存。后台运行与文件下载均检查授权。模型不能直接审批、写库存、改角色或运行任意宿主命令。
+
+管理员 `POST /api/erp/backup` 保存业务库、身份库副本及摘要清单，文件在私有 `backups/`。恢复先到隔离目录验证，不覆盖运行中的生产库。正式升级前做完整备份，并在无活动任务时切换。
+
+## 检查、测试和构建
+
+```sh
+make check
+make test
+make build
+make build-linux
+make release VERSION=<版本号>
+```
+
+`make test` 包含 Go race 检查，`make build` 生成 `bin/office-api`，`make release` 生成独立 Linux 二进制、配置、示例和 SHA-256 清单。使用纯 Go SQLite，`CGO_ENABLED=0`，生产不需要安装编译器或语言运行时。
+
+真实模型验收明确启用，写入新的隔离数据目录，不使用实际公司审批：
+
+```sh
+OFFICE_REAL_ERP_ACCEPTANCE=1 go run ./cmd/verify-erp \
+  --private-config=.office-data/dashscope-private.env
+```
+
+测试替身仅用于确定性、异常和协议测试，不能当作真实 Agent 验收。真实样本仍须逐份核对内容与来源。
+
+原实验室场景使用独立入口，可选择场景、串行执行：
+
+```sh
+OFFICE_REAL_LAB_ACCEPTANCE=1 go run ./cmd/verify-lab \
+  --private-config=.office-data/dashscope-private.env
+```
+
+两种验收都只在新建私有隔离目录中操作；审批由明确标记的脚本测试账号提供，不冒充正式公司人员审批。技术链路结果与内容复核分别保存，旧失败证据不覆盖。网页无价或拒绝访问时如实列待询价，不编造有效报价。
+
+## 独立部署
+
+服务二进制目录为 `/opt/office.laisengou.com/server/current`，服务名 `office-api`，API 端口 8080。私有环境文件和持久数据继续放在代码目录以外。
+
+首次迁移步骤见 [部署与回滚](deploy/README.md)。后续服务端单独发布使用 `deploy/release.sh`、`deploy/rollback.sh`；客户端静态发布由 `../client/deploy` 管理。每次通过测试后更新服务器并检查登录、接口、模型、事件流和交付，保留可回滚版本。`GET /api/livez` 用于进程存活检查，带认证的 `/api/health` 才检查模型与工作状态。
+
+本项目提供 Dockerfile 作为独立打包入口；实际生产使用原生 Go 二进制。容器运行验收与原生部署验收分别记录。

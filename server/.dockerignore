@@ -1,0 +1,16 @@
+.git
+.DS_Store
+.env
+.env.*
+!.env.example
+.office-data
+bin
+build
+coverage
+*.log
+*.sqlite
+*.sqlite-*
+migration
+node_modules
+**/node_modules
+docs

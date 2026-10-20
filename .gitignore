@@ -1,5 +1,17 @@
 .DS_Store
 node_modules/
+client/dist/
+client/.vite/
+client/coverage/
+client/design/deliverables/
+client/design/.openai/
+server/bin/
+server/build/
+server/coverage/
+server/migration/
+server/.office-data/
+*.test
+coverage.out
 .openai/*.local.*
 .openai/*.tar.gz
 .openai/*.tgz

@@ -1,0 +1,681 @@
+[
+  {
+    "name": "import_finance",
+    "description": "导入本次用户的CSV/XLSX/JSON财务数据到真实SQLite，严格校验两年各12月、重复、金额、现金平衡。默认使用本次输入，不必复述文件。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "year": {
+          "type": "number",
+          "description": "可省略，使用任务年度"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "calculate_finance",
+    "description": "读取已导入SQLite，用分为单位确定性计算两年营收、毛利、经营利润、净利润、现金与同比，生成XLSX/CSV/HTML/JSON。不可心算。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "audit_finance",
+    "description": "从原始SQLite独立重算并检查完整性、现金平衡和口径，不依赖分析Agent尚未生成的文件。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "search_web",
+    "description": "真实HTTP检索公开网页，返回服务器供应商候选链接及搜索证据。搜索摘要不能代替正式报价；随后必须fetch_quote抓取。默认使用用户检索词，保留用户全部候选链接。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "真实检索词"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "最多8个候选；默认8"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fetch_quote",
+    "description": "实时抓取公开供应商URL，提取标价/币种/配置片段与证据。只能public HTTP(S)，私网/回环/重定向均校验。页面缺价、受阻或动态加载明确待询价，绝不编价。可单URL或最多8个URLs。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "供应商产品或公开报价页面URL"
+        },
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "待逐项抓取的候选URL，最多8个"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "compare_quotes",
+    "description": "按真实抓取报价对照币种、标价、配置与税费保修的未知项。默认比较全部已抓取；不跨币种换算、不宣称全网最低、不自动证明配置等价。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "description": "technical配置审查 / budget成本核对 / management综合审查"
+        },
+        "notes": {
+          "type": "string",
+          "description": "根据证据的审查意见，不能补造缺失价格或配置"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "inspect_network",
+    "description": "读取本次上传日志，真实解析来源、请求、时间窗及状态；仅隔离工作区，不扫描或改变网络。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "analyze_traffic",
+    "description": "真实聚合请求日志，按滑动时间窗计算高频来源和路径证据。高频不自动等于攻击。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "windowSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "apply_defense",
+    "description": "根据证据提交明确IP封禁和/或每来源速率策略。必须等待真人批准；拒绝则只保留方案。在run工作区生成规则与nginx片段，绝不修改主机防火墙。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "blockedIps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "明确选择的IP数组；无封禁时传[]"
+        },
+        "rateLimit": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 100000,
+          "description": "每个IP每时间窗允许的请求数；不做限速则null"
+        },
+        "windowSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "reason": {
+          "type": "string",
+          "description": "引用流量证据并解释误伤风险"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "verify_network",
+    "description": "独立重放实际输入日志，计算正常请求放行、攻击拦截与误伤。没有真值标签就明确不能确认恢复；审批拒绝也照实验收。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "design_database",
+    "description": "将模型设计的SQLite DDL存为SQL并在内存真实执行验证。只允许CREATE TABLE/INDEX，禁止扩展、ATTACH、虚拟表和文件访问。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ddl": {
+          "type": "string",
+          "description": "完整SQLite CREATE TABLE/CREATE INDEX DDL；用分号分隔。须符合实际需求的约束。"
+        },
+        "description": {
+          "type": "string",
+          "description": "实体关系与字段说明"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "需求未明确而作出的假设"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "build_database",
+    "description": "执行已验证DDL，在隔离工作区真实建立SQLite；默认导入用户数据（JSON表名映射或CSV）。无数据可建空库，可额外传明确验证样本INSERT，禁止混入用户数据。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string",
+          "description": "CSV/行数组多表导入时的表名"
+        },
+        "sampleSql": {
+          "type": "string",
+          "description": "仅无用户数据时可选的INSERT验证样本；明确标记非业务数据"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "test_database",
+    "description": "真实检查SQLite完整性/外键与结构，并自动独立复跑input.databaseChecks。已有合同不必重复传tests；可传tests:[]和queries。附加正反用例可用setupSql准备本用例前置数据，不能把已回滚合同ID当现存样本；期望约束拒绝用expectError:true。queries只允许SELECT，全部测试变更回滚。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "tests": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "验收条件"
+              },
+              "setupSql": {
+                "type": "string",
+                "description": "可选，本用例SQL执行前的准备语句，完成后一起回滚；准备失败不能算约束通过"
+              },
+              "sql": {
+                "type": "string",
+                "description": "INSERT/UPDATE/DELETE/SELECT测试SQL"
+              },
+              "expectError": {
+                "type": "boolean"
+              },
+              "expectedRows": {
+                "type": "integer"
+              },
+              "params": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "queries": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "extract_requirements",
+    "description": "基于用户原始需求提取可追溯要求，保存规格和验收清单。每项source必须逐字引用用户材料；原文有多个R数字编号时，保留并覆盖全部原编号，source必须来自同编号业务条款，不能以背景或共同交付说明替代；额外共同要求可另列新ID。不凭空添加确认事项。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "R1等唯一ID，原文已有编号须保留"
+              },
+              "description": {
+                "type": "string",
+                "description": "需求内容"
+              },
+              "source": {
+                "type": "string",
+                "description": "从对应需求条款逐字引用的证据"
+              },
+              "acceptance": {
+                "type": "string",
+                "description": "可核验验收条件"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "数据实体/业务对象"
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "待真人确认的问题"
+        },
+        "exclusions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "本次排除范围"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "明确标记假设"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "estimate_delivery",
+    "description": "保存模型拆解的工作包并确定性计算人日、依赖排期与成本。首次须给packages；财务复核不传packages，复用同事已保存工作包，避免重造。每天可用人数用teamSize，默认1。估算不是合同报价。 每个工作包必须填写requirementIds，计划必须覆盖全部已提取需求。days是人日；bufferPct仅增加成本缓冲，不增加工作日或日历时间。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "唯一工作包ID"
+              },
+              "name": {
+                "type": "string",
+                "description": "工作包"
+              },
+              "days": {
+                "type": "number",
+                "description": "工作量单位人日，不是工期天数；工具按teamSize计算工作日起止。"
+              },
+              "dependsOn": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "依赖的工作包ID数组"
+              },
+              "requirementIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "覆盖的需求ID"
+              },
+              "deliverable": {
+                "type": "string",
+                "description": "可验收产物"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "dailyRate": {
+          "type": "number",
+          "description": "可省略，使用用户人日单价"
+        },
+        "teamSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "bufferPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "仅费用缓冲比例，不增加排期。时间缓冲尚未建模，不能声称已预留时间。"
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "估算假设"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "review_delivery",
+    "description": "独立核对原始需求引用、工作包依赖、人日与费用一致性及验收覆盖。返回实际检查结果；issues为审校Agent补充的发现，不能伪称客户确认。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "审校Agent根据证据发现的范围或估算问题"
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "待确认风险"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "write_report",
+    "description": "把基于同事证据的中文正式汇报保存为可下载Markdown及HTML。content须含真实结果/限制/来源，不能伪造数据、客户承诺或生产修复。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "报告标题"
+        },
+        "content": {
+          "type": "string",
+          "description": "完整中文Markdown正文；工具返回文件不代替正文"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_artifacts",
+    "description": "列出本次实际文件及相关结构化工具结果，供同事复核，不返回私密凭证或工作区外路径。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "prepare_investment",
+    "description": "从项目方原始材料提取待核查说法。sourceQuote须逐字引用原文；项目方说法不是已核实事实。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "claims": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "C1等唯一编号"
+              },
+              "claim": {
+                "type": "string",
+                "description": "待核查说法"
+              },
+              "sourceQuote": {
+                "type": "string",
+                "description": "逐字引用项目原文"
+              },
+              "area": {
+                "type": "string",
+                "description": "主体/商业/财务/条款/技术"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "需补充或解释的问题"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "research_investment",
+    "description": "真实联网检索并取证。最多3组检索词、8个页面；优先覆盖用户全部URL。超出候选上限明确报错，搜索失败或页面受阻如实保留。官网自述、行业资料不能证明本项目真实。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "queries": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "description": "完整主体和核查事项"
+          }
+        },
+        "urls": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "description": "公开HTTP(S)候选URL"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "analyze_investment_financials",
+    "description": "读取用户financials CSV/JSON，以整数分精确核算利润率、最近两期营收变化、现金/净消耗月数及拟投条款数学关系。缺项为null不补零，不能推算公允估值或将预测冒充历史实绩。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "review_investment",
+    "description": "独立审查全部C编号说法。citation必须引用已实际取得正文的U/W来源和逐字quote。多个网站重复同一说法不等于独立证实，corroborated请求仍归为待核验的多源说法。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "maxItems": 24,
+          "items": {
+            "type": "object",
+            "properties": {
+              "claimId": {
+                "type": "string",
+                "description": "已有C编号"
+              },
+              "verdict": {
+                "type": "string",
+                "enum": [
+                  "source_supported",
+                  "corroborated",
+                  "issuer_claim",
+                  "conflict",
+                  "unverified"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "description": "依据与限制"
+              },
+              "citations": {
+                "type": "array",
+                "maxItems": 5,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "sourceId": {
+                      "type": "string",
+                      "description": "已登记的U1/W1等"
+                    },
+                    "quote": {
+                      "type": "string",
+                      "description": "逐字引用正文，最多500字符"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "有依据的风险；未查到不等于无风险"
+        },
+        "additionalGaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "需补充资料或线下核验"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "build_investment_memo",
+    "description": "据真实取证和审查生成老板投前简报与补资料清单。只允许继续尽调、补材料、暂缓，不能批准投资或承诺收益。关键缺口保持突出。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "recommendation": {
+          "type": "string",
+          "enum": [
+            "continue_diligence",
+            "request_information",
+            "pause"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "description": "至少80字符的证据判断及限制"
+        },
+        "nextSteps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "具体后续核查事项"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "request_investment_review",
+    "description": "将已完成简报交真人老板选择继续尽调或暂缓。仅记录研究方向，不投资、不签约、不执行付款，AI不能替老板批准。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "prepare_onboarding",
+    "description": "读取已录用员工的原始登记表，在本地冻结资料并检查基础格式。模型不可填写或改写员工姓名、工号、邮箱等原始字段；返回不含个人资料。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "review_onboarding",
+    "description": "独立核验已冻结资料的完整性、日期格式、录用确认及本地登记册的工号/邮箱重复情况。不会写入主册；格式校验不等于身份真实性核验。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "plan_onboarding_resources",
+    "description": "从原始资源申请逐行生成设备、账号、权限等待办，固定为待人工处理。没有申请则保留待负责人确认，不创建任何外部账号或领取设备。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "request_onboarding_approval",
+    "description": "向真实人事负责人展示原始员工资料、登记校验及待办清单，请求确认本地行政登记。AI不能代批，也不能作录用决定。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "register_onboarding",
+    "description": "仅在真人批准、资料校验完成和原始录用确认均有效时，原子复查唯一性并写入本地SQLite员工册。重复同资料幂等，冲突不覆盖；拒绝时仅生成未登记回执。",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+]

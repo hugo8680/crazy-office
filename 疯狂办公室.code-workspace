@@ -1,0 +1,7 @@
+{
+  "folders": [
+    {"name": "client", "path": "client"},
+    {"name": "server", "path": "server"}
+  ],
+  "settings": {"files.exclude": {"**/.office-data": true, "**/node_modules": true}}
+}

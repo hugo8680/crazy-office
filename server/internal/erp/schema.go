@@ -1,0 +1,23 @@
+package erp
+
+const schema = `
+CREATE TABLE IF NOT EXISTS products(id TEXT PRIMARY KEY,sku TEXT UNIQUE NOT NULL,name TEXT NOT NULL,unit TEXT NOT NULL,price_cents INTEGER NOT NULL CHECK(price_cents>=0),created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,customer TEXT NOT NULL,owner_id TEXT NOT NULL,department TEXT NOT NULL,members_json TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,project_id TEXT REFERENCES projects(id),requester_id TEXT NOT NULL,department TEXT NOT NULL,status TEXT NOT NULL,version INTEGER NOT NULL,input_json TEXT NOT NULL,proposal_json TEXT,evidence_json TEXT NOT NULL,agent_run_id TEXT,approval_index INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,approval_round INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS document_lines(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),product_id TEXT NOT NULL REFERENCES products(id),quantity INTEGER NOT NULL CHECK(quantity>=0),unit_price_cents INTEGER NOT NULL CHECK(unit_price_cents>=0),completed_quantity INTEGER NOT NULL DEFAULT 0 CHECK(completed_quantity>=0),system_quantity INTEGER NOT NULL DEFAULT 0,system_movement_id TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),stage INTEGER NOT NULL,role TEXT NOT NULL,actor_id TEXT NOT NULL,actor_name TEXT NOT NULL,decision TEXT NOT NULL,note TEXT NOT NULL,created_at TEXT NOT NULL,round INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS document_history(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),version INTEGER NOT NULL,round INTEGER NOT NULL,snapshot_json TEXT NOT NULL,revised_by TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_results(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),round INTEGER NOT NULL,run_id TEXT NOT NULL,proposal_json TEXT NOT NULL,evidence_json TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(document_id,run_id));
+CREATE TABLE IF NOT EXISTS inventory(product_id TEXT PRIMARY KEY REFERENCES products(id),quantity INTEGER NOT NULL CHECK(quantity>=0));
+CREATE TABLE IF NOT EXISTS movements(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),line_id TEXT NOT NULL REFERENCES document_lines(id),product_id TEXT NOT NULL REFERENCES products(id),delta INTEGER NOT NULL,balance INTEGER NOT NULL CHECK(balance>=0),kind TEXT NOT NULL,reference TEXT NOT NULL,actor_id TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),kind TEXT NOT NULL,reference TEXT NOT NULL,actor_id TEXT NOT NULL,created_at TEXT NOT NULL,UNIQUE(document_id,kind,reference));
+CREATE TABLE IF NOT EXISTS loans(id TEXT PRIMARY KEY,document_id TEXT NOT NULL REFERENCES documents(id),product_id TEXT NOT NULL REFERENCES products(id),employee_id TEXT NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0),returned_quantity INTEGER NOT NULL DEFAULT 0 CHECK(returned_quantity>=0),CHECK(returned_quantity<=quantity));
+CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),title TEXT NOT NULL,assignee_id TEXT NOT NULL,created_by TEXT NOT NULL,due_date TEXT NOT NULL,status TEXT NOT NULL,result TEXT NOT NULL,evidence_json TEXT NOT NULL,created_at TEXT NOT NULL,completed_at TEXT,submitted_at TEXT,accepted_by TEXT);
+CREATE TABLE IF NOT EXISTS task_events(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),action TEXT NOT NULL,actor_id TEXT NOT NULL,result TEXT NOT NULL,evidence_json TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS performance(id TEXT PRIMARY KEY,document_id TEXT UNIQUE NOT NULL REFERENCES documents(id),project_id TEXT NOT NULL REFERENCES projects(id),period_start TEXT NOT NULL,period_end TEXT NOT NULL,facts_json TEXT NOT NULL,confirmed_by TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,actor_id TEXT NOT NULL,action TEXT NOT NULL,entity_id TEXT NOT NULL,detail_json TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS idempotency(actor_id TEXT NOT NULL,key TEXT NOT NULL,request_hash TEXT NOT NULL,response_json TEXT NOT NULL,PRIMARY KEY(actor_id,key));
+CREATE INDEX IF NOT EXISTS document_project_idx ON documents(project_id);
+CREATE INDEX IF NOT EXISTS movement_document_idx ON movements(document_id);
+CREATE INDEX IF NOT EXISTS task_project_idx ON tasks(project_id);
+`

@@ -1,0 +1,106 @@
+{
+  "database": {
+    "available": true,
+    "input": {
+      "requirements": "工作主体：{{COMPANY_NAME}}。本次由自动派工创建的内部准备任务，需求是待审草案，不能写成公司已发生的事实。\n公司主体名称由用户提供，其他公司情况尚未核实；不能推测公司规模、营收、客户、人员或既有系统。\n任务：搭建隔离的采购候选数据库原型，仅以下四项需求。R1：suppliers(id,name)，供应商内部编号id唯一，名称name不能为NULL。R2：candidates(id,supplier_id,model,memory_gb,ssd_gb)，supplier_id外键关联存在的suppliers.id，记录型号、内存GB和SSD容量GB。R3：quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known)，candidate_id外键关联存在的candidates.id；记录来源URL和抓取时间，currency必须非空且仅CNY或USD，price可空但已知价格非负，未知保留NULL，tax_known以0或1记录税费是否已知。R4：能查询每个候选关联报价的source_url与fetched_at。\n共同交付说明：以上英文表名及列名为本次内部原型接口合同，不代表公司既有生产表结构。由模型自行设计真实DDL、约束和索引，不新增影响样本导入的必填字段。input.databaseChecks是确定性验收合同，design_database会真实执行，失败须修正DDL后重试。input.data是唯一一组三表各1条的sample验证数据，来源example.invalid和2000年时间均为测试占位，不是公司真实供应商或真实报价；build_database直接读取data导入，不混入自造样本SQL。本次databaseTestMode为contract-only：test_database只复跑全部databaseChecks，tests传空数组，至多补一条SELECT，不请求重复或附加测试；结论仅限声明的合同范围。交付SQLite、DDL、design-checks及各约束独立测试回执；需求拆为四条即可。",
+      "databaseTestMode": "contract-only",
+      "databaseChecks": [
+        {
+          "name": "CNY与USD及税费标记0或1合法，零价格和NULL价格合法",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930001,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',0,0);INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930002,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','USD',20,0);INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930003,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',NULL,0);UPDATE quotes SET tax_known=1 WHERE id=930002; SELECT id,currency,price FROM quotes ORDER BY id;",
+          "expectedRows": 3
+        },
+        {
+          "name": "供应商内部编号唯一",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');",
+          "sql": "INSERT INTO suppliers(id,name) VALUES(910001,'sample-duplicate-supplier');",
+          "expectError": true
+        },
+        {
+          "name": "供应商名称不能为NULL",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;",
+          "sql": "INSERT INTO suppliers(id,name) VALUES(910002,NULL);",
+          "expectError": true
+        },
+        {
+          "name": "报价拒绝CNY和USD之外的币种",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930004,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','EUR',100,0);",
+          "expectError": true
+        },
+        {
+          "name": "报价币种不能为NULL",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930005,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z',NULL,100,0);",
+          "expectError": true
+        },
+        {
+          "name": "报价已知价格必须非负",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930006,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',-1,0);",
+          "expectError": true
+        },
+        {
+          "name": "税费是否已知只接受0或1",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930009,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',0,2);",
+          "expectError": true
+        },
+        {
+          "name": "税费是否已知不能为NULL",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930010,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',0,NULL);",
+          "expectError": true
+        },
+        {
+          "name": "服务器候选拒绝悬空供应商",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');",
+          "sql": "INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920002,919999,'sample-orphan-server',32,1024);",
+          "expectError": true
+        },
+        {
+          "name": "报价拒绝悬空服务器候选",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);",
+          "sql": "INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930007,929999,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',100,0);",
+          "expectError": true
+        },
+        {
+          "name": "能查询候选关联报价的来源与抓取时间",
+          "setupSql": "DELETE FROM quotes; DELETE FROM candidates; DELETE FROM suppliers;INSERT INTO suppliers(id,name) VALUES(910001,'sample-contract-supplier');INSERT INTO candidates(id,supplier_id,model,memory_gb,ssd_gb) VALUES(920001,910001,'sample-contract-server',32,1024);INSERT INTO quotes(id,candidate_id,source_url,fetched_at,currency,price,tax_known) VALUES(930008,920001,'https://example.invalid/sample-quote','2000-01-01T00:00:00Z','CNY',NULL,0);",
+          "sql": "SELECT c.model,q.source_url,q.fetched_at FROM candidates c JOIN quotes q ON q.candidate_id=c.id WHERE c.id=920001 AND q.source_url='https://example.invalid/sample-quote' AND q.fetched_at='2000-01-01T00:00:00Z';",
+          "expectedRows": 1
+        }
+      ],
+      "data": {
+        "name": "sample-validation-data.json",
+        "text": "{\"suppliers\":[{\"id\":1,\"name\":\"sample-validation-supplier\"}],\"candidates\":[{\"id\":1,\"supplier_id\":1,\"model\":\"sample-validation-server\",\"memory_gb\":32,\"ssd_gb\":1024}],\"quotes\":[{\"id\":1,\"candidate_id\":1,\"source_url\":\"https://example.invalid/sample-quote\",\"fetched_at\":\"2000-01-01T00:00:00Z\",\"currency\":\"CNY\",\"price\":null,\"tax_known\":0}]}"
+      },
+      "isExample": true
+    },
+    "templateId": "procurement-registry-prototype",
+    "inputBasis": "内部数据库原型需求；无公司真实采购数据"
+  },
+  "delivery": {
+    "available": true,
+    "input": {
+      "company": "{{COMPANY_NAME}} · 内部需求草案",
+      "requirements": "工作主体：{{COMPANY_NAME}}。本次由自动派工创建的内部准备任务，需求是待审草案，不能写成公司已发生的事实。\n公司主体名称由用户提供，其他公司情况尚未核实；不能推测公司规模、营收、客户、人员或既有系统。\n任务：为内部任务登记工具编制交付计划草案，仅三项需求。R1：登记任务、负责人角色和执行状态。R2：记录真实员工的审批状态，虚拟员工不能代批。R3：验收记录关联可下载的交付文件。拆成不超过四个工作包，计算依赖、人日和费用，列待确认项。1500元/人日仅为可替换估算假设；工期、人员和预算均未获公司确认，不作合同承诺。",
+      "dailyRate": 1500
+    },
+    "templateId": "internal-delivery-draft",
+    "inputBasis": "内部需求草案；1500元/人日为估算假设"
+  },
+  "procurement": {
+    "available": true,
+    "input": {
+      "requirements": "工作主体：{{COMPANY_NAME}}。本次由自动派工创建的内部准备任务，需求是待审草案，不能写成公司已发生的事实。\n公司主体名称由用户提供，其他公司情况尚未核实；不能推测公司规模、营收、客户、人员或既有系统。\n任务：开展一轮公开服务器报价调研，比较适合内部应用与数据库原型的塔式服务器候选，调研筛选条件暂定至少32GB内存和1TB SSD。30000元仅为本次比价筛选上限，不代表已批准的采购预算。必须真实抓取公开供应商页面并保留链接、时间、配置、价格币种、税费和保修差异。无法公开定价则列为待询价，不将云服务或配件当整机；不得声称已采购、已联系供应商或已批准预算。",
+      "budget": 30000,
+      "currency": "CNY",
+      "query": "Dell PowerEdge Lenovo ThinkSystem 塔式服务器 32GB 1TB SSD 价格",
+      "urls": ""
+    },
+    "templateId": "public-server-price-research",
+    "inputBasis": "公开报价调研；配置和筛选上限为待审条件"
+  }
+}
