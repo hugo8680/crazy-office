@@ -22,3 +22,20 @@ body{background:var(--paper);color:var(--ink)}#lab{background:#f2f1e8;background
 .erp-layer{inset:26px 28px 108px auto;width:min(1040px,70vw);max-width:calc(100vw - 56px)}
 @media(max-width:1100px){.erp-layer{inset:18px 18px 104px max(18px,18vw);width:auto;max-width:none}}
 @media(max-width:720px){.erp-layer{inset:10px 10px 100px;width:auto;max-width:none}}
+/* Feedback belongs to the control under the pointer, without moving the dock. */
+.workspace-dock button,.workspace-view-menu button,.workspace-receipt button{transition:background-color 180ms ease,color 180ms ease,transform 180ms cubic-bezier(.2,.75,.25,1)}
+.workspace-dock button:active,.workspace-view-menu button:active,.workspace-receipt button:active{transform:scale(.96)}
+.workspace-dock button:focus-visible,.workspace-view-menu button:focus-visible,.workspace-receipt button:focus-visible{outline:2px solid #6e8d72;outline-offset:3px}
+.workspace-dock button:disabled{opacity:.55;cursor:wait}
+.workspace-view-menu{transform-origin:85% 100%}
+.workspace-perspective{position:absolute;z-index:199;top:max(24px,env(safe-area-inset-top));left:max(24px,env(safe-area-inset-left));display:flex;gap:4px;padding:5px;border:1px solid #cdd3c5;border-radius:14px;background:#fffdf6;box-shadow:none}
+.workspace-perspective button{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;color:#788171;transition:background-color 180ms ease,color 180ms ease,transform 180ms cubic-bezier(.2,.75,.25,1)}
+.workspace-perspective .icon{width:22px;height:22px;stroke-width:1.5}
+.workspace-perspective button[aria-pressed=true]{background:#345a48;color:#fffdf6}
+.workspace-perspective button:hover:not([aria-pressed=true]){background:#e9eddf;color:#345a48}
+.workspace-perspective button:active{transform:scale(.93)}
+.workspace-perspective button:focus-visible{outline:2px solid #6e8d72;outline-offset:3px}
+.workspace-perspective button:disabled{opacity:.55;cursor:wait}
+@media(max-width:720px){.workspace-perspective{top:max(17px,env(safe-area-inset-top));left:max(17px,env(safe-area-inset-left));border-radius:11px;padding:4px}.workspace-perspective button{width:34px;height:34px;border-radius:7px}.erp-layer .erp-heading{padding-top:64px}}
+@media(hover:hover) and (pointer:fine){.workspace-dock button:hover{transform:translateY(-2px)}.workspace-dock button:active{transform:translateY(0) scale(.96)}.workspace-receipt>button:first-child:hover .workspace-receipt-mark{background:#dce8d3}.workspace-view-row button:hover{background:#dfe7d5}}
+@media(prefers-reduced-motion:reduce){.workspace-dock button,.workspace-view-menu button,.workspace-receipt button,.workspace-perspective button{transition:none!important;transform:none!important}}

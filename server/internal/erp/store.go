@@ -228,6 +228,19 @@ func requireRole(a Actor, rs ...string) {
 
 var allRoles = []string{"admin", "manager", "procurement", "warehouse", "project_manager", "employee", "finance", "hr"}
 var Chains = map[string][]string{"project_setup": {"project_manager", "manager"}, "project_delivery": {"project_manager", "manager"}, "purchase": {"manager", "finance"}, "sales": {"manager", "finance"}, "stocktake": {"manager", "finance"}, "resource": {"manager", "warehouse"}, "weekly_report": {"project_manager", "manager"}, "onboarding": {"hr", "manager"}}
+
+func postingRoles(typ string) []string {
+	switch typ {
+	case "resource", "stocktake":
+		return []string{"warehouse"}
+	case "onboarding":
+		return []string{"hr", "manager"}
+	case "project_setup", "project_delivery", "weekly_report":
+		return []string{"project_manager", "manager"}
+	}
+	return nil
+}
+
 var Labels = map[string]string{"project_setup": "项目立项", "project_delivery": "任务交付验收", "purchase": "项目采购", "sales": "销售发货", "stocktake": "库存盘点", "resource": "资源借用归还", "weekly_report": "项目周报与贡献核对", "onboarding": "员工岗位资源准备"}
 
 func actorFor(a Actor) Actor {
@@ -491,11 +504,7 @@ func (q *ledger) actions(a *Actor, d map[string]any) []string {
 		} else if typ == "sales" && role(*a, "warehouse") {
 			r = append(r, "ship")
 		} else if typ != "purchase" && typ != "sales" {
-			rs := []string{"project_manager", "manager", "hr"}
-			if typ == "stocktake" || typ == "resource" {
-				rs = []string{"warehouse"}
-			}
-			if role(*a, rs...) {
+			if role(*a, postingRoles(typ)...) {
 				r = append(r, "post")
 			}
 		}
@@ -507,6 +516,14 @@ func (q *ledger) document(id string, a *Actor) map[string]any {
 	r := map[string]any{"id": d["id"], "type": d["type"], "workflowId": d["type"], "title": d["title"], "projectId": d["project_id"], "requesterId": d["requester_id"], "department": d["department"], "status": d["status"], "version": d["version"], "input": parse(d["input_json"]), "proposal": parse(d["proposal_json"]), "evidence": parse(d["evidence_json"]), "agentRunId": d["agent_run_id"], "approvalIndex": d["approval_index"], "approvalChain": Chains[str(d["type"])], "approvals": q.approvals(d, false), "approvalRound": d["approval_round"], "approvalHistory": q.approvals(d, true), "createdAt": d["created_at"], "updatedAt": d["updated_at"]}
 	r["lines"] = q.rows("SELECT l.id,l.product_id AS productId,p.sku,p.name,p.unit,l.quantity,l.unit_price_cents AS unitPriceCents,l.completed_quantity AS completedQuantity,l.system_quantity AS systemQuantity FROM document_lines l JOIN products p ON p.id=l.product_id WHERE l.document_id=? ORDER BY l.rowid", id)
 	r["allowedActions"] = q.actions(a, d)
+	if !has([]string{"purchase", "sales", "resource", "stocktake"}, str(d["type"])) {
+		if event := q.one("SELECT actor_id,detail_json,created_at FROM audit WHERE entity_id=? AND action='document.post' ORDER BY rowid DESC LIMIT 1", id); event != nil {
+			detail := obj(parse(event["detail_json"]))
+			if reference := str(detail["reference"]); reference != "" {
+				r["confirmation"] = map[string]any{"reference": reference, "note": detail["note"], "actorId": event["actor_id"], "actorName": detail["actorName"], "createdAt": event["created_at"]}
+			}
+		}
+	}
 	r["revisions"] = q.rows("SELECT id,version,round,revised_by AS revisedBy,created_at AS createdAt FROM document_history WHERE document_id=? ORDER BY rowid", id)
 	r["agentHistory"] = q.rows("SELECT round,run_id AS runId,created_at AS createdAt FROM agent_results WHERE document_id=? ORDER BY rowid", id)
 	return r

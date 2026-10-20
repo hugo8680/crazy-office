@@ -149,7 +149,13 @@ func (q *ledger) command(a Actor, action string, p map[string]any) map[string]an
 	case "document.post":
 		q.post(a, d, p)
 	}
-	q.audit(a.ID, action, id, map[string]any{"fromStatus": d["status"]})
+	detail := map[string]any{"fromStatus": d["status"]}
+	if action == "document.post" && !has([]string{"resource", "stocktake"}, str(d["type"])) {
+		detail["reference"] = text(p["reference"], "实际办理凭证号", 150, true)
+		detail["note"] = text(def(p, "note", ""), "办理意见", 4000, false)
+		detail["actorName"] = a.DisplayName
+	}
+	q.audit(a.ID, action, id, detail)
 	return q.document(id, &a)
 }
 func (q *ledger) task(id string) map[string]any {

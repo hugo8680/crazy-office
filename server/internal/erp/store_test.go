@@ -55,6 +55,9 @@ func newFixture(t *testing.T, activate bool) *fixture {
 }
 func (f *fixture) cmd(a Actor, action string, p map[string]any) map[string]any {
 	f.t.Helper()
+	if action == "document.post" && p["reference"] == nil {
+		p["reference"] = uid("TEST-CONFIRM")
+	}
 	r, e := f.s.Command(ctx, a, action, p, uid("key"))
 	if e != nil {
 		f.t.Fatalf("%s: %v", action, e)

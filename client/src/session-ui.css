@@ -1,17 +1,23 @@
-.session-dialog{box-sizing:border-box;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 40px);padding:0;border:1px solid #d4d1c8;border-radius:22px;background:#fcfaf5;color:#263a32;font:400 14px/1.5 "PingFang SC","Microsoft YaHei",sans-serif;overflow:auto;box-shadow:none}
-.session-dialog::backdrop{background:rgba(27,38,32,.27)}
+.session-dialog{box-sizing:border-box;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 40px);padding:0;border:1px solid #d4d1c8;border-radius:22px;background:#fcfaf5;color:#263a32;font:400 14px/1.5 "PingFang SC","Microsoft YaHei",sans-serif;overflow:auto;box-shadow:none;transform-origin:50% 56%}
+.session-dialog[open]{animation:session-enter .22s cubic-bezier(.2,.75,.25,1) both}
+.session-dialog::backdrop{background:rgba(27,38,32,.27);animation:session-backdrop-enter .22s ease both}
+.session-dialog[data-closing="true"]{pointer-events:none;animation:session-exit .14s ease-in both}
+.session-dialog[data-closing="true"]::backdrop{animation:session-backdrop-exit .14s ease-in both}
 .session-dialog *{box-sizing:border-box}
 .session-card{padding:26px 32px 32px}
 .session-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 22px}
 .session-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid #c6d2c8;border-radius:13px;background:#e9eee5;color:#365649}
 .session-dialog svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.session-dialog button{font:inherit;cursor:pointer;transition:background .16s ease,color .16s ease,transform .16s ease}
+.session-dialog button{font:inherit;cursor:pointer;transition:background .16s ease,color .16s ease,transform .16s ease,opacity .16s ease}
+.session-dialog button:active:not(:disabled){transform:translateY(1px) scale(.98)}
 .session-close{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid transparent;border-radius:50%;background:transparent;color:#69736a}
 .session-close:hover{background:#eaece3;color:#263a32}
 .session-dialog h1{margin:0 0 26px;font-size:26px;font-weight:600;letter-spacing:-.04em;line-height:1.2}
-.session-message{margin:-8px 0 22px;color:#546c59;font-size:13px}
+.session-message{margin:-8px 0 22px;padding:11px 13px;border:1px solid #d2ddcc;border-radius:9px;background:#f0f4e9;color:#546c59;font-size:13px}
 .session-form{display:grid;gap:20px}
-.session-form label{display:grid;gap:8px;font-size:13px;font-weight:500}
+.session-form:not([hidden]),#session-profile:not([hidden]){animation:session-content-enter .18s cubic-bezier(.2,.75,.25,1) both}
+.session-form label{display:grid;gap:8px;font-size:13px;font-weight:500;transition:color .15s ease}
+.session-form label:focus-within{color:#3c614b}
 .session-form input{width:100%;height:48px;padding:0 14px;border:1px solid #cecec3;border-radius:10px;background:#fffef9;color:#263a32;font:inherit;font-size:16px;line-height:1.2;outline:none;transition:border-color .15s ease,background .15s ease}
 .session-form input:hover{border-color:#9ca99b}
 .session-form input:focus{border-color:#40614d;background:#fff}
@@ -19,11 +25,18 @@
 .session-dialog .session-primary{display:flex;align-items:center;justify-content:center;gap:14px;min-height:48px;padding:11px 18px;border:1px solid #294639;border-radius:10px;background:#294639;color:#fffdf6;font-weight:500}
 .session-dialog .session-primary:hover{background:#3c5947}
 .session-dialog .session-primary svg{width:19px;height:19px}
+.session-arrow{transition:transform .16s ease,opacity .12s ease}
+.session-primary:hover:not(:disabled) .session-arrow{transform:translateX(3px)}
+.session-primary[data-busy="true"] .session-arrow{display:none}
+.session-dialog .session-spinner{flex:none;width:18px;height:18px;animation:session-spin .85s linear infinite}
+.session-spinner circle{opacity:.25}
+.session-spinner path{stroke-width:2}
 .session-dialog .session-secondary,.session-signout{min-height:44px;padding:10px 16px;border:1px solid #cecec3;border-radius:10px;background:transparent;color:#334c3e}
 .session-dialog .session-secondary:hover{background:#ebece3}
-.session-signout{color:#934d3d;border-color:#d9c7ba}
+.session-signout{display:flex;align-items:center;justify-content:center;gap:8px;color:#934d3d;border-color:#d9c7ba}
 .session-signout:hover{background:#f0e5dc}
 .session-error{margin:0;color:#a24433;font-size:13px;line-height:1.5}
+.session-message:not([hidden]),.session-error:not([hidden]){animation:session-feedback-enter .18s ease-out both}
 .session-person{display:flex;align-items:center;gap:16px;margin:0 0 26px}
 .session-avatar{display:grid;place-items:center;flex:none;width:54px;height:54px;border:1px solid #c9d1c1;border-radius:17px;background:#e4e9dc;color:#3d5842;font-size:22px;font-weight:500}
 .session-person h2{margin:0;font-size:18px;font-weight:600}
@@ -36,7 +49,15 @@
 .session-profile-actions button,.session-form-actions button{flex:1}
 .session-profile-actions{margin:20px 0 0}
 .session-dialog :disabled{opacity:.55;cursor:wait}
+.session-dialog button[data-busy="true"]{opacity:1;cursor:wait}
 .session-dialog [hidden]{display:none!important}
 .session-dialog button:focus-visible{outline:2px solid #40614d;outline-offset:3px}
+@keyframes session-enter{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes session-exit{from{opacity:1;transform:translateY(0) scale(1)}to{opacity:0;transform:translateY(6px) scale(.99)}}
+@keyframes session-backdrop-enter{from{opacity:0}to{opacity:1}}
+@keyframes session-backdrop-exit{from{opacity:1}to{opacity:0}}
+@keyframes session-content-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+@keyframes session-feedback-enter{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
+@keyframes session-spin{to{transform:rotate(1turn)}}
 @media(max-width:520px){.session-card{padding:22px 24px 26px}.session-dialog{border-radius:18px}.session-dialog h1{font-size:24px}}
-@media(prefers-reduced-motion:reduce){.session-dialog button,.session-form input{transition:none}}
+@media(prefers-reduced-motion:reduce){.session-dialog[open],.session-dialog[data-closing="true"],.session-dialog::backdrop,.session-dialog[data-closing="true"]::backdrop,.session-dialog *{animation:none!important;transition:none!important}.session-dialog button:active:not(:disabled),.session-primary:hover:not(:disabled) .session-arrow{transform:none}}

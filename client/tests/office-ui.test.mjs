@@ -16,11 +16,13 @@ const businessSnapshot=(overrides={})=>({currentUser:loginSession().actor,docume
 const documentRow=(overrides={})=>({id:'order-a',title:'服务器采购',status:'draft',version:1,updatedAt:'2026-10-20T02:00:00Z',allowedActions:[],...overrides});
 const response=(status,data)=>({__response:true,status,data});
 
-async function harness({sessionValue=null,savedView=null}={}){
-  const elements=new Map(),documentEvents=new Map(),windowEvents=new Map(),requests=[],intervals=new Map(),timeouts=new Map(),stored=new Map();let timerSequence=0,responder;
+async function harness({sessionValue=null,savedView=null,reducedMotion=false}={}){
+  const elements=new Map(),documentEvents=new Map(),windowEvents=new Map(),requests=[],intervals=new Map(),timeouts=new Map(),stored=new Map(),animations=[],motionListeners=new Map();let timerSequence=0,responder;
+  const motionPreference={matches:reducedMotion,addEventListener(type,listener){motionListeners.set(type,listener);},removeEventListener(type){motionListeners.delete(type);}};
   class Element{
     constructor(){this.dataset={};this.hidden=false;this.innerHTML='';this.textContent='';this.children=[];this.style={};this.attributes=new Map();this.handlers=new Map();}
     append(...children){this.children.push(...children);}setAttribute(key,value){this.attributes.set(key,value);}getAttribute(key){return this.attributes.get(key);}addEventListener(type,fn){this.handlers.set(type,fn);}removeEventListener(type){this.handlers.delete(type);}focus(){}remove(){this.removed=true;}
+    animate(frames,options){const animation={element:this,frames,options,cancelled:false,cancel(){this.cancelled=true;this.oncancel?.();},finish(){this.onfinish?.();}};animations.push(animation);return animation;}
   }
   const element=selector=>{if(!elements.has(selector)){const value=new Element();if(['#view-menu','#workspace-receipt','#toast'].includes(selector))value.hidden=true;elements.set(selector,value);}return elements.get(selector);};
   const document={hidden:false,fullscreenElement:null,querySelector:element,createElement:()=>new Element(),addEventListener:(type,fn)=>documentEvents.set(type,fn),removeEventListener:type=>documentEvents.delete(type),async exitFullscreen(){this.fullscreenElement=null;documentEvents.get('fullscreenchange')?.();}};
@@ -29,7 +31,7 @@ async function harness({sessionValue=null,savedView=null}={}){
   const erps=[],presences=[];let account,sessionOptions;
   responder=request=>request.path==='/api/session'?{session:sessionValue||{authenticated:false}}:request.path==='/api/erp/snapshot'?businessSnapshot():{};
   const fetch=async(path,options={})=>{const request={path:String(path),method:options.method||'GET',credentials:options.credentials,cache:options.cache,headers:options.headers||{},...(options.body===undefined?{}:{body:JSON.parse(options.body)})};requests.push(request);const result=await responder(request);const status=result?.__response?result.status:200,data=result?.__response?result.data:result;return{status,ok:status>=200&&status<300,json:async()=>data};};
-  const scope={console,CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver,e:escapeHtml,document,fetch,window:{addEventListener:(type,fn)=>windowEvents.set(type,fn)},localStorage:{getItem:key=>key==='office-view-mode'?savedView:null,setItem:(key,value)=>stored.set(key,value)},setInterval(fn,ms){const id=++timerSequence;intervals.set(id,{fn,ms});return id;},clearInterval:id=>intervals.delete(id),setTimeout(fn,ms){const id=++timerSequence;timeouts.set(id,{fn,ms});return id;},clearTimeout:id=>timeouts.delete(id),mountScene(){},
+  const scope={console,CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver,e:escapeHtml,document,fetch,window:{matchMedia:()=>motionPreference,addEventListener:(type,fn)=>windowEvents.set(type,fn)},localStorage:{getItem:key=>key==='office-view-mode'?savedView:null,setItem:(key,value)=>stored.set(key,value)},setInterval(fn,ms){const id=++timerSequence;intervals.set(id,{fn,ms});return id;},clearInterval:id=>intervals.delete(id),setTimeout(fn,ms){const id=++timerSequence;timeouts.set(id,{fn,ms});return id;},clearTimeout:id=>timeouts.delete(id),mountScene(){},
     createSceneViewController(container,callbacks,options){scene.callbacks=callbacks;scene.setMode=async mode=>{scene.mode=mode;scene.viewCalls.push(['mode',mode]);options.onChange({mode,pending:false});return mode;};return scene;},
     mountErp(options){const instance={options,isOpen:false,destroyed:false,opens:[],documents:[],people:[],refreshes:[],draft:null,async refresh(settings={}){this.refreshes.push(plain(settings));const value=await options.request('/api/erp/snapshot');if(!this.destroyed)options.onChange({snapshot:value});return value;},async open(section,context){this.isOpen=true;this.opens.push({section,context:plain(context)});options.onNavigate({section,opened:true});},async openDocument(id){this.isOpen=true;this.documents.push(id);options.onNavigate({section:'flows',opened:true,documentId:id});},async openPerson(id){this.isOpen=true;this.people.push(id);options.onNavigate({section:'people',opened:true});},close(){if(!this.isOpen)return;this.isOpen=false;options.onNavigate({section:null,opened:false});options.onClose();},updateSession(next){this.lastSession=next;},destroy(){this.close();this.destroyed=true;this.draft=null;}};erps.push(instance);return instance;},
     mountErpPresence(options){const instance={options,moves:[],destroyed:false,async moveTo(node){this.moves.push(node);},destroy(){this.destroyed=true;}};presences.push(instance);return instance;},
@@ -39,7 +41,7 @@ async function harness({sessionValue=null,savedView=null}={}){
   const controller=await vm.runInContext(`(async()=>{${source}\nreturn {api,startSession,receiveSnapshot,handleOfficeClick,cleanPrivateState,state:()=>({session,snapshot,section,preferredDocument,sessionEpoch})};})()`,context);
   await flush();
   const target=dataset=>({dataset,closest(selector){if(selector.includes('[data-office-section]'))return this;if(selector==='#view-menu,[data-office-action="view"]')return dataset.officeAction==='view'?this:null;return null;}});
-  return{scene,erps,presences,requests,document,documentEvents,windowEvents,intervals,timeouts,stored,account,element,controller,context,scope,
+  return{scene,erps,presences,requests,document,documentEvents,windowEvents,intervals,timeouts,stored,animations,motionPreference,motionListeners,account,element,controller,context,scope,
     setResponder(fn){responder=fn;},async login(value=loginSession()){account.session=value;sessionOptions.onAuthenticated(value);await flush();},async signOut(){account.session=null;sessionOptions.onSignedOut();await flush();},async click(dataset){await controller.handleOfficeClick({target:target(dataset)});await flush();},async documentClick(dataset){documentEvents.get('click')?.({target:target(dataset)});await flush();},publish(value){controller.receiveSnapshot(value);},async poll(){for(const timer of [...intervals.values()])if(timer.ms===8000)timer.fn();await flush();},async event(type){windowEvents.get(type)?.();await flush();},cleanup(){windowEvents.get('pagehide')?.();},get currentErp(){return erps.at(-1);},get currentPresence(){return presences.at(-1);}};
 }
 
@@ -110,6 +112,37 @@ test('startup, refreshes and navigation never request legacy laboratory, model o
 
 test('the HTML shell contains one office scene and dock without the removed status and entry overlays',async()=>{
   const html=await readFile(new URL('../src/index.html',import.meta.url),'utf8');assert.match(html,/<main[^>]*id="lab"/);assert.match(html,/id="office-scene"/);assert.match(html,/<nav[^>]*id="action-dock"/);assert.doesNotMatch(html,/id="(?:network-hud|configuration-hud|incident-hud|map-controls|map-legend)"/);assert.doesNotMatch(html,/模型已连接|交办业务|查看进展|统一工作服|便服与工牌/);assert.match(html,/src="\.\/office.js"/);
+});
+
+test('perspective controls are accessible icons in the scene, with no duplicated text controls in the dock',async()=>{
+  const h=await harness();try{
+    assert.match(h.element('#view-switch').innerHTML,/aria-label="平面视角"/);assert.match(h.element('#view-switch').innerHTML,/aria-label="立体视角"/);
+    assert.match(h.element('#view-switch').innerHTML,/#i-cube/);assert.match(h.element('#view-switch').innerHTML,/#i-plan/);
+    assert.doesNotMatch(h.element('#view-switch').innerHTML,/>2D<|>3D</);assert.doesNotMatch(h.element('#action-dock').innerHTML,/data-office-view/);assert.doesNotMatch(h.element('#view-menu').innerHTML,/data-office-view/);
+    await h.click({officeView:'3d'});assert.match(h.element('#view-switch').innerHTML,/data-office-view="3d"[^>]*aria-pressed="true"/);assert.equal(h.scene.mode,'3d');assert.equal(h.requests.filter(r=>r.method!=='GET').length,0);
+  }finally{h.cleanup();}
+});
+
+test('surface feedback runs only for a new menu or business notice and cleans up on account change',async()=>{
+  const h=await harness();try{
+    await h.login();await h.click({officeAction:'view'});const menu=h.animations.at(-1);assert.equal(menu.element,h.element('#view-menu'));assert.equal(menu.options.duration,220);
+    const count=h.animations.length;await h.poll();assert.equal(h.animations.length,count,'silent reconciliation does not replay the menu');
+    await h.click({officeAction:'view'});assert.equal(menu.cancelled,true);
+    await h.click({officeSection:'flows'});h.publish(businessSnapshot({documents:[documentRow()]}));h.publish(businessSnapshot({documents:[documentRow({version:2,status:'awaiting_approval',allowedActions:['approve']})]}));
+    const receipt=h.animations.at(-1);assert.equal(receipt.element,h.element('#workspace-receipt'));assert.equal(receipt.options.duration,300);
+    const latest=h.animations.length;h.publish(businessSnapshot({documents:[documentRow({version:2,status:'awaiting_approval',allowedActions:['approve']})]}));assert.equal(h.animations.length,latest);
+    await h.signOut();assert.equal(receipt.cancelled,true);assert.equal(h.element('#workspace-receipt').innerHTML,'');
+  }finally{h.cleanup();}
+});
+
+test('reduced motion, hidden pages and bfcache transitions do not leave decorative animations running',async()=>{
+  const h=await harness({reducedMotion:true});try{
+    await h.click({officeAction:'view'});assert.equal(h.animations.length,0);await h.click({officeAction:'view'});
+    h.motionPreference.matches=false;h.document.hidden=true;await h.click({officeAction:'view'});assert.equal(h.animations.length,0);await h.click({officeAction:'view'});
+    h.document.hidden=false;await h.click({officeAction:'view'});const menu=h.animations.at(-1);assert.equal(menu.cancelled,false);
+    h.motionPreference.matches=true;h.motionListeners.get('change')();assert.equal(menu.cancelled,true);
+    h.windowEvents.get('pagehide')({persisted:true});assert.equal(h.scene.destroyed,undefined);h.windowEvents.get('pagehide')({persisted:false});assert.equal(h.scene.destroyed,true);assert.equal(h.motionListeners.size,0);
+  }finally{h.cleanup();}
 });
 
 test('session cleanup removes private notification and error text from the DOM, rather than only hiding it',async()=>{

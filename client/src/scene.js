@@ -1,6 +1,6 @@
 /* The office is also the network: every visible endpoint is selectable. */
 import { HUMAN_EMPLOYEES } from './people.js';
-import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming } from './scene-motion.js';
+import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming, createViewTween } from './scene-motion.js';
 import {createOfficePresenceMotion} from './erp-presence.js';
 const NODE_META = {
   investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
@@ -272,7 +272,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const deviceElements = new Map([...svg.querySelectorAll('[data-device]')].map(el => [el.dataset.device, el]));
   const links = [...svg.querySelectorAll('.cnl-link')];
   let approvalHumanId='owner';
-  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();onSelectHuman(approvalHumanId);});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();onSelectHuman(approvalHumanId);}});
+  const humanApproval=svg.querySelector('.cnl-human-approval');humanApproval.addEventListener('click',e=>{e.stopPropagation();if(!presenceState.enabled)onSelectHuman(approvalHumanId);});humanApproval.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();if(!presenceState.enabled)onSelectHuman(approvalHumanId);}});
   const agentLayer = svg.querySelector('.cnl-agent-layer');
   const handoffLayer = svg.querySelector('.cnl-handoff-layer');
   const humanLayer = svg.querySelector('.cnl-human-layer');
@@ -305,6 +305,13 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let viewFrame = 0;
   let motionUntil = 0;
   let destroyed = false;
+  let cameraMotionFrame=0,hoveredObject=null;
+  const feedbackAnimations=new WeakMap();
+  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);applyView();}});
+  function animateView(patch){const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);return next;}
+  function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);}
+  function stopCamera(){viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
+  function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>setPresencePoint(entry)});
   function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample}=entry;el.setAttribute('transform',`translate(${point.x} ${point.y})`);humanPositions.set(entry.person.id,{...point});el.dataset.walking=String(!!entry.motion);el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
     const body=el.querySelector('.cnl-presence-body');if(body)body.style.transform=`translateY(${sample?.bob||0}px) rotate(${sample?.lean||0}deg)`;
@@ -314,9 +321,14 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();}
   function presenceVisibility(){if(document.hidden){presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
   document.addEventListener?.('visibilitychange',presenceVisibility);
+  function syncLegacyHumanVisibility(){
+    const hidden=presenceState.enabled;humanLayer.style.display=hidden?'none':'';humanLayer.setAttribute('aria-hidden',String(hidden));
+    for(const meta of HUMAN_EMPLOYEES){const el=humanElements.get(meta.id);if(el){el.style.display=hidden?'none':'';el.setAttribute('aria-hidden',String(hidden));el.setAttribute('tabindex',hidden?'-1':'0');}}
+    humanApproval.style.display=hidden?'none':'';humanApproval.setAttribute('aria-hidden',String(hidden||!humanApproval.classList.contains('is-requesting')));humanApproval.setAttribute('tabindex',hidden?'-1':'0');
+  }
   function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);const present=new Set(presenceMotion.entries.keys());
     for(const [id,el]of presenceElements)if(!present.has(id)){el.remove();presenceElements.delete(id);humanElements.delete(id);humanPositions.delete(id);}
-    for(const meta of HUMAN_EMPLOYEES){const el=humanElements.get(meta.id);if(el)el.style.display=presenceState.enabled?'none':'';}humanApproval.style.display=presenceState.enabled?'none':'';
+    syncLegacyHumanVisibility();
     for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
       const p=entry.person;el.dataset.current=String(p.current);el.setAttribute('aria-label',`${p.name}，真实员工${p.title?'，'+p.title:''}，${p.current?'你，':''}在线，查看个人与待办`);el.setAttribute('aria-pressed',String(selectedHuman===id));
       const signature=JSON.stringify([p.name,p.title,p.current,p.color,p.hair]);if(el.dataset.signature!==signature){el.dataset.signature=signature;el.innerHTML=`<title>${esc(p.name)}${p.title?' · '+esc(p.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(p.color,p.hair,{scale:.66})}<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(p.name.slice(0,9))}${p.name.length>9?'…':''}${p.current?' · 你':''}</text>`;}setPresencePoint(entry);
@@ -393,7 +405,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
         el=document.createElementNS('http://www.w3.org/2000/svg','g');
         el.classList.add('cnl-human');el.dataset.human=meta.id;
         el.setAttribute('tabindex','0');el.setAttribute('role','button');
-        const select=e=>{e.stopPropagation();if(performance.now()<suppressClickUntil)return;setSelectedHuman(meta.id);onSelectHuman(meta.id);};
+        const select=e=>{e.stopPropagation();if(presenceState.enabled||performance.now()<suppressClickUntil)return;setSelectedHuman(meta.id);onSelectHuman(meta.id);};
         el.addEventListener('click',select);
         el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});
         humanLayer.append(el);humanElements.set(meta.id,el);
@@ -574,6 +586,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   const onMotionPreferenceChange=event=>{
     reducedMotion=event.matches;presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
+    viewTween.finish();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;
     cancelAnimationFrame(motionFrame);motionFrame=0;
     for(const [id,motion] of [...motions]) {motions.delete(id);setAgentPoint(id,motion.route.at(-1));clearWalkPose(agentElements.get(id));motion.onArrive?.();}
     scheduleViewChange();
@@ -591,7 +604,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     nodeElements.forEach((el,id)=>{const status=nodes[id]?.status||(typeof nodes[id]==='string'?nodes[id]:'online');el.dataset.status=status;el.setAttribute('aria-label',`查看${NODE_META[id].label}，${({online:'运行正常',warning:'存在异常',offline:'已离线',recovering:'正在恢复'})[status]||status}`);if(deviceElements.get(id))deviceElements.get(id).dataset.status=status;});
     links.forEach(link=>{const statuses=[nodes[link.dataset.a]?.status||nodes[link.dataset.a],nodes[link.dataset.b]?.status||nodes[link.dataset.b]];['offline','warning','recovering'].forEach(status=>link.classList.toggle(`is-${status}`,statuses.includes(status)));});
     const agents=Array.isArray(state.agents)?state.agents:Object.values(state.agents||{});
-    renderHumans(state.humans||[]);if(presenceState.enabled){HUMAN_EMPLOYEES.forEach(meta=>{const el=humanElements.get(meta.id);if(el)el.style.display="none";});humanApproval.style.display="none";}renderAgents(agents,{snap:!animate&&(runChanged||!hasUpdated)});
+    renderHumans(state.humans||[]);syncLegacyHumanVisibility();renderAgents(agents,{snap:!animate&&(runChanged||!hasUpdated)});
     deliveryQueue.ingest(state.logs||[],{animate});startDeliveries();
     if(animate) for(const id of agentElements.keys())resumeWork(id);
     if(halted)agentElements.forEach(el=>{el.dataset.motionPhase=state.runStatus||state.status;});
@@ -632,7 +645,9 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   const onPointerDown = e => {
-    if (e.button !== 0 || e.target.closest('[data-node], [data-agent], [data-human], .cnl-human-approval')) return;
+    const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-employee], .cnl-human-approval');if(object){objectFeedback(object,true);return;}
+    if (e.button !== 0) return;
+    stopCamera();
     drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false };
   };
   const onPointerMove = e => {
@@ -658,9 +673,12 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   };
   const onWheel = e => {
     e.preventDefault();
+    stopCamera();
     zoomAt(-Math.max(-.15, Math.min(.15, e.deltaY * .0015)), e.clientX, e.clientY);
   };
   svg.addEventListener('pointerdown', onPointerDown);
+  const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object)objectFeedback(object);}};
+  svg.addEventListener('pointerover',onObjectHover);
   svg.addEventListener('pointermove', onPointerMove);
   svg.addEventListener('pointerup', onPointerEnd);
   svg.addEventListener('pointercancel', onPointerEnd);
@@ -680,25 +698,24 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     setSelectedHuman,
     setPresence,getPresenceState:()=>presenceMotion.snapshot(),
     getHumanAnchor(id='owner') { const el=humanElements.get(id);return el?projectPoint({x:0,y:-15},el):null; },
-    focusHuman(id='owner') { const point=humanPositions.get(id);if(!point)return false;panX=point.x-530;panY=point.y-325+52/scale;applyView();return true; },
+    focusHuman(id='owner') { const point=humanPositions.get(id);if(!point)return false;animateView({panX:point.x-530,panY:point.y-325+52/scale});return true; },
     getNodeAnchor(id) { const n = NODE_META[id]; return n ? projectPoint(n) : null; },
     getAgentAnchor(id) { const el = agentElements.get(id); return el ? projectPoint({ x:0, y:-13 }, el) : null; },
     focusAgent(id) {
       const point = agentPositions.get(id);
       if (!point) return false;
-      panX = point.x - 530; panY = point.y - 325 + 52 / scale;
-      applyView(); return true;
+      animateView({panX:point.x-530,panY:point.y-325+52/scale});return true;
     },
     focusNode(id) {
       const point = NODE_META[id];
       if (!point) return false;
-      panX = point.x - 530; panY = point.y - 325 + 52 / scale;
-      applyView(); return true;
+      animateView({panX:point.x-530,panY:point.y-325+52/scale});return true;
     },
-    zoom(delta = .15) { scale = Math.max(.72, Math.min(2.25, scale + delta)); applyView(); return scale; },
-    resetView() { scale = 1; panX = 0; panY = 0; applyView(); },
+    zoom(delta = .15) { return animateView({scale:Math.max(.72,Math.min(2.25,viewTween.target.scale+delta))}).scale; },
+    resetView() { animateView({scale:1,panX:0,panY:0}); },
     destroy() {
       destroyed = true;
+      stopCamera();svg.removeEventListener('pointerover',onObjectHover);
       resizeObserver.disconnect();
       motionPreference?.removeEventListener?.('change',onMotionPreferenceChange);
       document.removeEventListener?.('visibilitychange',presenceVisibility);cancelAnimationFrame(presenceFrame);presenceFrame=0;presenceMotion.destroy();presenceElements.clear();

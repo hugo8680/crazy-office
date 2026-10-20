@@ -22,7 +22,7 @@ export function createScene3DMotion({agents,humans,onDelivery=()=>{},onChange=()
   function poseAtRest(id){const actor=agents.get(id);if(!actor)return;const home=AGENT3D_HOMES[id],point=actor.point;
     const seated=!!home?.seated&&Math.hypot(point.x-home.x,point.y-home.y)<1;
     actor.setPose({walking:false,stride:0,bob:0,seated,working:agentState.get(id)?.status==='working',offering:false,receiving:false,carrying:false});
-    if(seated)actor.root.rotation.y=Math.PI;
+    if(seated)actor.facePoint({x:point.x,y:point.y-100});
   }
   function position(id,point){const actor=agents.get(id);if(!actor)return;actor.point={x:point.x,y:point.y};actor.setPosition(point);}
   function stop(id){walks.delete(id);agents.get(id)?.setPose({walking:false,stride:0,bob:0});}
@@ -80,7 +80,7 @@ export function createScene3DMotion({agents,humans,onDelivery=()=>{},onChange=()
       const elapsed=time-exchange.started,{event,pair,timing}=exchange,actor=agents.get(pair.mover),receiver=person(pair.recipient);
       exchange.progress=timing.transfer<=timing.approach?(elapsed>=timing.transfer?1:0):Math.max(0,Math.min(1,(elapsed-timing.approach)/(timing.transfer-timing.approach)));
       if(!exchange.acknowledged&&elapsed>=timing.transfer){exchange.acknowledged=true;actor?.setPose({offering:false,carrying:!!pair.collecting,receiving:!!pair.collecting});receiver?.setPose({offering:false,carrying:!pair.collecting,receiving:true});onDelivery(event);onChange();}
-      if(elapsed>=timing.total){exchanges.delete(key);queue.finish(key);actor?.setPose({offering:false,receiving:false,carrying:false});receiver?.setPose({offering:false,receiving:false,carrying:false});if(pair.recipientHuman){const seated=['owner','investment_owner'].includes(pair.recipient);receiver?.setPose({seated});if(seated)receiver.root.rotation.y=Math.PI;}
+      if(elapsed>=timing.total){exchanges.delete(key);queue.finish(key);actor?.setPose({offering:false,receiving:false,carrying:false});receiver?.setPose({offering:false,receiving:false,carrying:false});if(pair.recipientHuman){const seated=['owner','investment_owner'].includes(pair.recipient);receiver?.setPose({seated});if(seated)receiver.facePoint({x:receiver.point.x,y:receiver.point.y-100});}
         startReady();resume(pair.mover);if(!pair.recipientHuman)resume(pair.recipient);onChange();}
     }
     return walks.size>0||exchanges.size>0;

@@ -293,6 +293,13 @@ func RenderReport(d M, r *Run, snapshot M) string {
 			}
 		}
 	}
+	if confirmation := Map(d["confirmation"]); S(confirmation["reference"]) != "" {
+		actor := esc(confirmation["actorName"])
+		if actor == "" {
+			actor = name(confirmation["actorId"])
+		}
+		b.WriteString("<h2>办理确认</h2><table><tbody><tr><th>办理凭证</th><td>" + esc(confirmation["reference"]) + "</td></tr><tr><th>办理人</th><td>" + actor + "</td></tr><tr><th>办理日期</th><td>" + esc(bj(confirmation["createdAt"])) + "</td></tr><tr><th>办理意见</th><td>" + esc(confirmation["note"]) + "</td></tr></tbody></table>")
+	}
 	if approvals := Rows(d["approvals"]); len(approvals) > 0 {
 		b.WriteString("<h2>审批记录</h2><table><thead><tr><th>审批人</th><th>结果</th><th>意见</th><th>日期</th></tr></thead><tbody>")
 		for _, a := range approvals {

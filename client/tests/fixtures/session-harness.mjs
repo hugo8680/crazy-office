@@ -6,7 +6,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async
 
 // Run the production module with minimal DOM and transport adapters. Only the
 // HTTP response and browser surface are fakes; all state/validation is real JS.
-export function harness({session=null,fragment='',pathname='/',responder}={}){
+export function harness({session=null,fragment='',pathname='/',responder,reducedMotion=true}={}){
   const elements=new Map(),requests=[],timers=new Map(),history=[],redirects=[],events={authenticated:[],signedOut:0,expired:0,changes:[]};let timer=0;
   const element=selector=>{
     if(elements.has(selector))return elements.get(selector);
@@ -20,7 +20,7 @@ export function harness({session=null,fragment='',pathname='/',responder}={}){
   const dialog=element('dialog'),container={append(node){this.child=node;}},documentListeners=new Map();
   const document={body:container,activeElement:element('before-focus'),hidden:false,createElement:element,addEventListener(type,fn){documentListeners.set(type,fn);},removeEventListener(type){documentListeners.delete(type);}};
   const location={hash:fragment,pathname,replace(url){redirects.push(url);},assign(url){redirects.push(url);}};
-  const scope={URLSearchParams,TextEncoder,AbortController,Date,Promise,document,window:{location,history:{replaceState(_state,_title,url){history.push(url);location.pathname='/';location.hash='';}}},
+  const scope={URLSearchParams,TextEncoder,AbortController,Date,Promise,document,window:{location,matchMedia:()=>({matches:reducedMotion}),history:{replaceState(_state,_title,url){history.push(url);location.pathname='/';location.hash='';}}},
     setTimeout(fn,delay){const id=++timer;timers.set(id,{fn,delay});return id;},clearTimeout(id){timers.delete(id);},
     fetch:async(url,options)=>{requests.push({url,options});return responder?responder(url,options):response({session:session||{authenticated:false}});},
     console:{log(){throw Error('credential log');},error(){throw Error('credential log');}},localStorage:{setItem(){throw Error('credential persistence');}},sessionStorage:{setItem(){throw Error('credential persistence');}}};
@@ -32,6 +32,8 @@ export function harness({session=null,fragment='',pathname='/',responder}={}){
     password(current=PASSWORD,next=PASSWORD+'-new',confirm=next){element('#session-current').value=current;element('#session-new').value=next;element('#session-confirm').value=confirm;return element('#session-password-form').listeners.get('submit')({preventDefault(){}});},
     invitation(password=PASSWORD,confirmation=password){element('#session-invitation-password').value=password;element('#session-invitation-confirm').value=confirmation;return element('#session-invitation-form').listeners.get('submit')({preventDefault(){}});},
     click(action){return dialog.listeners.get('click')({target:{closest:()=>({dataset:{sessionAction:action}})}});},
+    escape(){let prevented=false;dialog.listeners.get('cancel')({preventDefault(){prevented=true;}});if(!prevented)dialog.close();return prevented;},
+    runTimer(delay){const entry=[...timers.entries()].find(([,value])=>value.delay===delay);if(!entry)throw Error(`No timer for ${delay}`);timers.delete(entry[0]);entry[1].fn();},
     visible(){documentListeners.get('visibilitychange')?.();},
     destroy(){ui.destroy();}};
 }

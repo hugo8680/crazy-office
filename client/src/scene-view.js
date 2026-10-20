@@ -51,6 +51,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
       const previous = current, previousLayer = currentLayer;
       current = candidate; currentLayer = layer; mode = next;
       layer.style.visibility = '';
+      if(!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)layer.animate?.([{opacity:.25,translate:'0 5px'},{opacity:1,translate:'0 0'}],{duration:240,easing:'cubic-bezier(.2,.7,.2,1)'});
       previous.destroy(); previousLayer.remove();
       pending = false; notify(); callbacks.onViewChange?.();
     } catch (error) {

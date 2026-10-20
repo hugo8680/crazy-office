@@ -82,8 +82,60 @@ test('请求超时只取消一次操作，错误可恢复且不后台重复登�
   const pending=h.login();[...h.timers.values()][0].fn();await pending;assert.equal(h.requests.length,2);assert.match(h.element('#session-login-error').textContent,/连接中断/);assert.equal(h.element('#session-password').disabled,false);assert.equal(h.timers.size,0);h.destroy();
 });
 
+test('关闭在原生对话框内完成短退出，先清除口令，结束后归还焦点',async()=>{
+  const h=harness({reducedMotion:false});await h.ui.ready;
+  h.element('#session-password').value=PASSWORD;h.ui.close();
+  assert.equal(h.dialog.open,true);assert.equal(h.dialog.dataset.closing,'true');assert.equal(h.element('#session-password').value,'');assert.equal(h.element('#session-password').disabled,true);assert.equal(h.element('before-focus').focused,0);
+  h.ui.close();assert.equal(h.timers.size,1);h.runTimer(140);
+  assert.equal(h.dialog.open,false);assert.equal(h.dialog.dataset.closing,undefined);assert.equal(h.element('#session-password').disabled,false);assert.equal(h.element('before-focus').focused,1);assert.equal(h.timers.size,0);h.destroy();
+});
+
+test('退出过程中再次打开或会话失效会撤销旧退出，不被过时定时器关闭',async()=>{
+  const h=harness({reducedMotion:false});await h.ui.ready;h.ui.close();h.ui.open();
+  assert.equal(h.dialog.open,true);assert.equal(h.dialog.dataset.closing,undefined);assert.equal(h.element('#session-password').disabled,false);assert.equal(h.timers.size,0);
+  h.ui.close();h.ui.requireLogin('登录已过期，请重新登录。');
+  assert.equal(h.dialog.open,true);assert.equal(h.dialog.dataset.closing,undefined);assert.equal(h.timers.size,0);assert.equal(h.element('#session-message').textContent,'登录已过期，请重新登录。');h.destroy();
+});
+
+test('登录请求有等待反馈且不可被 Esc 中断，成功立即清密后平滑退出',async()=>{
+  const h=harness({reducedMotion:false});await h.ui.ready;const pending=deferred();h.setResponder(()=>pending.promise);const submit=h.login();
+  assert.equal(h.element('#session-login-label').textContent,'正在登录');assert.equal(h.element('#session-login-spinner').hidden,false);assert.equal(h.element('#session-login-submit').dataset.busy,'true');assert.equal(h.dialog.getAttribute('aria-busy'),'true');
+  assert.equal(h.escape(),true);assert.equal(h.dialog.open,true);assert.equal(h.dialog.dataset.closing,undefined);assert.equal([...h.timers.values()].some(timer=>timer.delay===140),false);
+  pending.resolve(response({session:AUTH}));await submit;
+  assert.equal(h.events.authenticated.length,1);assert.equal(h.element('#session-password').value,'');assert.equal(h.element('#session-login-spinner').hidden,true);assert.equal(h.element('#session-login-label').textContent,'登录');assert.equal(h.dialog.dataset.closing,'true');
+  h.runTimer(140);assert.equal(h.dialog.open,false);assert.equal(h.ui.session.username,'lin');h.destroy();
+});
+
+test('Esc 使用同一关闭流程，减少动态效果时立即关闭且不留动画定时器',async()=>{
+  for(const reducedMotion of [false,true]){
+    const h=harness({reducedMotion});await h.ui.ready;h.element('#session-password').value=PASSWORD;
+    assert.equal(h.escape(),true);assert.equal(h.element('#session-password').value,'');
+    assert.equal(h.dialog.open,!reducedMotion);
+    if(reducedMotion)assert.equal(h.timers.size,0);else h.runTimer(140);
+    assert.equal(h.dialog.open,false);h.destroy();
+  }
+});
+
+test('保存密码与退出的等待标签只出现在当前操作，失败后恢复原按钮',async()=>{
+  const h=harness({session:AUTH});await h.ui.ready;h.ui.open();h.click('password');
+  let pending=deferred();h.setResponder(()=>pending.promise);let submit=h.password();
+  assert.equal(h.element('#session-password-label').textContent,'正在保存');assert.equal(h.element('#session-password-spinner').hidden,false);assert.equal(h.element('#session-login-spinner').hidden,true);
+  pending.resolve(response({error:'原密码不正确。'},401));await submit;
+  assert.equal(h.element('#session-password-label').textContent,'保存密码');assert.equal(h.element('#session-password-spinner').hidden,true);assert.equal(h.element('#session-password-error').hidden,false);
+  h.click('profile');pending=deferred();h.setResponder(()=>pending.promise);submit=h.ui.signOut();
+  assert.equal(h.element('#session-signout-label').textContent,'正在退出');assert.equal(h.element('#session-signout-spinner').hidden,false);
+  pending.resolve(response({},503));await submit;assert.equal(h.element('#session-signout-label').textContent,'退出登录');assert.equal(h.element('#session-signout-spinner').hidden,true);assert.equal(h.ui.session.username,'lin');h.destroy();
+});
+
+test('同一登录视图的探测不抢输入焦点，销毁清理未结束的退出',async()=>{
+  const h=harness({reducedMotion:false});await h.ui.ready;const usernameFocus=h.element('#session-username').focused,passwordFocus=h.element('#session-password').focused;
+  await h.ui.refresh();h.ui.open();assert.equal(h.element('#session-username').focused,usernameFocus);assert.equal(h.element('#session-password').focused,passwordFocus);
+  h.ui.close();assert.equal(h.timers.size,1);h.destroy();assert.equal(h.timers.size,0);assert.equal(h.dialog.open,false);assert.equal(h.dialog.isConnected,false);
+});
+
 test('账户对话框具备原生焦点隔离和表单语义，没有模型、演示或技术介绍',()=>{
   assert.match(source,/createElement\('dialog'\)/);assert.match(source,/showModal\(\)/);assert.match(source,/aria-labelledby/);assert.match(source,/autocomplete="current-password"/);assert.match(source,/autocomplete="new-password"/);assert.match(source,/role="alert"/);
   assert.doesNotMatch(source,/localStorage|sessionStorage|console\.|模型|Agent|虚拟员工|功能介绍|查看进展/);
   assert.doesNotMatch(css,/text-shadow|filter\s*:|border-(?:left|right|top|bottom)\s*:/);
+  assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);assert.match(css,/animation:none!important;transition:none!important/);assert.match(css,/@keyframes session-exit/);assert.match(css,/@keyframes session-content-enter/);
 });

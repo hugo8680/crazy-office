@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HUMAN_EMPLOYEES, humanForScenario } from '../src/people.js';
-import { FLOOR_SEGMENTS, routeBetweenPoints, routeLength, pointAlongRoute, walkingDuration, walkingSample, handoffTiming, deliveryParticipants, createDeliveryQueue, motionUpdatePolicy } from '../src/scene-motion.js';
+import { FLOOR_SEGMENTS, routeBetweenPoints, routeLength, pointAlongRoute, walkingDuration, walkingSample, handoffTiming, deliveryParticipants, createDeliveryQueue, motionUpdatePolicy, createViewTween } from '../src/scene-motion.js';
+
+test('view interpolation eases from the displayed position, accumulates targets and terminates exactly',()=>{
+ let value={scale:1,x:0},starts=0;const tween=createViewTween({read:()=>({...value}),write:next=>{value=next;},onStart:()=>starts++,duration:400});
+ tween.start({scale:2,x:100});assert.deepEqual(value,{scale:1,x:0});tween.tick(1000);tween.tick(1100);assert.ok(value.x>25&&value.x<100);const visible={...value};tween.start({scale:tween.target.scale+.5});assert.equal(value.x,visible.x);tween.tick(1200);tween.tick(1600);assert.equal(value.scale,2.5);assert.equal(value.x,visible.x);assert.equal(tween.active,false);assert.equal(tween.tick(3000),false);
+ tween.start({x:200});tween.tick(3000);tween.shiftTime(1000);tween.tick(4000);assert.equal(value.x,visible.x);tween.finish();assert.equal(value.x,200);assert.equal(tween.active,false);tween.start({x:300},{immediate:true});assert.equal(value.x,300);assert.equal(tween.active,false);tween.start({x:400});tween.cancel();tween.tick(9000);assert.equal(value.x,300);assert.ok(starts>=4);
+});
+
+test('a continuous wheel stream keeps moving rather than restarting at zero on every frame',()=>{
+ let value={scale:1};const tween=createViewTween({read:()=>({...value}),write:next=>{value=next;}});tween.start({scale:1.2});tween.tick(1000);
+ for(let i=1;i<=12;i++){const before=value.scale;tween.start({scale:tween.target.scale+.05});tween.tick(1000+i*16);assert.ok(value.scale>before,'retargeting continues from the last sampled clock');}
+ tween.tick(1700);assert.equal(tween.active,false);assert.ok(Math.abs(value.scale-1.8)<1e-8);
+});
 
 test('seven explicit human representatives cover each scenario without virtual badges',()=>{
   assert.equal(HUMAN_EMPLOYEES.length,7);

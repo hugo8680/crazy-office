@@ -73,6 +73,31 @@ export function pointAlongRoute(route,progress) {
  * collinear graph junctions prevents a visible stop at every desk connection.
  * Corners stay on the floor centre line instead of cutting through a wall. */
 const walkingPlans = new WeakMap();
+
+// Presentation-only interpolation: starts on the next animation clock, supports
+// retargeting from the visible position, and stops exactly at its destination.
+export function createViewTween({read,write,onStart=()=>{},duration=380}={}) {
+  let current=null;
+  return {
+    start(patch,{immediate=false}={}){
+      const from=read(),to={...from,...patch};
+      if(Object.keys(to).some(key=>!Number.isFinite(to[key])))return from;
+      if(immediate||Object.keys(to).every(key=>Math.abs(to[key]-from[key])<1e-7)){current=null;write(to);onStart();return to;}
+      const sampledAt=current?.sampledAt??null;
+      current={from,to,started:sampledAt,sampledAt};onStart();return to;
+    },
+    tick(time){
+      if(!current)return false;current.started??=time;current.sampledAt=time;
+      const progress=Math.max(0,Math.min(1,(time-current.started)/duration)),weight=1-Math.pow(1-progress,3);
+      write(Object.fromEntries(Object.entries(current.to).map(([key,to])=>[key,progress===1?to:current.from[key]+(to-current.from[key])*weight])));
+      if(progress===1)current=null;return !!current;
+    },
+    finish(){if(current){const to=current.to;current=null;write(to);onStart();}},
+    cancel(){current=null;},
+    shiftTime(milliseconds){if(current?.started!=null){const delay=Math.max(0,milliseconds);current.started+=delay;if(current.sampledAt!=null)current.sampledAt+=delay;}},
+    get active(){return !!current;},get target(){return current?.to||read();},
+  };
+}
 function walkingPlan(route) {
   if(walkingPlans.has(route)) return walkingPlans.get(route);
   const points=[];

@@ -4,7 +4,7 @@ import {createSceneViewController} from '../src/scene-view.js';
 
 function fixture(options={}) {
   const layers=[],scenes=[],changes=[],errors=[],deliveries=[];
-  const doc={createElement:()=>({style:{},remove(){this.removed=true;},ownerDocument:doc})};
+  const doc={createElement:()=>({style:{},animations:[],animate(frames,settings){this.animations.push({frames,settings});},remove(){this.removed=true;},ownerDocument:doc})};
   const container={ownerDocument:doc,append:layer=>layers.push(layer)};
   function mount(layer,callbacks){
     const scene={layer,callbacks,states:[],selected:{},destroyed:0,update(state){this.states.push(state);},setTopology(v){this.topology=v;},setSelectedNode(v){this.selected.node=v;},setSelectedAgent(v){this.selected.agent=v;},setSelectedHuman(v){this.selected.human=v;},getNodeAnchor:()=>({x:1,y:2}),getAgentAnchor:()=>({x:3,y:4}),getHumanAnchor:()=>({x:5,y:6}),focusNode:id=>id,focusAgent:id=>id,focusHuman:id=>id,zoom:delta=>delta,resetView(){},destroy(){this.destroyed++;}};
@@ -49,4 +49,8 @@ test('context loss returns to 2D without changing or approving a task',async()=>
 test('destroying during a 3D import never mounts a detached renderer',async()=>{
   let resolve;const deferred=new Promise(yes=>{resolve=yes;});const f=fixture(mount=>({load3D:()=>deferred.then(()=>({mountScene3D:mount}))}));
   const loading=f.controller.setMode('3d');f.controller.destroy();resolve();await loading;assert.equal(f.scenes.length,1);assert.equal(f.scenes[0].destroyed,1);f.controller.destroy();assert.equal(f.scenes[0].destroyed,1);
+});
+
+test('view changes use a finite visual entrance and skip it for reduced motion',async()=>{
+ const previous=globalThis.matchMedia,f=fixture(defaults);try{globalThis.matchMedia=()=>({matches:false});await f.controller.setMode('3d');assert.equal(f.layers[1].animations.length,1);assert.equal(f.layers[1].animations[0].settings.duration,240);assert.equal(f.layers[0].removed,true);assert.equal(f.deliveries.length,0);globalThis.matchMedia=()=>({matches:true});await f.controller.setMode('2d');assert.equal(f.layers[2].animations.length,0);assert.equal(f.layers[1].removed,true);}finally{f.controller.destroy();globalThis.matchMedia=previous;}
 });

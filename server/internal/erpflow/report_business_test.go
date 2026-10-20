@@ -107,3 +107,16 @@ func TestStocktakeDifferenceValuationDoesNotOverflowInt64(t *testing.T) {
 		t.Fatal("discrepancy columns omitted")
 	}
 }
+
+func TestBusinessConfirmationExportPreservesUserReceiptWithoutInventingExternalAcceptance(t *testing.T) {
+	d := M{"type": "project_delivery", "status": "completed", "confirmation": M{"reference": "DEL-<script>", "note": "用户提供验收编号；客户签名仍待核对", "actorName": "王经理", "actorId": "manager", "createdAt": "2026-10-20T00:00:00Z"}}
+	html := RenderReport(d, nil, nil)
+	for _, v := range []string{"办理确认", "DEL-&lt;script&gt;", "王经理", "2026-10-20 08:00:00 +08:00", "客户签名仍待核对"} {
+		if !strings.Contains(html, v) {
+			t.Fatal("confirmation export dropped a recorded fact", v)
+		}
+	}
+	if strings.Contains(html, "<script>") || strings.Contains(html, "客户已签收") {
+		t.Fatal("confirmation was unsafe or invented external acceptance")
+	}
+}

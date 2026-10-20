@@ -99,28 +99,31 @@ test('canvas input has distinct orbit and pan gestures and a bounded pixel budge
   assert.equal(scene3DFramePolicy(1000,1008,{dirty:true,interacting:true}).render,false,'a 120 Hz pointer stream does not force 120 redraws');assert.equal(scene3DFramePolicy(1000,1016,{interacting:true}).render,true);assert.equal(scene3DFramePolicy(1000,1016,{busy:false}).continue,false);
 });
 
-function mountedSceneFixture(callbacks={}){
-  const saved=new Map(['document','ResizeObserver','requestAnimationFrame','cancelAnimationFrame'].map(key=>[key,globalThis[key]]));let clock=1000,sequence=0;
-  const pending=new Map();class Element{
-    constructor(tag='div'){this.tagName=tag;this.children=[];this.style={};this.dataset={};this.attributes={};this.handlers=new Map();this.hidden=false;this.parentNode=null;this.captured=new Set();this.classList={add(){},remove(){}};}
+function mountedSceneFixture(callbacks={},options={}){
+  const saved=new Map(['document','ResizeObserver','requestAnimationFrame','cancelAnimationFrame','setTimeout','clearTimeout','matchMedia'].map(key=>[key,globalThis[key]]));let clock=1000,sequence=0;
+  const pending=new Map(),timers=new Map(),preference={matches:!!options.reducedMotion,listeners:new Map(),addEventListener(type,fn){this.listeners.set(type,fn);},removeEventListener(type){this.listeners.delete(type);}};class Element{
+    constructor(tag='div'){this.tagName=tag;this.children=[];this.style={};this.dataset={};this.attributes={};this.handlers=new Map();this.hidden=false;this.parentNode=null;this.captured=new Set();this.animations=[];this.classList={add(){},remove(){}};}
     append(...children){for(const child of children){child.parentNode=this;this.children.push(child);}}get firstChild(){return this.children[0];}
     setAttribute(key,value){this.attributes[key]=value;}addEventListener(key,fn){this.handlers.set(key,fn);}removeEventListener(key){this.handlers.delete(key);}
+    contains(element){return element===this||this.children.some(child=>child.contains?.(element));}
+    closest(selector){for(let el=this;el;el=el.parentNode){const tag=el.tagName?.toLowerCase();if(selector.includes('input')&&['input','textarea','select'].includes(tag)||selector.includes('[contenteditable]')&&el.isContentEditable||selector.includes('dialog')&&(tag==='dialog'||el.attributes.role==='dialog')||selector.includes('.erp-layer')&&el.className==='erp-layer'||['agent','human','employee','node'].some(type=>selector.includes('[data-'+type+']')&&el.dataset[type]))return el;}return null;}
     getBoundingClientRect(){return {x:0,y:0,left:0,top:0,width:1440,height:900};}remove(){if(this.parentNode)this.parentNode.children=this.parentNode.children.filter(child=>child!==this);}
     setPointerCapture(id){this.captured.add(id);}hasPointerCapture(id){return this.captured.has(id);}releasePointerCapture(id){this.captured.delete(id);}
-    emit(type,value={}){this.handlers.get(type)?.({preventDefault(){},stopPropagation(){},button:0,pointerId:1,pointerType:'mouse',...value});}
+    animate(frames,settings){const animation={frames,settings,cancel(){this.cancelled=true;}};this.animations.push(animation);return animation;}focus(){}
+    emit(type,value={}){this.handlers.get(type)?.({preventDefault(){},stopPropagation(){},target:this,button:0,pointerId:1,pointerType:'mouse',...value});}
   }
   const doc=new Element();doc.hidden=false;doc.createElement=tag=>new Element(tag);globalThis.document=doc;globalThis.ResizeObserver=class{observe(){}disconnect(){}};
-  globalThis.requestAnimationFrame=fn=>{const id=++sequence;pending.set(id,fn);return id;};globalThis.cancelAnimationFrame=id=>pending.delete(id);
+  globalThis.requestAnimationFrame=fn=>{const id=++sequence;pending.set(id,fn);return id;};globalThis.cancelAnimationFrame=id=>pending.delete(id);globalThis.setTimeout=(fn,delay)=>{const id=++sequence;timers.set(id,{fn,due:clock+delay});return id;};globalThis.clearTimeout=id=>timers.delete(id);globalThis.matchMedia=()=>preference;
   const canvas=new Element('canvas'),renderer={domElement:canvas,shadowMap:{},info:{render:{calls:0,triangles:0}},setPixelRatio(){},setSize(){},render(scene){let calls=0;const visit=(item,visible=true)=>{visible=visible&&item.visible;if(!visible)return;if(item.isMesh&&item.material?.visible!==false)calls++;for(const child of item.children)visit(child,visible);};visit(scene);this.info.render.calls=calls;},dispose(){},forceContextLoss(){}};
   const container=new Element(),api=mountScene3D(container,{...callbacks,rendererFactory:()=>renderer});
-  return{api,canvas,pending,container,document:doc,frame(){const callbacks=[...pending.values()];pending.clear();clock+=34;callbacks.forEach(fn=>fn(clock));},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
+  return{api,canvas,pending,timers,container,wrapper:container.children[0],preference,document:doc,button(type,id){const visit=el=>el.tagName==='button'&&el.dataset[type]===id?el:el.children.map(visit).find(Boolean);return visit(container);},frame(){const callbacks=[...pending.values()];pending.clear();clock+=34;callbacks.forEach(fn=>fn(clock));for(const [id,timer]of [...timers])if(timer.due<=clock){timers.delete(id);timer.fn();}},drain(){for(let i=0;i<1000&&(pending.size||timers.size);i++)this.frame();assert.equal(pending.size,0,'presentation animations stop after reaching their endpoint');assert.equal(timers.size,0);},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
 }
 
 test('the mounted office stops rendering at rest and returns to idle after pointer rotation',()=>{
   const f=mountedSceneFixture();try{f.frame();assert.equal(f.pending.size,0);const initial=f.api.getPerformanceStats();assert.equal(initial.renders,1);assert.ok(initial.drawCalls<100,JSON.stringify(initial));
     const before=f.api.getNodeAnchor('server');f.canvas.emit('pointerdown',{clientX:900,clientY:400});f.canvas.emit('pointermove',{clientX:1010,clientY:440});f.frame();const after=f.api.getNodeAnchor('server');assert.ok(Math.abs(before.x-after.x)>20);assert.notEqual(f.api.getPerformanceStats().azimuth,initial.azimuth);f.canvas.emit('pointerup',{clientX:1010,clientY:440});f.frame();assert.equal(f.pending.size,0);
     const settled=f.api.getPerformanceStats();assert.equal(settled.actorUpdates,initial.actorUpdates,'rotating the camera does not animate or upload static colleagues');assert.equal(settled.instanceUploads,initial.instanceUploads);
-    f.api.resetView();f.frame();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)<.001);
+    f.api.resetView();assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.drain();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)<.001);
   }finally{f.restore();}
 });
 
@@ -132,7 +135,7 @@ test('twenty signed-in employees share render batches and disappear cleanly on l
 test('pan, pinch and twist stay independent of object selection and settle after release',()=>{
   const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id),onSelectAgent:id=>selected.push(id),onSelectHuman:id=>selected.push(id)});try{f.frame();const initial=f.api.getPerformanceStats(),before=f.api.getNodeAnchor('server');
     f.canvas.emit('pointerdown',{button:2,clientX:800,clientY:300});f.canvas.emit('pointermove',{button:2,clientX:890,clientY:320});f.frame();assert.equal(f.api.getPerformanceStats().azimuth,initial.azimuth);assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)>60);f.canvas.emit('pointerup',{button:2,clientX:890,clientY:320});f.frame();assert.deepEqual(selected,[]);
-    f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,clientX:600,clientY:400});f.canvas.emit('pointermove',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.frame();const gesture=f.api.getPerformanceStats();assert.ok(gesture.scale>1.4);assert.notEqual(gesture.azimuth,initial.azimuth);f.canvas.emit('pointerup',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.canvas.emit('pointerup',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.frame();assert.equal(f.pending.size,0);assert.deepEqual(selected,[]);f.api.rotate(Math.PI/4);f.frame();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-gesture.azimuth-Math.PI/4)<1e-8);
+    f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,clientX:600,clientY:400});f.canvas.emit('pointermove',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.frame();const gesture=f.api.getPerformanceStats();assert.ok(gesture.scale>1.4);assert.notEqual(gesture.azimuth,initial.azimuth);f.canvas.emit('pointerup',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.canvas.emit('pointerup',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.frame();assert.equal(f.pending.size,0);assert.deepEqual(selected,[]);f.api.rotate(Math.PI/4);f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-gesture.azimuth-Math.PI/4)<1e-8);
   }finally{f.restore();}
 });
 
@@ -140,4 +143,40 @@ test('an employee walk keeps rendering until arrival, while hidden pages never d
   const f=mountedSceneFixture();try{f.frame();const people=[{id:'moving-person',name:'同事',online:true,nodeId:'workstations'}];f.api.setPresence({enabled:true,people});f.frame();const before=f.api.getHumanAnchor('moving-person');f.api.setPresence({enabled:true,people:people.map(p=>({...p,nodeId:'finance'}))});f.frame();assert.ok(f.pending.size>0,'the motion scheduler continues the walk');for(let i=0;i<800&&f.pending.size;i++)f.frame();assert.equal(f.pending.size,0);const after=f.api.getHumanAnchor('moving-person');assert.ok(Math.hypot(before.x-after.x,before.y-after.y)>100,'the figure arrives at the actual destination');
     f.document.hidden=true;f.document.emit('visibilitychange');const settled=f.api.getPerformanceStats().renders;f.api.update({nodes:{server:'warning'}});f.api.setPresence({enabled:true,people});assert.equal(f.api.getPerformanceStats().renders,settled);assert.equal(f.pending.size,0);f.document.hidden=false;f.document.emit('visibilitychange');f.frame();assert.ok(f.api.getPerformanceStats().renders>settled);for(let i=0;i<800&&f.pending.size;i++)f.frame();assert.equal(f.pending.size,0);
   }finally{f.restore();}
+});
+
+test('camera buttons and wheel ease through intermediate positions, retarget smoothly and return to idle',()=>{
+ const f=mountedSceneFixture();try{f.frame();const baseline=f.api.getPerformanceStats();f.api.rotate(.6);assert.equal(f.api.getPerformanceStats().azimuth,baseline.azimuth);f.frame();f.frame();const middle=f.api.getPerformanceStats();assert.ok(middle.azimuth>baseline.azimuth&&middle.azimuth<baseline.azimuth+.6);f.api.rotate(.2);f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth-.8)<1e-8);assert.equal(f.api.getPerformanceStats().actorUpdates,baseline.actorUpdates);
+  f.canvas.emit('wheel',{deltaY:120,deltaMode:0});f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale<1);f.canvas.emit('wheel',{deltaY:-120,deltaMode:0});f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().scale-1)<1e-8);f.api.resetView();f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth)<1e-8);assert.equal(f.api.getPerformanceStats().cameraMoving,false);assert.equal(f.api.getPerformanceStats().drawCalls,baseline.drawCalls);
+ }finally{f.restore();}
+});
+
+test('middle-button panning, capture loss and keyboard focus do not dispatch business actions',()=>{
+ const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)});try{f.frame();const original=f.api.getNodeAnchor('server'),azimuth=f.api.getPerformanceStats().azimuth;f.canvas.emit('pointerdown',{button:1,clientX:600,clientY:400});f.canvas.emit('pointermove',{button:1,clientX:740,clientY:440});f.frame();assert.equal(f.api.getPerformanceStats().azimuth,azimuth);assert.ok(Math.abs(f.api.getNodeAnchor('server').x-original.x)>70);f.canvas.emit('lostpointercapture',{button:1});f.frame();assert.equal(f.canvas.captured.size,0);const anchor=f.api.getNodeAnchor('server');f.canvas.emit('pointermove',{clientX:1000,clientY:800});f.drain();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-anchor.x)<.001);const room=f.button('node','meeting');room.emit('pointerdown',{button:1,clientX:600,clientY:400});f.canvas.emit('pointermove',{button:1,clientX:640,clientY:420});f.canvas.emit('pointerup',{button:1,clientX:640,clientY:420});f.drain();assert.deepEqual(selected,[]);
+  f.wrapper.emit('keydown',{key:'Home',target:{tagName:'INPUT'}});assert.equal(f.api.getPerformanceStats().cameraMoving,false);f.wrapper.emit('keydown',{key:'Home'});f.drain();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-original.x)<.001);f.api.setSelectedNode('server');f.wrapper.emit('keydown',{key:'f'});f.drain();assert.ok(f.api.getPerformanceStats().scale>=1.4);assert.deepEqual(selected,[]);
+ }finally{f.restore();}
+});
+
+test('double-click focuses an object without opening its business and ordinary clicks still work once',()=>{
+ const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)});try{f.frame();const node=f.button('node','server');node.emit('click',{detail:1});assert.deepEqual(selected,[]);node.emit('click',{detail:2});f.drain();assert.deepEqual(selected,[]);assert.ok(f.api.getPerformanceStats().scale>=1.4);assert.equal(node.attributes['aria-pressed'],'true');node.emit('click',{detail:1});f.drain();assert.deepEqual(selected,['server']);f.api.rotate(.5);f.drain();f.canvas.emit('dblclick',{clientX:-500,clientY:-500});f.drain();assert.equal(f.api.getPerformanceStats().scale,1);assert.deepEqual(selected,['server']);
+ }finally{f.restore();}
+});
+
+test('colleague hover and press produce finite articulated feedback without adding draw calls',()=>{
+ const f=mountedSceneFixture();try{f.frame();const initial=f.api.getPerformanceStats(),person=f.button('agent','zhang');person.emit('pointerenter');f.frame();assert.ok(f.pending.size>0);f.drain();const settled=f.api.getPerformanceStats();assert.ok(settled.actorUpdates>initial.actorUpdates);assert.equal(settled.drawCalls,initial.drawCalls);assert.equal(settled.cameraMoving,false);assert.equal(person.animations.length,1);assert.ok(person.animations[0].settings.duration<=420);f.api.rotate(.4);f.frame();f.frame();assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.preference.listeners.get('change')({matches:true});assert.equal(f.api.getPerformanceStats().cameraMoving,false);f.frame();assert.equal(f.pending.size,0);
+ }finally{f.restore();}
+ const reduced=mountedSceneFixture({}, {reducedMotion:true});try{reduced.frame();const initial=reduced.api.getPerformanceStats();reduced.button('agent','zhang').emit('pointerenter');assert.equal(reduced.pending.size,0);reduced.api.rotate(.5);assert.ok(Math.abs(reduced.api.getPerformanceStats().azimuth-initial.azimuth-.5)<1e-8);reduced.frame();assert.equal(reduced.pending.size,0);assert.equal(reduced.api.getPerformanceStats().actorUpdates,initial.actorUpdates);}finally{reduced.restore();}
+});
+
+test('a person turns and settles into a new pose over finite frames instead of snapping at arrival',()=>{
+ const assets=createOffice3DAssets();try{const actor=createOffice3DActor(assets,{id:'settle'});actor.facePoint({x:100,y:0});actor.animate(0,{delta:16});assert.ok(actor.root.rotation.y>0&&actor.root.rotation.y<Math.PI/2);actor.setPose({seated:true});actor.animate(16,{delta:16});assert.ok(actor.rig.position.y>16&&actor.rig.position.y<23);for(let i=0;i<120&&actor.isAnimating;i++)actor.animate(34*i,{delta:34});assert.equal(actor.isAnimating,false);assert.equal(actor.rig.position.y,16);assert.ok(Math.abs(actor.root.rotation.y-Math.PI/2)<.002);assert.equal(actor.animate(10000),false);}finally{assets.dispose();}
+});
+
+test('scene shortcuts work from focused hotspots but ignore editors, dialogs and Enter activation',()=>{
+ const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)});try{
+  f.frame();const room=f.button('node','server');f.wrapper.emit('keydown',{key:'f',target:room});f.drain();assert.ok(f.api.getPerformanceStats().scale>=1.4);assert.deepEqual(selected,[]);f.wrapper.emit('keydown',{key:'Home',target:room});f.drain();assert.equal(f.api.getPerformanceStats().scale,1);
+  for(const tag of ['input','textarea','select','div','dialog']){const editor=f.document.createElement(tag);if(tag==='div')editor.isContentEditable=true;f.wrapper.append(editor);f.wrapper.emit('keydown',{key:'f',target:editor});assert.equal(f.api.getPerformanceStats().cameraMoving,false);f.wrapper.emit('keydown',{key:'Home',target:editor});assert.equal(f.api.getPerformanceStats().cameraMoving,false);}
+  const dialog=f.document.createElement('section'),inside=f.document.createElement('button');dialog.setAttribute('role','dialog');dialog.append(inside);f.wrapper.append(dialog);f.wrapper.emit('keydown',{key:'Home',target:inside});f.wrapper.emit('keydown',{key:'f',target:inside});assert.equal(f.api.getPerformanceStats().cameraMoving,false);const erp=f.document.createElement('section'),erpButton=f.document.createElement('button');erp.className='erp-layer';erp.append(erpButton);f.wrapper.append(erp);f.wrapper.emit('keydown',{key:'f',target:erpButton});assert.equal(f.api.getPerformanceStats().cameraMoving,false);
+  f.wrapper.emit('keydown',{key:'Enter',target:room});assert.deepEqual(selected,[]);room.emit('click',{detail:0});assert.deepEqual(selected,['server']);assert.equal(f.api.getPerformanceStats().cameraMoving,false);
+ }finally{f.restore();}
 });

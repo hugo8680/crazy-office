@@ -51,10 +51,14 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
   mesh('round',OFFICE3D_COLORS.copper,document,0,0,0,8.2,10.4,.8);mesh('round','#efe6d5',document,0,-.1,.5,7.3,9.4,.12);mesh('box',OFFICE3D_COLORS.copper,document,0,3,.65,7.5,3.8,.2);mesh('box','#f6e4d4',document,0,2.7,.8,3.6,.6,.12);document.visible=false;
   const target={seated:false,walking:false,phase:0,stride:0,bob:0,working:false,lounging:false,carrying:false,offering:false,receiving:false,heading:'down',nod:0};
   let dirty=true;
-  const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3;
+  const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3,settling=false,reaction=null,faceAngle=null;
   function animate(now=0,{reducedMotion=false,delta=16,idleMotion=false}={}) {
-    if(!dirty&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
-    const weight=reducedMotion?1:1-Math.exp(-Math.min(delta,100)/95);pose.seated=blend(pose.seated,target.seated?1:0,weight);pose.step=blend(pose.step,target.walking?target.stride*Math.PI/180*1.75:0,weight);pose.typing=blend(pose.typing,target.working&&target.seated?1:0,weight);pose.offer=blend(pose.offer,target.offering?1:target.carrying?.35:0,weight);
+    if(!dirty&&!settling&&!reaction&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
+    const weight=reducedMotion?1:1-Math.exp(-Math.min(delta,100)/95),goals={seated:target.seated?1:0,step:target.walking?target.stride*Math.PI/180*1.75:0,typing:target.working&&target.seated?1:0,offer:target.offering?1:target.carrying?.35:0};
+    settling=false;for(const key of Object.keys(goals)){pose[key]=blend(pose[key],goals[key],weight);if(Math.abs(pose[key]-goals[key])<.001)pose[key]=goals[key];else settling=true;}
+    let response=0;
+    if(reaction&&!reducedMotion){reaction.started??=now;const progress=Math.min(1,Math.max(0,(now-reaction.started)/(reaction.press?420:320)));response=Math.sin(progress*Math.PI)*(reaction.press?1:.6);if(progress===1)reaction=null;}else reaction=null;
+    rig.scale.setScalar(1+response*.025);torso.rotation.z=-response*.025;
     const sit=pose.seated,step=pose.step,breath=reducedMotion||!idleMotion?0:Math.sin(now/1600+idleOffset)*.09;
     rig.position.y=23-sit*7+(target.walking?Math.max(0,-target.bob):breath);torso.rotation.x=sit*.07;torso.position.z=sit*3.5;
     for(const [index,side]of['left','right'].entries()){
@@ -63,17 +67,20 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
       arm.upper.rotation.x=-sit*(target.lounging?.28:Math.min(1.14,1.07-(scale-1)*1.6))-step*sign*.5-(side==='right'?pose.offer*.9:0)+type;arm.upper.rotation.z=-sign*(.065+pose.offer*.045);
       arm.lower.rotation.x=-sit*(target.lounging?1.15:.63)-(side==='right'?pose.offer*.32:.03)+type;
     }
-    head.rotation.x=(target.receiving&&!reducedMotion?Math.sin(now/160)*.09:0)+sit*.06;
+    head.rotation.x=(target.receiving&&!reducedMotion?Math.sin(now/160)*.09:0)+sit*.06+response*.09;
     const blink=idleMotion&&!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:.6);
     document.visible=target.carrying||target.offering;
-    if(target.walking){const facing=facingForHeading(target.heading,root.rotation.y);let diff=facing-root.rotation.y;diff=Math.atan2(Math.sin(diff),Math.cos(diff));root.rotation.y+=diff*(reducedMotion?1:Math.min(1,delta/100));}
+    if(target.walking)faceAngle=null;
+    const facing=target.walking?facingForHeading(target.heading,root.rotation.y):faceAngle;
+    if(facing!=null){let diff=facing-root.rotation.y;diff=Math.atan2(Math.sin(diff),Math.cos(diff));if(reducedMotion||Math.abs(diff)<.001){root.rotation.y+=diff;if(!target.walking)faceAngle=null;}else{root.rotation.y+=diff*weight;settling=true;}}
     dirty=false;return true;
   }
   const api={root,identity,rig,head,arms,legs,document,target,animate,
     setPosition(point){if(root.position.x!==point.x||root.position.z!==point.y){root.position.set(point.x,1.9,point.y);dirty=true;}},
-    facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);if(root.rotation.y!==angle){root.rotation.y=angle;dirty=true;}},
+    facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);if(root.rotation.y!==angle){faceAngle=angle;dirty=true;}},
+    react(kind='hover'){reaction={press:kind==='press',started:null};dirty=true;},
     setPose(patch){for(const [key,value]of Object.entries(patch))if(target[key]!==value){target[key]=value;dirty=true;}},
-    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return target.walking||target.offering||target.receiving;},
+    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return settling||!!reaction||target.walking||target.offering||target.receiving;},
     get height(){return (target.seated?SEATED_ACTOR_HEIGHT:STANDING_ACTOR_HEIGHT)*scale;},
   };
   root.userData={identity,actorId:meta.id,virtual,background};

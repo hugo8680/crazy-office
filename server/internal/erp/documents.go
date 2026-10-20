@@ -294,7 +294,9 @@ func (q *ledger) post(a Actor, d, p map[string]any) {
 		}
 		q.exec("UPDATE document_lines SET completed_quantity=quantity WHERE document_id=?", d["id"])
 	} else {
-		requireRole(a, "manager", "project_manager", "hr")
+		requireRole(a, postingRoles(str(d["type"]))...)
+		text(p["reference"], "实际办理凭证号", 150, true)
+		text(def(p, "note", ""), "办理意见", 4000, false)
 		switch d["type"] {
 		case "project_setup":
 			if q.project(str(d["project_id"]))["status"] != "draft" {

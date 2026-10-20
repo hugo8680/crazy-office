@@ -378,6 +378,44 @@ func (s *Service) ValidatePeople(action string, p M) error {
 	}
 	return nil
 }
+
+// A disabled employee may settle an existing authorized loan, but cannot be
+// selected for new work. This exception requires the caller's ledger scope;
+// the general assignable directory and active-person validator stay unchanged.
+func (s *Service) validateDocumentPeople(ctx context.Context, a *identity.Actor, p M) error {
+	input := Map(p["input"])
+	if p["type"] != "resource" || input["operation"] != "return" {
+		return s.ValidatePeople("document.create", p)
+	}
+	u := s.Identity.GetEmployee(S(input["employeeId"]))
+	if u == nil || u.Active || u.Status != "disabled" {
+		return s.ValidatePeople("document.create", p)
+	}
+	snapshot, err := s.Store.Snapshot(ctx, Actor(a))
+	if err != nil {
+		return err
+	}
+	originalID := S(input["originalDocumentId"])
+	var original M
+	for _, d := range Rows(snapshot["documents"]) {
+		if d["id"] == originalID {
+			original = d
+			break
+		}
+	}
+	if original == nil {
+		return failure(404, "原领用单不存在或没有查看权限。")
+	}
+	if original["type"] != "resource" || original["status"] != "completed" || Map(original["input"])["operation"] != "issue" || Map(original["input"])["employeeId"] != u.ID {
+		return failure(409, "归还须关联同一员工已完成的原领用单。")
+	}
+	for _, loan := range Rows(snapshot["loans"]) {
+		if loan["documentId"] == originalID && loan["employeeId"] == u.ID && N(loan["quantity"]) > N(loan["returnedQuantity"]) {
+			return nil // Product, amount, project and remaining quantity are rechecked transactionally.
+		}
+	}
+	return failure(409, "原领用单已无待归还物品。")
+}
 func (s *Service) Snapshot(ctx context.Context, a *identity.Actor) (M, error) {
 	snap, e := s.Store.Snapshot(ctx, Actor(a))
 	if e != nil {
@@ -443,7 +481,7 @@ func (s *Service) readyForWork(ctx context.Context) (model.Status, error) {
 func (s *Service) Create(ctx context.Context, a *identity.Actor, p M, key string) (M, error) {
 	s.entry.Lock()
 	defer s.entry.Unlock()
-	if e := s.ValidatePeople("document.create", p); e != nil {
+	if e := s.validateDocumentPeople(ctx, a, p); e != nil {
 		return nil, e
 	}
 	status, e := s.readyForWork(ctx)
@@ -555,7 +593,12 @@ func (s *Service) Action(ctx context.Context, a *identity.Actor, id, action stri
 		for k, v := range Map(p["input"]) {
 			input[k] = v
 		}
-		if e = s.ValidatePeople("document.create", M{"type": d["type"], "input": input}); e != nil {
+		if e = s.validateDocumentPeople(ctx, a, M{"type": d["type"], "input": input}); e != nil {
+			return nil, e
+		}
+	}
+	if (action == "post" || action == "complete") && (d["type"] == "onboarding" || d["type"] == "resource" && Map(d["input"])["operation"] == "issue") {
+		if e = s.ValidatePeople("document.create", M{"type": d["type"], "input": d["input"]}); e != nil {
 			return nil, e
 		}
 	}
@@ -847,6 +890,9 @@ func (s *Service) scoped(a *identity.Actor, d, snapshot, calc M) M {
 	if d["type"] == "resource" || d["type"] == "onboarding" {
 		if u := s.Identity.GetEmployee(S(input["employeeId"])); u != nil {
 			profile = M{"id": u.ID, "name": u.Name, "department": u.Department, "title": u.Title, "status": u.Status}
+			if d["type"] == "resource" && input["operation"] == "return" && !u.Active {
+				profile = M{"id": u.ID, "name": u.Name, "status": u.Status}
+			}
 		}
 		for _, l := range Rows(snapshot["loans"]) {
 			if l["employeeId"] == input["employeeId"] && ids[S(l["documentId"])] {
