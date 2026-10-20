@@ -176,8 +176,8 @@ func (f *appFixture) invite(username string, roles []string) (M, string) {
 	r := f.expect(f.send("POST", "/api/erp/invitations", f.admin, M{"username": username, "name": username, "department": "业务部", "title": "业务员", "roles": roles}, nil), 201)
 	token := erpflow.S(r.json["token"])
 	joined := f.expect(f.send("POST", "/api/erp/invitations/accept", "", M{"token": token, "password": testPassword}, nil), 200)
-	if joined.header.Get("Set-Cookie") != "" {
-		f.t.Fatal("invite acceptance must not log in automatically")
+	if !strings.Contains(joined.header.Get("Set-Cookie"), "Max-Age=0") {
+		f.t.Fatal("invite acceptance must clear old browser identity without logging in automatically")
 	}
 	return erpflow.Map(joined.json["employee"]), f.login(username, testPassword)
 }

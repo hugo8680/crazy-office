@@ -1,7 +1,10 @@
 import {defineConfig,loadEnv} from 'vite';
 function officePages(req,res,next){
   const [pathname,query]=String(req.url||'/').split('?');
-  if(pathname==='/login'||pathname==='/join')req.url=`${pathname}.html${query===undefined?'':`?${query}`}`;
+  if(pathname==='/login'||pathname==='/login.html'){
+    res.writeHead(302,{Location:'/','Cache-Control':'no-store'});res.end();return;
+  }
+  if(pathname==='/join'||pathname==='/join.html')req.url=`/index.html${query===undefined?'':`?${query}`}`;
   next();
 }
 const pages={name:'office-pages',configureServer(server){server.middlewares.use(officePages);},configurePreviewServer(server){server.middlewares.use(officePages);}};

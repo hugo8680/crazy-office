@@ -1,0 +1,38 @@
+import vm from 'node:vm';
+import {readFile} from 'node:fs/promises';
+const source=await readFile(new URL('../../src/session-ui.js',import.meta.url),'utf8');
+const PASSWORD='employee-password-2026';
+const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data});
+
+// Run the production module with minimal DOM and transport adapters. Only the
+// HTTP response and browser surface are fakes; all state/validation is real JS.
+export function harness({session=null,fragment='',pathname='/',responder}={}){
+  const elements=new Map(),requests=[],timers=new Map(),history=[],redirects=[],events={authenticated:[],signedOut:0,expired:0,changes:[]};let timer=0;
+  const element=selector=>{
+    if(elements.has(selector))return elements.get(selector);
+    const node={hidden:false,disabled:false,value:'',textContent:'',dataset:{},attrs:new Map(),listeners:new Map(),focused:0,open:false,isConnected:true,innerHTML:'',
+      setAttribute(key,value){this.attrs.set(key,value);},getAttribute(key){return this.attrs.get(key);},focus(){this.focused++;},reportValidity(){return true;},
+      addEventListener(type,fn){this.listeners.set(type,fn);},removeEventListener(type){this.listeners.delete(type);},
+      querySelector:element,querySelectorAll(){return [...elements.values()].filter(e=>e!==this);},
+      showModal(){this.open=true;},close(){this.open=false;},append(){},remove(){this.isConnected=false;}};
+    elements.set(selector,node);return node;
+  };
+  const dialog=element('dialog'),container={append(node){this.child=node;}},documentListeners=new Map();
+  const document={body:container,activeElement:element('before-focus'),hidden:false,createElement:element,addEventListener(type,fn){documentListeners.set(type,fn);},removeEventListener(type){documentListeners.delete(type);}};
+  const location={hash:fragment,pathname,replace(url){redirects.push(url);},assign(url){redirects.push(url);}};
+  const scope={URLSearchParams,TextEncoder,AbortController,Date,Promise,document,window:{location,history:{replaceState(_state,_title,url){history.push(url);location.pathname='/';location.hash='';}}},
+    setTimeout(fn,delay){const id=++timer;timers.set(id,{fn,delay});return id;},clearTimeout(id){timers.delete(id);},
+    fetch:async(url,options)=>{requests.push({url,options});return responder?responder(url,options):response({session:session||{authenticated:false}});},
+    console:{log(){throw Error('credential log');},error(){throw Error('credential log');}},localStorage:{setItem(){throw Error('credential persistence');}},sessionStorage:{setItem(){throw Error('credential persistence');}}};
+  vm.createContext(scope);vm.runInContext(source.replace('export function mountSession','function mountSession'),scope,{filename:'session-ui.js'});
+  scope.options={container,requestRaw:scope.fetch,onAuthenticated:s=>events.authenticated.push(s),onSignedOut:()=>events.signedOut++,onSessionExpired:()=>events.expired++,onChange:s=>events.changes.push(s)};
+  const ui=vm.runInContext('mountSession(options)',scope);
+  return {ui,dialog,element,events,requests,timers,history,redirects,scope,setResponder(fn){responder=fn;},
+    login(username='lin',password=PASSWORD){element('#session-username').value=username;element('#session-password').value=password;return element('#session-login-form').listeners.get('submit')({preventDefault(){}});},
+    password(current=PASSWORD,next=PASSWORD+'-new',confirm=next){element('#session-current').value=current;element('#session-new').value=next;element('#session-confirm').value=confirm;return element('#session-password-form').listeners.get('submit')({preventDefault(){}});},
+    invitation(password=PASSWORD,confirmation=password){element('#session-invitation-password').value=password;element('#session-invitation-confirm').value=confirmation;return element('#session-invitation-form').listeners.get('submit')({preventDefault(){}});},
+    click(action){return dialog.listeners.get('click')({target:{closest:()=>({dataset:{sessionAction:action}})}});},
+    visible(){documentListeners.get('visibilitychange')?.();},
+    destroy(){ui.destroy();}};
+}
+

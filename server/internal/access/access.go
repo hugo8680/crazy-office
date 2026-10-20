@@ -246,7 +246,8 @@ func (g *Gate) public(session *Session) map[string]any {
 		}
 		return out
 	}
-	b, _ := json.Marshal(session.Actor)
+	// The browser needs public employee fields, never the session revocation epoch.
+	b, _ := json.Marshal(session.Actor.PublicEmployee)
 	var actor map[string]any
 	_ = json.Unmarshal(b, &actor)
 	actor["expiresAt"] = session.ExpiresAt

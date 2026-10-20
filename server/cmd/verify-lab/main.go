@@ -64,13 +64,21 @@ func privateConfig(path string) error {
 	defer f.Close()
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 4096), 65536)
-	allowed := map[string]bool{"DASHSCOPE_API_KEY": true, "OFFICE_DASHSCOPE_URL": true, "OFFICE_MODEL": true}
+	allowed := map[string]bool{"DASHSCOPE_API_KEY": true, "OFFICE_DASHSCOPE_URL": true, "OPENAI_API_KEY": true, "OFFICE_OPENAI_URL": true, "TOKENDANCE_API_KEY": true, "OFFICE_TOKENDANCE_URL": true, "OFFICE_MODEL": true, "OFFICE_MODEL_TIMEOUT_MS": true}
+	provider := "dashscope"
 	for scanner.Scan() {
 		key, value, ok := strings.Cut(strings.TrimSpace(scanner.Text()), "=")
-		if !ok || !allowed[key] {
+		if !ok || (!allowed[key] && key != "OFFICE_PROVIDER") {
 			continue
 		}
 		value = strings.Trim(strings.TrimSpace(value), "\"'")
+		if key == "OFFICE_PROVIDER" {
+			if value != "dashscope" && value != "tokendance" && value != "openai" {
+				return errors.New("验收私有配置中的模型服务无效")
+			}
+			provider = value
+			continue
+		}
 		if e = os.Setenv(key, value); e != nil {
 			return e
 		}
@@ -78,7 +86,7 @@ func privateConfig(path string) error {
 	if e = scanner.Err(); e != nil {
 		return errors.New("私有配置格式无效")
 	}
-	return os.Setenv("OFFICE_PROVIDER", "dashscope")
+	return os.Setenv("OFFICE_PROVIDER", provider)
 }
 func object(v any) M { m, _ := v.(map[string]any); return m }
 func objects(v any) []M {

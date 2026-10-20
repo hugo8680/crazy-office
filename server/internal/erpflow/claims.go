@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -11,7 +12,17 @@ import (
 
 var currencyClaim = regexp.MustCompile(`([+-]?[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*(亿元|万元|元|分)`)
 var totalClaimPrefix = regexp.MustCompile(`(?:参考总价|参考总额|总金额|采购金额|总价|总额|合计金额|金额合计|合计)[为是约：:\s]*$`)
-var documentTypeClaim = regexp.MustCompile(`([0-9]+)\s*类(?:已完成的|已完成)?(?:业务)?单据`)
+
+const businessCountNumber = `([0-9]+|[零〇一二两三四五六七八九十百千万亿]+)`
+
+var documentTypeClaims = []*regexp.Regexp{
+	regexp.MustCompile(businessCountNumber + `\s*(?:种|类)\s*(?:已完成的|已完成|不同的|不同)?(?:业务(?:类型|单据|流程)?|单据类型|单据)`),
+	regexp.MustCompile(`(?:业务(?:单据)?(?:类型)?|单据类型)[共计为有是总涵盖覆盖涉及包含数量：:\s]{0,12}` + businessCountNumber + `\s*(?:种|类)`),
+}
+var documentCountClaims = []*regexp.Regexp{
+	regexp.MustCompile(businessCountNumber + `\s*(?:份|张|笔)\s*(?:已完成的|已完成)?(?:业务(?:单据|记录)?|单据)`),
+	regexp.MustCompile(`(?:业务单据|已完成单据)[共计为有是总涵盖覆盖涉及包含数量：:\s]{0,12}` + businessCountNumber + `\s*(?:份|张|笔)`),
+}
 var currentStockClaim = regexp.MustCompile(`(?:当前(?:系统|账面)?(?:库存|账存)|最新(?:账面)?库存|系统(?:库存)?显示)[为是有：:\s]*(?:实盘)?\s*([0-9]+)\s*台`)
 var historicStockContext = regexp.MustCompile(`(?:历史|当时|创建时|盘点前|原账面|快照)`)
 var uncertainClaim = regexp.MustCompile(`(?:未核验|尚未核验|未核实|尚未核实|是否|不确定|尚未确认|不能认定|不能确认|不能断言|不得断言|不代表|不能视为|并非|不是|不等于|不作|未做成本核算|未实现成本核算|未核算)`)
@@ -151,16 +162,100 @@ func validateClaims(text string, document, calculation M) error {
 		}
 	}
 	if document["type"] == "weekly_report" {
-		types := map[string]bool{}
-		for _, d := range Rows(Map(calculation["facts"])["businessDocuments"]) {
-			types[S(d["type"])] = true
-		}
-		for _, m := range documentTypeClaim.FindAllStringSubmatch(text, -1) {
-			n, _ := strconv.Atoi(m[1])
-			if n != len(types) {
-				return failure(400, fmt.Sprintf("本期为%d份业务单据、%d种类型；份数不能写成类型数。", len(Rows(Map(calculation["facts"])["businessDocuments"])), len(types)))
+		summary := businessDocumentSummary(Map(calculation["facts"]))
+		for _, check := range []struct {
+			patterns []*regexp.Regexp
+			expected int64
+		}{{documentTypeClaims, N(summary["typeCount"])}, {documentCountClaims, N(summary["documentCount"])}} {
+			for _, pattern := range check.patterns {
+				for _, match := range pattern.FindAllStringSubmatch(text, -1) {
+					if businessCount(match[1]) != check.expected {
+						return failure(400, fmt.Sprintf("本期已确认%d份业务单据、去重%d种业务类型；领用与归还各是一份单据，但属于同一业务类型。请按工具汇总修正全部份数和类型数，不得改变原始单据。", N(summary["documentCount"]), N(summary["typeCount"])))
+					}
+				}
 			}
 		}
 	}
 	return nil
+}
+
+func businessCount(text string) int64 {
+	if n, e := strconv.ParseInt(text, 10, 64); e == nil {
+		return n
+	}
+	digits := map[rune]int64{'零': 0, '〇': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+	units := map[rune]int64{'十': 10, '百': 100, '千': 1000, '万': 10000, '亿': 100000000}
+	const maxCount = int64(9223372036854775807)
+	var total, section, number int64
+	for _, r := range text {
+		if n, ok := digits[r]; ok {
+			if number > (maxCount-n)/10 {
+				return -1
+			}
+			number = number*10 + n
+			continue
+		}
+		unit, ok := units[r]
+		if !ok {
+			return -1
+		}
+		if unit < 10000 {
+			if number == 0 {
+				number = 1
+			}
+			if number > maxCount/unit || section > maxCount-number*unit {
+				return -1
+			}
+			section += number * unit
+		} else {
+			if section > maxCount-number {
+				return -1
+			}
+			section += number
+			if unit == 100000000 {
+				if total > maxCount-section || total+section > maxCount/unit {
+					return -1
+				}
+				total = (total + section) * unit
+			} else {
+				if section > maxCount/unit || total > maxCount-section*unit {
+					return -1
+				}
+				total += section * unit
+			}
+			section = 0
+		}
+		number = 0
+	}
+	if section > maxCount-number || total > maxCount-section-number {
+		return -1
+	}
+	return total + section + number
+}
+
+func businessDocumentSummary(facts M) M {
+	documents := Rows(facts["businessDocuments"])
+	types := map[string]int64{}
+	for _, d := range documents {
+		if kind := S(d["type"]); kind != "" {
+			types[kind]++
+		}
+	}
+	keys := []string{}
+	for key := range types {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	rows := []M{}
+	for _, key := range keys {
+		label := key
+		for _, workflow := range Workflows {
+			if workflow["id"] == key {
+				label = S(workflow["title"])
+				break
+			}
+		}
+		rows = append(rows, M{"type": key, "typeName": label, "documentCount": types[key]})
+	}
+	return M{"documentCount": len(documents), "typeCount": len(types), "typeCounts": rows}
 }

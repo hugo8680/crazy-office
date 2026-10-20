@@ -79,3 +79,41 @@ func TestHistoricalStockCostAndMissingAmountDoNotBecomeCurrentFacts(t *testing.T
 		}
 	}
 }
+
+func sevenDocumentFacts() M {
+	return M{"businessDocuments": []M{{"id": "one", "type": "project_setup"}, {"id": "two", "type": "purchase"}, {"id": "three", "type": "sales"}, {"id": "four", "type": "resource"}, {"id": "five", "type": "resource"}, {"id": "six", "type": "stocktake"}, {"id": "seven", "type": "project_delivery"}}}
+}
+func TestWeeklyBusinessDocumentAndTypeClaimsUseSeparateToolCounts(t *testing.T) {
+	c := M{"facts": sevenDocumentFacts()}
+	d := M{"type": "weekly_report"}
+	summary := businessDocumentSummary(Map(c["facts"]))
+	if N(summary["documentCount"]) != 7 || N(summary["typeCount"]) != 6 {
+		t.Fatal("tool counts confused documents and types")
+	}
+	for _, text := range []string{"本期完成7种业务类型。", "涉及7类业务。", "共七种业务类型。", "业务类型共有7类。", "共6份业务单据。", "业务单据共8份。"} {
+		if err := validateClaims(text, d, c); err == nil {
+			t.Fatal("false count accepted", text)
+		}
+	}
+	for _, text := range []string{"本期确认7份业务单据，覆盖6种业务类型。", "业务类型共有六类，已完成业务单据共7份。", "七份已完成单据，六类业务单据。"} {
+		if err := validateClaims(text, d, c); err != nil {
+			t.Fatal("accurate count rejected", text, err)
+		}
+	}
+	for _, review := range []bool{false, true} {
+		for _, field := range []string{"summary", "checks", "missing", "steps"} {
+			if review && field == "steps" {
+				continue
+			}
+			value := M{"summary": "本期7份业务单据，涵盖6种业务类型。", "steps": []string{}, "checks": []string{"已对照原始记录"}, "missing": []string{}, "passed": true}
+			if field == "summary" {
+				value[field] = "本期完成7种业务类型。"
+			} else {
+				value[field] = []string{"本期完成7种业务类型。"}
+			}
+			if err := validate(value, d, c, review); err == nil {
+				t.Fatalf("type claim bypassed %s review=%v", field, review)
+			}
+		}
+	}
+}

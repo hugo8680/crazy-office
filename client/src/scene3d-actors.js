@@ -50,10 +50,12 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
   const document=new THREE.Group();arms.right.hand.add(document);document.position.set(0,-.3,3.6);document.rotation.x=.5;
   mesh('round',OFFICE3D_COLORS.copper,document,0,0,0,8.2,10.4,.8);mesh('round','#efe6d5',document,0,-.1,.5,7.3,9.4,.12);mesh('box',OFFICE3D_COLORS.copper,document,0,3,.65,7.5,3.8,.2);mesh('box','#f6e4d4',document,0,2.7,.8,3.6,.6,.12);document.visible=false;
   const target={seated:false,walking:false,phase:0,stride:0,bob:0,working:false,lounging:false,carrying:false,offering:false,receiving:false,heading:'down',nod:0};
+  let dirty=true;
   const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3;
-  function animate(now=0,{reducedMotion=false,delta=16}={}) {
+  function animate(now=0,{reducedMotion=false,delta=16,idleMotion=false}={}) {
+    if(!dirty&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
     const weight=reducedMotion?1:1-Math.exp(-Math.min(delta,100)/95);pose.seated=blend(pose.seated,target.seated?1:0,weight);pose.step=blend(pose.step,target.walking?target.stride*Math.PI/180*1.75:0,weight);pose.typing=blend(pose.typing,target.working&&target.seated?1:0,weight);pose.offer=blend(pose.offer,target.offering?1:target.carrying?.35:0,weight);
-    const sit=pose.seated,step=pose.step,breath=reducedMotion?0:Math.sin(now/1600+idleOffset)*.09;
+    const sit=pose.seated,step=pose.step,breath=reducedMotion||!idleMotion?0:Math.sin(now/1600+idleOffset)*.09;
     rig.position.y=23-sit*7+(target.walking?Math.max(0,-target.bob):breath);torso.rotation.x=sit*.07;torso.position.z=sit*3.5;
     for(const [index,side]of['left','right'].entries()){
       const sign=index?1:-1,leg=legs[side],arm=arms[side];arm.upper.position.y=12+sit*1.5;leg.thigh.rotation.x=-sit*Math.PI/2+step*sign;leg.shin.rotation.x=sit*Math.PI/2+Math.max(0,-step*sign)*.55;
@@ -62,16 +64,20 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
       arm.lower.rotation.x=-sit*(target.lounging?1.15:.63)-(side==='right'?pose.offer*.32:.03)+type;
     }
     head.rotation.x=(target.receiving&&!reducedMotion?Math.sin(now/160)*.09:0)+sit*.06;
-    const blink=!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:.6);
+    const blink=idleMotion&&!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:.6);
     document.visible=target.carrying||target.offering;
     if(target.walking){const facing=facingForHeading(target.heading,root.rotation.y);let diff=facing-root.rotation.y;diff=Math.atan2(Math.sin(diff),Math.cos(diff));root.rotation.y+=diff*(reducedMotion?1:Math.min(1,delta/100));}
+    dirty=false;return true;
   }
   const api={root,identity,rig,head,arms,legs,document,target,animate,
-    setPosition(point){root.position.set(point.x,1.9,point.y);},
-    facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);root.rotation.y=angle;},
-    setPose(patch){Object.assign(target,patch);},
+    setPosition(point){if(root.position.x!==point.x||root.position.z!==point.y){root.position.set(point.x,1.9,point.y);dirty=true;}},
+    facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);if(root.rotation.y!==angle){root.rotation.y=angle;dirty=true;}},
+    setPose(patch){for(const [key,value]of Object.entries(patch))if(target[key]!==value){target[key]=value;dirty=true;}},
+    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return target.walking||target.offering||target.receiving;},
     get height(){return (target.seated?SEATED_ACTOR_HEIGHT:STANDING_ACTOR_HEIGHT)*scale;},
   };
   root.userData={identity,actorId:meta.id,virtual,background};
-  animate(0,{reducedMotion:true});return api;
+  animate(0,{reducedMotion:true});root.updateMatrixWorld(true);
+  // Local furniture and clothing transforms stay fixed; joints carry the motion.
+  root.traverse(item=>{if(item.isMesh&&!eyes.includes(item)){item.updateMatrix();item.matrixAutoUpdate=false;}});return api;
 }

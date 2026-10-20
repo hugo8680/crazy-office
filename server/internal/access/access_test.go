@@ -229,6 +229,11 @@ func TestEmployeeV2CookiesTrustedAndRevocable(t *testing.T) {
 	if session == nil || session.ID != employee.ID || session.Roles[0] != "procurement" {
 		t.Fatalf("employee session: %+v", session)
 	}
+	public := g.PublicSession(withCookie(r.Cookie))
+	actor, _ := public["actor"].(map[string]any)
+	if public["epoch"] != nil || actor["epoch"] != nil || actor["id"] != employee.ID {
+		t.Fatal("public session must exclude the private revocation epoch")
+	}
 	raw := strings.Split(strings.Split(strings.Split(r.Cookie, ";")[0], "=")[1], ".")[0]
 	b, _ := base64.RawURLEncoding.DecodeString(raw)
 	var p map[string]any

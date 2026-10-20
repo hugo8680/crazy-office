@@ -36,7 +36,7 @@ type acceptance struct {
 
 func emit(value any) { b, _ := json.Marshal(value); fmt.Println(string(b)) }
 func safe(message string) string {
-	for _, name := range []string{"DASHSCOPE_API_KEY", "OPENAI_API_KEY", "OFFICE_SESSION_SECRET"} {
+	for _, name := range []string{"DASHSCOPE_API_KEY", "OPENAI_API_KEY", "TOKENDANCE_API_KEY", "OFFICE_SESSION_SECRET"} {
 		if value := os.Getenv(name); value != "" {
 			message = strings.ReplaceAll(message, value, "[凭据已隐藏]")
 		}
@@ -68,18 +68,26 @@ func privateConfig(path string) error {
 		return fmt.Errorf("验收专用模型配置不可读取")
 	}
 	defer f.Close()
-	allowed := map[string]bool{"DASHSCOPE_API_KEY": true, "OFFICE_DASHSCOPE_URL": true, "OFFICE_MODEL": true}
+	allowed := map[string]bool{"DASHSCOPE_API_KEY": true, "OFFICE_DASHSCOPE_URL": true, "OPENAI_API_KEY": true, "OFFICE_OPENAI_URL": true, "TOKENDANCE_API_KEY": true, "OFFICE_TOKENDANCE_URL": true, "OFFICE_MODEL": true, "OFFICE_MODEL_TIMEOUT_MS": true}
+	provider := "dashscope"
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 4096), 64*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		key, value, ok := strings.Cut(line, "=")
-		if !ok || !allowed[key] {
+		if !ok || (!allowed[key] && key != "OFFICE_PROVIDER") {
 			continue
 		}
 		value = strings.TrimSpace(value)
 		if len(value) >= 2 && ((value[0] == '\'' && value[len(value)-1] == '\'') || (value[0] == '"' && value[len(value)-1] == '"')) {
 			value = value[1 : len(value)-1]
+		}
+		if key == "OFFICE_PROVIDER" {
+			if value != "dashscope" && value != "tokendance" && value != "openai" {
+				return errors.New("验收私有配置中的模型服务无效")
+			}
+			provider = value
+			continue
 		}
 		if e = os.Setenv(key, value); e != nil {
 			return e
@@ -88,7 +96,7 @@ func privateConfig(path string) error {
 	if e = scanner.Err(); e != nil {
 		return errors.New("验收专用模型配置格式或大小不正确")
 	}
-	return os.Setenv("OFFICE_PROVIDER", "dashscope")
+	return os.Setenv("OFFICE_PROVIDER", provider)
 }
 func (a *acceptance) command(actor *identity.Actor, action string, payload M) (M, error) {
 	return a.store.Command(context.Background(), erpflow.Actor(actor), action, payload, "acceptance-"+erpflow.ID())

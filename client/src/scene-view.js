@@ -75,6 +75,9 @@ export function createSceneViewController(container, callbacks = {}, options = {
     focusNode:(...args) => current.focusNode(...args),
     focusAgent:(...args) => current.focusAgent(...args),
     zoom:(...args) => current.zoom(...args), resetView:() => current.resetView(),
+    rotate:(...args) => current.rotate?.(...args),
+    fit:() => typeof current.fit === 'function' ? current.fit() : current.resetView(),
+    getPerformanceStats:() => current.getPerformanceStats?.(),
     destroy() { if(disposed)return; disposed = true; epoch++; current.destroy(); currentLayer.remove(); }
   };
 }

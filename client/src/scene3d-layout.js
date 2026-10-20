@@ -55,12 +55,12 @@ export function createOffice3DLayout(assets) {
   const root=new THREE.Group();root.name='office-architecture';
   const batches=new Map(),object=new THREE.Object3D();const c=OFFICE3D_COLORS;
   const statusLights=new Map(),nodeAnchors=new Map(),statistics={staticInstances:0,desks:0,racks:0,plants:0,rooms:OFFICE3D_ROOMS.length};
-  function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){const key=`${kind}|${color}`;if(!batches.has(key))batches.set(key,{geometry:assets.geometries[kind],material:assets.material(color),matrices:[]});object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();batches.get(key).matrices.push(object.matrix.clone());statistics.staticInstances++;}
+  function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){const key=kind;if(!batches.has(key))batches.set(key,{geometry:assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],colors:[]});object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();batches.get(key).matrices.push(object.matrix.clone());batches.get(key).colors.push(color);statistics.staticInstances++;}
   const box=(color,x,y,z,w,h,d,ry=0)=>part('box',color,x,y,z,w,h,d,0,ry);
   const round=(color,x,y,z,w,h,d,ry=0)=>part('round',color,x,y,z,w,h,d,0,ry);
   const cyl=(color,x,y,z,r,h)=>part('cylinder',color,x,y,z,r,h,r);
   const ball=(color,x,y,z,rx,ry=rx,rz=rx)=>part('sphere',color,x,y,z,rx,ry,rz);
-  function stem(a,b,r,color){const from=new THREE.Vector3(...a),to=new THREE.Vector3(...b),mid=from.clone().add(to).multiplyScalar(.5);object.position.copy(mid);object.scale.set(r,from.distanceTo(to),r);object.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),to.sub(from).normalize());object.updateMatrix();const key=`cylinder|${color}`;if(!batches.has(key))batches.set(key,{geometry:assets.geometries.cylinder,material:assets.material(color),matrices:[]});batches.get(key).matrices.push(object.matrix.clone());statistics.staticInstances++;}
+  function stem(a,b,r,color){const from=new THREE.Vector3(...a),to=new THREE.Vector3(...b),mid=from.clone().add(to).multiplyScalar(.5);object.position.copy(mid);object.scale.set(r,from.distanceTo(to),r);object.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),to.sub(from).normalize());object.updateMatrix();const key='cylinder';if(!batches.has(key))batches.set(key,{geometry:assets.geometries.cylinder,material:assets.material('#ffffff'),matrices:[],colors:[]});batches.get(key).matrices.push(object.matrix.clone());batches.get(key).colors.push(color);statistics.staticInstances++;}
   function plant(x,z,s=1){statistics.plants++;cyl(c.pot,x,7*s,z,7*s,12*s);cyl('#b9aa91',x,13*s,z,6.3*s,1.3*s);cyl('#706c55',x,13.6*s,z,5.8*s,1*s);for(let i=0;i<6;i++){const a=i*2.399,high=(22+i*2.6)*s,dx=Math.cos(a)*(7+i%2*3)*s,dz=Math.sin(a)*(7+i%2*3)*s;stem([x,13*s,z],[x+dx,high,z+dz],.65*s,c.darkLeaf);part('sphere',i%2?c.leaf:c.darkLeaf,x+dx,high+3*s,z+dz,3.2*s,8*s,1.5*s,.3, -a,.35);}}
   function mug(x,z,y=27){cyl('#f8f6ed',x,y+3.4,z,2.8,6.4);cyl('#9a795d',x,y+6.7,z,2.2,.25);part('torus','#f8f6ed',x+2.8,y+3.5,z,2.1,2.1,2.1,0,0,0);}
   function paper(x,z,y=27,w=11,d=13,ry=0){round(c.paper,x,y,z,w,.6,d,ry);for(let i=0;i<3;i++)box('#b9bdb2',x,y+.35,z-3+i*2.2,w*.58,.14,.55,ry);}
@@ -130,7 +130,7 @@ export function createOffice3DLayout(assets) {
   // The external network remains a separate object connected to the building.
   round('#e9e9df',914,8,64,86,12,53);for(let i=0;i<3;i++){part('torus','#829e8f',914,17,64,12+i*5,12+i*5,12+i*5,Math.PI/2,0,0);}status('internet',914,19,65);
   // Physical copper/aluminium cabinet edges and books supply detail, without shadows.
-  for(const batch of batches.values()){const instanced=new THREE.InstancedMesh(batch.geometry,batch.material,batch.matrices.length);batch.matrices.forEach((matrix,index)=>instanced.setMatrixAt(index,matrix));instanced.computeBoundingSphere();root.add(instanced);}
+  for(const batch of batches.values()){const instanced=new THREE.InstancedMesh(batch.geometry,batch.material,batch.matrices.length);batch.matrices.forEach((matrix,index)=>{instanced.setMatrixAt(index,matrix);instanced.setColorAt(index,new THREE.Color(batch.colors[index]));});instanced.computeBoundingSphere();root.add(instanced);}
   root.userData.statistics=statistics;
   return {root,statusLights,nodeAnchors,statistics};
 }

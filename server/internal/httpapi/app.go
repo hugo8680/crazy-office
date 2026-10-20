@@ -216,7 +216,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	path := r.URL.Path
 	ctx := r.Context()
 	if path == "/api/livez" && r.Method == "GET" {
-		write(w, 200, M{"ok": true, "version": "4.0.0", "runtime": "go"})
+		write(w, 200, M{"ok": true, "version": "4.1.0", "runtime": "go"})
 		return nil
 	}
 	if path == "/api/session" && r.Method == "GET" {
@@ -256,6 +256,11 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	}
 	actor := session.Actor
 	if strings.HasPrefix(path, "/api/erp/") {
+		// A second browser tab may replace the shared cookie. Bind a rendered
+		// employee's writes to that employee without trusting it for permissions.
+		if expected := r.Header.Values("X-Office-Actor"); len(expected) > 0 && (len(expected) != 1 || expected[0] != actor.ID) {
+			return fail(401, "登录信息已变更，请重新登录。")
+		}
 		return a.erp(w, r, actor)
 	}
 	admin := false
@@ -283,7 +288,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 		if a.Config.Lab != nil {
 			active = a.Config.Lab.Active()
 		}
-		write(w, 200, M{"ok": true, "provider": status, "activeRuns": active, "erpActiveRuns": a.Flow.Active(), "version": "4.0.0", "runtime": "go"})
+		write(w, 200, M{"ok": true, "provider": status, "activeRuns": active, "erpActiveRuns": a.Flow.Active(), "version": "4.1.0", "runtime": "go"})
 		return nil
 	case path == "/api/catalog" && r.Method == "GET":
 		if a.Config.Catalog == nil {
@@ -381,6 +386,9 @@ func (a *App) accept(w http.ResponseWriter, r *http.Request) error {
 	if e != nil {
 		return e
 	}
+	// The same success response that commits the invitation must clear any
+	// different employee's pre-existing browser cookie. Acceptance never signs in.
+	w.Header().Set("Set-Cookie", a.Access.LogoutCookie())
 	write(w, 200, M{"employee": employee.PublicEmployee})
 	return nil
 }

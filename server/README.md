@@ -17,25 +17,27 @@ go run ./cmd/office
 
 ## 真实模型
 
-正式环境沿用服务器私有 `office.env` 中的百炼配置，不复制个人登录信息，不增加代理。模型选型与密钥只在服务端：
+本轮指定接入 TokenDance 的 `qwen3.7-plus`，使用明确的 `tokendance` provider。实际协议、业务样本及生产结果须补入 [v4.1 验收清单](docs/ERP-UI-ACCEPTANCE-v4.1-20261020.md)，配置示例不代表已验收完成。模型选型与密钥只在服务端：
 
 ```ini
-OFFICE_PROVIDER=dashscope
-OFFICE_MODEL=qwen3.7-plus-2026-05-26
-DASHSCOPE_API_KEY=<仅填写到私有环境文件>
-OFFICE_DASHSCOPE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OFFICE_PROVIDER=tokendance
+OFFICE_MODEL=qwen3.7-plus
+OFFICE_TOKENDANCE_URL=https://tokendance.space/gateway/v1/chat/completions
+TOKENDANCE_API_KEY=<仅填写到私有环境文件>
 ```
 
-本机也可使用已有 Codex CLI 登录或显式配置 Ollama；程序不把连接失败替换为模拟结果。兼容已有私有 `provider.json`。环境变量优先，未显式指定时再读取本项目私有选择；不会修改全局配置。
+供应商使用 HTTPS 直连；本项目不要求为服务器新增代理。只向所选 provider 的受限端点发送相应密钥，不将凭据交给客户端。失败按真实失败记录，不回退为模拟结果。
 
-私有环境文件可以显式加载，权限须为 0600：
+私有环境文件可显式加载，权限须为 0600：
 
 ```sh
-OFFICE_PROVIDER=dashscope go run ./cmd/office \
-  --env-file .office-data/dashscope-private.env
+OFFICE_PROVIDER=tokendance go run ./cmd/office \
+  --env-file .office-data/tokendance-private.env
 ```
 
-连接探测、实际 Agent 和自动恢复会请求真实模型，按照所选账户计费。普通状态查询只读缓存。生产密钥、密码、身份库、任务原文和邀请凭证不得提交版本库。
+既有 DashScope、OpenAI 兼容服务、Codex CLI 及 Ollama 能力保留为可显式选择的接入，不自动替代本轮指定模型。历史百炼配置使用 `OFFICE_PROVIDER=dashscope`、`DASHSCOPE_API_KEY` 及 `OFFICE_DASHSCOPE_URL`。环境变量优先；私有 `provider.json` 仅保存非秘密选择，不修改全局配置。
+
+连接探测和实际处理可能产生供应商费用。普通状态查询只读缓存，不能把缓存 `ready` 或健康检查当作业务样本已通过。生产密钥、密码、身份库、任务原文和邀请凭证不得提交版本库。
 
 ## 目录
 
@@ -46,16 +48,16 @@ OFFICE_PROVIDER=dashscope go run ./cmd/office \
 - `internal/identity`、`access`、`network`：员工、邀请、口令、会话及来源校验。
 - `internal/erp`：原生 SQLite 事务、权限、审批、库存、借还、任务与事实报表。
 - `internal/erpflow`：八类 ERP 工作、两个独立虚拟岗位、工具与复核门槛。
-- `internal/model`、`agent`、`tools`：真实模型、实验室七场景、工具执行、自动派工、事件与文件。
+- `internal/model`、`agent`、`tools`：真实模型、保留的实验室场景、工具执行、历史调度兼容、事件与文件。
 - `internal/report`：沿用现有文档样式的安全 HTML 与打印版。
 - `data`、`config`：可发布的公开示例和公司背景；不放私有运行数据。
 - `docs`：PRD、实施记录、迁移与验收。
 
 ## 数据兼容
 
-生产继续使用 `/opt/office.laisengou.com/data`，本机默认为 `.office-data`。保留原 SQLite 表、JSON 字段、身份文件、scrypt 口令格式、会话签名、历史任务和产物。原有路径无需复制到客户端。
+生产继续使用 `/opt/office.laisengou.com/data`，本机默认为 `.office-data`。保留原 SQLite 表、JSON 字段、身份文件、scrypt 口令格式、会话签名、历史任务和业务文件。原有路径无需复制到客户端。
 
-ERP 数据库在 `erp/office-erp.sqlite`，身份库在 `erp/identities.json`，ERP 模型记录在 `erp/runs/`；实验室任务仍以任务编号分目录保存。后台运行与文件下载均检查授权。模型不能直接审批、写库存、改角色或运行任意宿主命令。
+ERP 数据库在 `erp/office-erp.sqlite`，身份库在 `erp/identities.json`，ERP 模型记录在 `erp/runs/`；实验室历史任务仍以任务编号分目录保存，当前客户端不提供新建实验室任务的入口。本轮发布须保存并暂停旧实验室自动派工，不能在 ERP 页面之外继续生成不可见的新任务。后台运行与文件下载均检查授权。模型不能直接审批、写库存、改角色或运行任意宿主命令。
 
 管理员 `POST /api/erp/backup` 保存业务库、身份库副本及摘要清单，文件在私有 `backups/`。恢复先到隔离目录验证，不覆盖运行中的生产库。正式升级前做完整备份，并在无活动任务时切换。
 
@@ -75,12 +77,12 @@ make release VERSION=<版本号>
 
 ```sh
 OFFICE_REAL_ERP_ACCEPTANCE=1 go run ./cmd/verify-erp \
-  --private-config=.office-data/dashscope-private.env
+  --private-config=.office-data/tokendance-private.env
 ```
 
-测试替身仅用于确定性、异常和协议测试，不能当作真实 Agent 验收。真实样本仍须逐份核对内容与来源。
+私有配置中的 provider 必须与实际调用一致；不得用旧百炼结果证明 TokenDance 已通过。测试替身仅用于确定性、异常和协议测试，不能当作真实模型验收。真实样本仍须逐份核对内容与来源，并把失败及限制保留在新证据目录。
 
-原实验室场景使用独立入口，可选择场景、串行执行：
+原实验室验收命令仅供维护历史兼容时使用，不属于本轮 ERP 页面或自动派工流程，可选择场景、串行执行：
 
 ```sh
 OFFICE_REAL_LAB_ACCEPTANCE=1 go run ./cmd/verify-lab \
@@ -93,6 +95,6 @@ OFFICE_REAL_LAB_ACCEPTANCE=1 go run ./cmd/verify-lab \
 
 服务二进制目录为 `/opt/office.laisengou.com/server/current`，服务名 `office-api`，API 端口 8080。私有环境文件和持久数据继续放在代码目录以外。
 
-首次迁移步骤见 [部署与回滚](deploy/README.md)。后续服务端单独发布使用 `deploy/release.sh`、`deploy/rollback.sh`；客户端静态发布由 `../client/deploy` 管理。每次通过测试后更新服务器并检查登录、接口、模型、事件流和交付，保留可回滚版本。`GET /api/livez` 用于进程存活检查，带认证的 `/api/health` 才检查模型与工作状态。
+首次迁移步骤见 [部署与回滚](deploy/README.md)。后续服务端单独发布使用 `deploy/release.sh`、`deploy/rollback.sh`；客户端静态发布由 `../client/deploy` 管理。每次通过测试后更新服务器并检查登录、接口、模型、事件流和交付，保留可回滚版本。`GET /api/livez` 用于进程存活检查，带认证的 `/api/health` 读取模型缓存及工作状态；需要验证真实供应商连接时，使用有权限的显式检查并记录结果，不以存活或缓存状态代替业务验收。
 
 本项目提供 Dockerfile 作为独立打包入口；实际生产使用原生 Go 二进制。容器运行验收与原生部署验收分别记录。

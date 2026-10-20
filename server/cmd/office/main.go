@@ -22,7 +22,7 @@ import (
 	"crazyoffice/server/internal/model"
 )
 
-var version = "4.0.0"
+var version = "4.1.0"
 
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {

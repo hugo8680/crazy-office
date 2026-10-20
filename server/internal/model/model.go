@@ -132,6 +132,12 @@ func NewFromEnv() Provider {
 		if c.Model == "" {
 			c.Model = "gpt-6-luna"
 		}
+	case "tokendance":
+		c.URL = env("OFFICE_TOKENDANCE_URL", "https://tokendance.space/gateway/v1/chat/completions")
+		c.APIKey = os.Getenv("TOKENDANCE_API_KEY")
+		if c.Model == "" {
+			c.Model = "qwen3.7-plus"
+		}
 	case "ollama":
 		c.URL = strings.TrimSuffix(env("OFFICE_OLLAMA_URL", localString("ollamaBase", "http://127.0.0.1:11434")), "/") + "/v1/chat/completions"
 		if c.Model == "" {
@@ -160,6 +166,11 @@ func New(c Config) *Client {
 	}
 	if c.Client == nil {
 		c.Client = &http.Client{Timeout: c.Timeout}
+		if c.Provider == "tokendance" {
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			transport.Proxy = nil
+			c.Client.Transport = transport
+		}
 	}
 	return &Client{Config: c}
 }
@@ -196,7 +207,7 @@ func (c *Client) Status(ctx context.Context, probe bool) (Status, error) {
 			return s, nil
 		}
 		s.Ready = true
-	case "dashscope", "openai":
+	case "dashscope", "openai", "tokendance":
 		s.Ready = c.Config.APIKey != ""
 		if !s.Ready {
 			s.Message = "尚未配置模型 API Key"
@@ -246,7 +257,7 @@ func (c *Client) Decide(ctx context.Context, r Request) (Decision, error) {
 		s.Model = d.Model
 	}
 	if err != nil {
-		s.Message = safeError(err.Error())
+		s.Message = c.safeError(err.Error())
 	}
 	c.remember(s)
 	return d, err
@@ -274,6 +285,11 @@ func (c *Client) chat(ctx context.Context, r Request) (Decision, error) {
 			return Decision{}, errors.New("百炼接口路径无效")
 		}
 	}
+	if c.Config.Provider == "tokendance" {
+		if u.Scheme != "https" || u.Host != "tokendance.space" || u.Path != "/gateway/v1/chat/completions" || u.RawPath != "" {
+			return Decision{}, errors.New("TokenDance仅接受官方HTTPS聊天接口")
+		}
+	}
 	payload, _ := json.Marshal(map[string]any{"role": r.Role, "goal": r.Goal, "context": r.Context})
 	messages := []map[string]any{{"role": "system", "content": protocol}, {"role": "user", "content": string(payload)}}
 	for i := 0; i < len(r.Messages); i++ {
@@ -296,7 +312,7 @@ func (c *Client) chat(ctx context.Context, r Request) (Decision, error) {
 		}
 	}
 	body := map[string]any{"model": c.Config.Model, "messages": messages, "stream": false, "max_tokens": 4096, "parallel_tool_calls": false}
-	if c.Config.Provider == "dashscope" {
+	if c.Config.Provider == "dashscope" || (c.Config.Provider == "tokendance" && strings.HasPrefix(c.Config.Model, "qwen")) {
 		body["enable_thinking"] = false
 	}
 	if len(r.Tools) > 0 {
@@ -326,7 +342,7 @@ func (c *Client) chat(ctx context.Context, r Request) (Decision, error) {
 	httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, e := httpClient.Do(req)
 	if e != nil {
-		return Decision{}, errors.New("模型连接失败：" + safeError(e.Error()))
+		return Decision{}, errors.New("模型连接失败：" + c.safeError(e.Error()))
 	}
 	defer resp.Body.Close()
 	out, e := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024+1))
@@ -435,7 +451,7 @@ func (c *Client) codex(ctx context.Context, r Request) (Decision, error) {
 	cmd.Stdout = io.Discard
 	cmd.Stderr = &stderr
 	if e = cmd.Run(); e != nil {
-		return Decision{}, fmt.Errorf("Codex 模型请求失败：%s", safeError(e.Error()))
+		return Decision{}, fmt.Errorf("Codex 模型请求失败：%s", c.safeError(e.Error()))
 	}
 	data, e := os.ReadFile(output)
 	if e != nil {
@@ -462,7 +478,7 @@ func (c *Client) codex(ctx context.Context, r Request) (Decision, error) {
 	return d, nil
 }
 func safeError(s string) string {
-	for _, k := range []string{os.Getenv("DASHSCOPE_API_KEY"), os.Getenv("OPENAI_API_KEY")} {
+	for _, k := range []string{os.Getenv("DASHSCOPE_API_KEY"), os.Getenv("OPENAI_API_KEY"), os.Getenv("TOKENDANCE_API_KEY")} {
 		if k != "" {
 			s = strings.ReplaceAll(s, k, "[已隐藏凭据]")
 		}
@@ -471,4 +487,11 @@ func safeError(s string) string {
 		s = s[:800]
 	}
 	return s
+}
+
+func (c *Client) safeError(s string) string {
+	if c.Config.APIKey != "" {
+		s = strings.ReplaceAll(s, c.Config.APIKey, "[已隐藏凭据]")
+	}
+	return safeError(s)
 }

@@ -1,0 +1,42 @@
+.session-dialog{box-sizing:border-box;width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 40px);padding:0;border:1px solid #d4d1c8;border-radius:22px;background:#fcfaf5;color:#263a32;font:400 14px/1.5 "PingFang SC","Microsoft YaHei",sans-serif;overflow:auto;box-shadow:none}
+.session-dialog::backdrop{background:rgba(27,38,32,.27)}
+.session-dialog *{box-sizing:border-box}
+.session-card{padding:26px 32px 32px}
+.session-heading{display:flex;align-items:center;justify-content:space-between;margin:0 0 22px}
+.session-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid #c6d2c8;border-radius:13px;background:#e9eee5;color:#365649}
+.session-dialog svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.session-dialog button{font:inherit;cursor:pointer;transition:background .16s ease,color .16s ease,transform .16s ease}
+.session-close{display:grid;place-items:center;width:34px;height:34px;padding:0;border:1px solid transparent;border-radius:50%;background:transparent;color:#69736a}
+.session-close:hover{background:#eaece3;color:#263a32}
+.session-dialog h1{margin:0 0 26px;font-size:26px;font-weight:600;letter-spacing:-.04em;line-height:1.2}
+.session-message{margin:-8px 0 22px;color:#546c59;font-size:13px}
+.session-form{display:grid;gap:20px}
+.session-form label{display:grid;gap:8px;font-size:13px;font-weight:500}
+.session-form input{width:100%;height:48px;padding:0 14px;border:1px solid #cecec3;border-radius:10px;background:#fffef9;color:#263a32;font:inherit;font-size:16px;line-height:1.2;outline:none;transition:border-color .15s ease,background .15s ease}
+.session-form input:hover{border-color:#9ca99b}
+.session-form input:focus{border-color:#40614d;background:#fff}
+.session-field-note{font-size:12px;font-weight:400;color:#777e73}
+.session-dialog .session-primary{display:flex;align-items:center;justify-content:center;gap:14px;min-height:48px;padding:11px 18px;border:1px solid #294639;border-radius:10px;background:#294639;color:#fffdf6;font-weight:500}
+.session-dialog .session-primary:hover{background:#3c5947}
+.session-dialog .session-primary svg{width:19px;height:19px}
+.session-dialog .session-secondary,.session-signout{min-height:44px;padding:10px 16px;border:1px solid #cecec3;border-radius:10px;background:transparent;color:#334c3e}
+.session-dialog .session-secondary:hover{background:#ebece3}
+.session-signout{color:#934d3d;border-color:#d9c7ba}
+.session-signout:hover{background:#f0e5dc}
+.session-error{margin:0;color:#a24433;font-size:13px;line-height:1.5}
+.session-person{display:flex;align-items:center;gap:16px;margin:0 0 26px}
+.session-avatar{display:grid;place-items:center;flex:none;width:54px;height:54px;border:1px solid #c9d1c1;border-radius:17px;background:#e4e9dc;color:#3d5842;font-size:22px;font-weight:500}
+.session-person h2{margin:0;font-size:18px;font-weight:600}
+.session-person p{margin:3px 0 0;color:#818679;font-size:13px}
+.session-facts{display:grid;gap:16px;margin:0 0 30px}
+.session-facts div{display:grid;grid-template-columns:48px 1fr;gap:20px}
+.session-facts dt{color:#868b7e}
+.session-facts dd{margin:0;overflow-wrap:anywhere}
+.session-profile-actions,.session-form-actions{display:flex;gap:10px}
+.session-profile-actions button,.session-form-actions button{flex:1}
+.session-profile-actions{margin:20px 0 0}
+.session-dialog :disabled{opacity:.55;cursor:wait}
+.session-dialog [hidden]{display:none!important}
+.session-dialog button:focus-visible{outline:2px solid #40614d;outline-offset:3px}
+@media(max-width:520px){.session-card{padding:22px 24px 26px}.session-dialog{border-radius:18px}.session-dialog h1{font-size:24px}}
+@media(prefers-reduced-motion:reduce){.session-dialog button,.session-form input{transition:none}}

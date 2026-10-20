@@ -1,81 +1,58 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import { readFile } from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
+import {harness} from './fixtures/session-harness.mjs';
 
-const source=await readFile(new URL('../src/join.js',import.meta.url),'utf8');
-const html=await readFile(new URL('../src/join.html',import.meta.url),'utf8');
-const css=await readFile(new URL('../src/join.css',import.meta.url),'utf8');
-const TOKEN='t'.repeat(43),PASSWORD='employee-secure-password-2026';
-const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
+const TOKEN='t'.repeat(43),PASSWORD='employee-password-2026';
+const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data});
+const deferred=()=>{let resolve;const promise=new Promise(yes=>{resolve=yes;});return {promise,resolve};};
 
-// Execute the actual form script against small DOM/fetch adapters. The fixture
-// controls only responses; validation, retry and double-submit are production JS.
-function harness(fragment='#token='+TOKEN){
-  const elements=new Map(),requests=[],history=[],timers=new Map();let responder=async()=>({ok:true,status:200,json:async()=>({employee:{id:'employee-1',username:'zhang'}})}),timerSequence=0;
-  const element=selector=>{if(!elements.has(selector))elements.set(selector,{value:'',hidden:false,disabled:false,textContent:'',listeners:new Map(),attributes:new Map(),focused:0,addEventListener(type,handler){this.listeners.set(type,handler);},setAttribute(name,value){this.attributes.set(name,value);},focus(){this.focused++;}});return elements.get(selector);};
-  const location={hash:fragment,pathname:'/join',search:'?ignored=1',assign(){throw new Error('页面不可自动跳转');}};
-  const scope={URLSearchParams,TextEncoder,AbortController,document:{querySelector:element},window:{location,history:{replaceState(state,title,url){history.push(url);location.hash='';location.search='';}}},setTimeout(fn){const id=++timerSequence;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},fetch:async(url,options)=>{requests.push({url,options});return responder(url,options);},console:{log(){throw new Error('不应记录凭据');},error(){throw new Error('不应记录凭据');}},localStorage:{setItem(){throw new Error('不应保存凭据');}},sessionStorage:{setItem(){throw new Error('不应保存凭据');}}};
-  vm.createContext(scope);vm.runInContext(source,scope,{filename:'join.js'});
-  return {scope,element,requests,history,timers,eval:code=>vm.runInContext(code,scope),respond(fn){responder=fn;},password(value=PASSWORD,confirm=value){element('#password').value=value;element('#password-confirm').value=confirm;},submit(){return element('#join-form').listeners.get('submit')({preventDefault(){}});}};
-}
-
-test('邀请 fragment 立即清理，初始无网络请求或 DOM 凭据',()=>{
-  const h=harness();assert.deepEqual(h.history,['/join']);assert.equal(h.scope.window.location.hash,'');assert.equal(h.requests.length,0);
-  assert.equal(h.eval('invitationToken'),TOKEN);assert.equal(h.eval('fragment.has("token")'),false);
-  for(const selector of ['#join-form','#join-description','#join-error','#join-result-text'])assert.equal(h.element(selector).textContent.includes(TOKEN),false);
-  assert.doesNotMatch(html,/<input[^>]+(?:token|hidden)/);assert.match(html,/name="referrer" content="no-referrer"/);
+test('入驻直接进入办公室密码对话框，立即清除 fragment 且不把令牌放进 DOM、日志或存储',async()=>{
+  const h=harness({fragment:'#token='+TOKEN,pathname:'/join'});await h.ui.ready;assert.deepEqual(h.history,['/']);assert.equal(h.scope.window.location.hash,'');assert.equal(h.requests.length,0);assert.equal(h.element('#session-title').textContent,'设置密码');assert.equal(h.element('#session-invitation-form').hidden,false);assert.equal(h.dialog.innerHTML.includes(TOKEN),false);h.destroy();
 });
 
-test('缺失、格式错误或重复 token 显示失效提示且不能提交',async()=>{
+test('无效、缺失及重复入驻令牌仅提示失效，不提交密码',async()=>{
   for(const fragment of ['', '#token=short','#token='+TOKEN+'&token='+TOKEN,'#token='+encodeURIComponent('<script>')]){
-    const h=harness(fragment);h.password();await h.submit();assert.equal(h.element('#join-form').hidden,true);assert.equal(h.element('#join-title').textContent,'链接不可用');assert.equal(h.requests.length,0);assert.equal(h.eval('invitationToken'),'');
+    const h=harness({fragment,pathname:'/join'});await h.ui.ready;await h.invitation();assert.equal(h.element('#session-title').textContent,'登录');assert.match(h.element('#session-message').textContent,/链接已失效/);assert.equal(h.requests.length,0);h.destroy();
   }
 });
 
-test('两次口令长度、一致性与 UTF-8 字节限制在请求前校验',async()=>{
-  const h=harness();
-  for(const [password,confirmation,expected] of [['short','short','至少'],[PASSWORD,PASSWORD+'wrong','不一致'],['汉'.repeat(400),'汉'.repeat(400),'过长']]){
-    h.password(password,confirmation);await h.submit();assert.match(h.element('#join-error').textContent,new RegExp(expected));assert.equal(h.requests.length,0);
+test('入驻密码长度、一致性和 UTF-8 字节限制在提交前验证',async()=>{
+  const h=harness({fragment:'#token='+TOKEN});await h.ui.ready;
+  for(const [password,confirmation,expected] of [['short','short','至少'],[PASSWORD,PASSWORD+'wrong','不一致'],['汉'.repeat(400),'汉'.repeat(400),'过长']]){await h.invitation(password,confirmation);assert.match(h.element('#session-invitation-error').textContent,new RegExp(expected));assert.equal(h.requests.length,0);}
+  h.destroy();
+});
+
+test('单次设置成功只调用一次接受接口，清空口令与令牌，明确重新登录而不自动授权',async()=>{
+  const h=harness({fragment:'#token='+TOKEN});await h.ui.ready;const pending=deferred();h.setResponder(url=>url==='/api/erp/invitations/accept'?pending.promise:response({ok:true}));
+  const first=h.invitation();await h.invitation();assert.equal(h.requests.length,1);assert.equal(h.element('#session-invitation-password').disabled,true);
+  const request=h.requests[0];assert.equal(request.url,'/api/erp/invitations/accept');assert.equal(request.options.referrerPolicy,'no-referrer');assert.deepEqual(JSON.parse(request.options.body),{token:TOKEN,password:PASSWORD});
+  pending.resolve(response({employee:{id:'staff-1',username:'lin'}}));await first;
+  assert.equal(h.ui.session,null);assert.equal(h.events.authenticated.length,0);assert.equal(h.element('#session-title').textContent,'登录');assert.equal(h.element('#session-username').value,'lin');assert.equal(h.element('#session-invitation-password').value,'');assert.equal(h.element('#session-invitation-confirm').value,'');assert.equal(h.requests.length,1);assert.equal(h.timers.size,0);
+  await h.invitation();assert.equal(h.requests.length,1);assert.deepEqual(h.redirects,[]);h.destroy();
+});
+
+test('失败保留可重试令牌而不回显秘密；失效令牌清除后不能重复提交',async()=>{
+  const h=harness({fragment:'#token='+TOKEN});await h.ui.ready;h.setResponder(async()=>response({error:TOKEN+PASSWORD},400));await h.invitation();assert.doesNotMatch(h.element('#session-invitation-error').textContent,new RegExp(TOKEN+'|'+PASSWORD));assert.equal(h.element('#session-invitation-password').value,'');assert.equal(h.element('#session-invitation-password').disabled,false);
+  h.setResponder(async()=>response({error:'expired'},410));await h.invitation();assert.equal(h.element('#session-title').textContent,'登录');assert.match(h.element('#session-message').textContent,/链接已失效/);await h.invitation();assert.equal(h.requests.length,2);h.destroy();
+});
+
+test('无结果的成功响应与网络中断不伪装设置完成，随后可重试',async()=>{
+  const h=harness({fragment:'#token='+TOKEN});await h.ui.ready;
+  for(const responder of [async()=>response({}),async()=>{throw Error('disconnected');},async()=>response({},503)]){h.setResponder(responder);await h.invitation();assert.equal(h.element('#session-title').textContent,'设置密码');assert.equal(h.element('#session-invitation-password').disabled,false);assert.equal(h.element('#session-invitation-password').value,'');}
+  h.destroy();
+});
+
+test('旧静态登录和邀请文档仅兼容回到办公室，不保留第二套表单',async()=>{
+  for(const name of ['login','join']){
+    const html=await readFile(new URL(`../src/${name}.html`,import.meta.url),'utf8');assert.doesNotMatch(html,/<form|<input|<main/);assert.match(html,/name="referrer" content="no-referrer"/);
+    const source=await readFile(new URL(`../src/${name}.js`,import.meta.url),'utf8'),calls=[];vm.runInNewContext(source,{window:{location:{hash:'#token='+TOKEN,replace:url=>calls.push(url)}}});assert.deepEqual(calls,['/#token='+TOKEN]);
   }
 });
 
-test('单次请求提交正确凭据，执行期间禁双击，成功清空内存并让用户自行登录',async()=>{
-  const h=harness(),pending=deferred();h.respond(()=>pending.promise);h.password();const first=h.submit();await h.submit();
-  assert.equal(h.requests.length,1);assert.equal(h.element('#join-button').disabled,true);assert.equal(h.element('#password').disabled,true);assert.equal(h.element('#join-form').attributes.get('aria-busy'),'true');
-  const request=h.requests[0];assert.equal(request.url,'/api/erp/invitations/accept');assert.equal(request.options.method,'POST');assert.equal(request.options.credentials,'same-origin');assert.equal(request.options.referrerPolicy,'no-referrer');assert.equal(request.options.cache,'no-store');assert.deepEqual(JSON.parse(request.options.body),{token:TOKEN,password:PASSWORD});
-  pending.resolve({ok:true,status:200,json:async()=>({employee:{id:'employee-1',username:'zhang'}})});await first;
-  assert.equal(h.element('#join-form').hidden,true);assert.equal(h.element('#join-title').textContent,'密码已设置');assert.equal(h.element('#join-result').hidden,false);assert.match(h.element('#join-result-text').textContent,/zhang/);assert.equal(h.element('#password').value,'');assert.equal(h.element('#password-confirm').value,'');assert.equal(h.eval('invitationToken'),'');assert.equal(h.timers.size,0);
-  await h.submit();assert.equal(h.requests.length,1);
-});
-
-test('校验错误保留邀请但清空口令，解锁重试后可成功',async()=>{
-  const h=harness();h.respond(async()=>({ok:false,status:400,json:async()=>({error:'密码需至少12个字符。'})}));h.password();await h.submit();
-  assert.equal(h.element('#join-error').textContent,'密码需至少12个字符。');assert.equal(h.element('#password').value,'');assert.equal(h.element('#join-button').disabled,false);assert.equal(h.eval('invitationToken'),TOKEN);
-  h.respond(async()=>({ok:true,status:200,json:async()=>({employee:{id:'employee-1',username:'zhang'}})}));h.password();await h.submit();assert.equal(h.requests.length,2);assert.equal(h.element('#join-title').textContent,'密码已设置');
-});
-
-test('过期或已用链接不再可重试，页面不会回显服务端中的口令或 token',async()=>{
-  const expired=harness();expired.respond(async()=>({ok:false,status:410,json:async()=>({error:'邀请无效或已过期。'})}));expired.password();await expired.submit();assert.equal(expired.element('#join-form').hidden,true);assert.equal(expired.eval('invitationToken'),'');
-  for(const message of ['诊断 '+TOKEN,'诊断 '+PASSWORD]){
-    const h=harness();h.respond(async()=>({ok:false,status:400,json:async()=>({error:message})}));h.password();await h.submit();assert.equal(h.element('#join-error').textContent,'密码未设置，请重试。');assert.equal(h.element('#join-error').textContent.includes(TOKEN),false);assert.equal(h.element('#join-error').textContent.includes(PASSWORD),false);
+test('两种生产静态部署都公开场景壳、将旧登录回到根路径、邀请直接使用同一index',async()=>{
+  for(const name of ['nginx.locations.conf','default.conf.template']){
+    const config=await readFile(new URL(`../deploy/${name}`,import.meta.url),'utf8');assert.match(config,/location = \/login \{ return 302 \/; \}/);assert.match(config,/location = \/login\.html \{ return 302 \/; \}/);assert.match(config,/location = \/join \{ try_files \/index\.html =404; \}/);assert.match(config,/location = \/join\.html \{ try_files \/index\.html =404; \}/);assert.doesNotMatch(config,/auth_request|error_page 401|@office_login/);assert.match(config,/location \^~ \/api\/ \{\s*proxy_pass/);
   }
-});
-
-test('服务端错误和中断可重试；不完整成功响应不能伪装设置完成',async()=>{
-  const h=harness();
-  for(const respond of [async()=>({ok:false,status:503,json:async()=>({error:'内部堆栈'})}),async()=>{throw new Error('断线');},async()=>({ok:true,status:200,json:async()=>({})})]){
-    h.respond(respond);h.password();await h.submit();assert.equal(h.element('#join-form').hidden,false);assert.equal(h.eval('finished'),false);assert.equal(h.eval('invitationToken'),TOKEN);assert.equal(h.element('#join-button').disabled,false);assert.equal(h.element('#password-confirm').value,'');
-  }
-});
-
-test('请求超时触发取消，保留可重试状态而不后台重复提交',async()=>{
-  const h=harness();h.respond(async(url,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new Error('aborted')))));h.password();const pending=h.submit();assert.equal(h.timers.size,1);[...h.timers.values()][0]();await pending;
-  assert.equal(h.requests.length,1);assert.equal(h.element('#join-button').disabled,false);assert.match(h.element('#join-error').textContent,/连接中断/);assert.equal(h.timers.size,0);
-});
-
-test('重设和入驻共用明确文案，页面包含可访问表单且没有 shadow 或单侧装饰边框',()=>{
-  assert.match(html,/<h1 id="join-title">设置登录密码/);assert.match(html,/href="\/login"/);assert.match(html,/autocomplete="new-password"/);assert.match(html,/role="alert"/);assert.match(html,/aria-live="polite"/);
-  assert.doesNotMatch(css,/(?:box-shadow|text-shadow|filter\s*:|border-(?:left|right|top|bottom)\s*:)/);
-  assert.doesNotMatch(source,/(?:localStorage|sessionStorage|console\.|innerHTML|location\.assign)/);
 });

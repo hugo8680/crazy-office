@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"crazyoffice/server/internal/erp"
@@ -136,5 +137,33 @@ func TestPrivateConfigReadsOnlyWhitelistedLiterals(t *testing.T) {
 	}
 	if os.Getenv("DASHSCOPE_API_KEY") != "fixture-only-not-a-real-key" || os.Getenv("OFFICE_MODEL") != "fixture-model" || os.Getenv("OFFICE_PROVIDER") != "dashscope" || os.Getenv("UNTRUSTED_CONFIG_FIELD") != "original" {
 		t.Fatal("private config escaping/whitelist changed")
+	}
+}
+
+func TestPrivateConfigSelectsTokenDanceWithoutChangingSessionSecrets(t *testing.T) {
+	t.Setenv("TOKENDANCE_API_KEY", "")
+	t.Setenv("OFFICE_MODEL", "")
+	t.Setenv("OFFICE_TOKENDANCE_URL", "")
+	t.Setenv("OFFICE_PROVIDER", "dashscope")
+	t.Setenv("OFFICE_SESSION_SECRET", "unchanged")
+	path := filepath.Join(t.TempDir(), "private.env")
+	content := "OFFICE_PROVIDER=tokendance\nTOKENDANCE_API_KEY=fixture-not-real\nOFFICE_MODEL=qwen3.7-plus\nOFFICE_TOKENDANCE_URL=https://tokendance.space/gateway/v1/chat/completions\nOFFICE_SESSION_SECRET=must-not-load\n"
+	if e := os.WriteFile(path, []byte(content), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := privateConfig(path); e != nil {
+		t.Fatal(e)
+	}
+	if os.Getenv("OFFICE_PROVIDER") != "tokendance" || os.Getenv("TOKENDANCE_API_KEY") != "fixture-not-real" || os.Getenv("OFFICE_MODEL") != "qwen3.7-plus" || os.Getenv("OFFICE_SESSION_SECRET") != "unchanged" {
+		t.Fatal("TokenDance private acceptance configuration did not remain isolated")
+	}
+	if strings.Contains(safe("failure fixture-not-real"), "fixture-not-real") {
+		t.Fatal("acceptance output did not redact TokenDance key")
+	}
+	if e := os.WriteFile(path, []byte("OFFICE_PROVIDER=untrusted\n"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := privateConfig(path); e == nil {
+		t.Fatal("unknown model provider was accepted")
 	}
 }

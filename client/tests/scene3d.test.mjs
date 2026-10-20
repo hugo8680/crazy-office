@@ -5,11 +5,11 @@ import { NODE_META } from '../src/scene.js';
 import { HUMAN_EMPLOYEES } from '../src/people.js';
 import { OFFICE3D_ROOMS, AGENT3D_HOMES, OFFICE3D_COLORS, createOffice3DAssets, createOffice3DLayout } from '../src/scene3d-layout.js';
 import { actorIdentity, createOffice3DActor, facingForHeading } from '../src/scene3d-actors.js';
-import { office3DFrustum, Scene3DUnavailableError, OFFICE3D_LINKS, scene3DFramePolicy, OFFICE3D_CAMERA_OFFSET } from '../src/scene3d.js';
+import { office3DFrustum, Scene3DUnavailableError, OFFICE3D_LINKS, scene3DFramePolicy, OFFICE3D_CAMERA_OFFSET, scene3DPixelRatio, scene3DGestureMode, mountScene3D } from '../src/scene3d.js';
 import { createScene3DMotion, desired3DPositions } from '../src/scene3d-motion.js';
 
 test('3D adds eight furnished rooms and preserves every selectable 2D endpoint',()=>{
-  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets);assert.equal(layout.statistics.rooms,8);assert.equal(OFFICE3D_ROOMS.find(r=>r.id==='investment').title,'投资者关系部');assert.ok(OFFICE3D_ROOMS.find(r=>r.id==='general_office').x>OFFICE3D_ROOMS.find(r=>r.id==='investment').x);assert.deepEqual([...layout.statusLights.keys()].sort(),Object.keys(NODE_META).sort());assert.ok(layout.statistics.desks>=14);assert.equal(layout.statistics.racks,2);assert.ok(layout.statistics.plants>=10);assert.ok(layout.statistics.staticInstances>1500);assert.ok(layout.root.children.filter(child=>child.isInstancedMesh).length<150,'static fittings share instance batches');for(const instance of layout.root.children.filter(child=>child.isInstancedMesh)){const matrix=new THREE.Matrix4();for(let i=0;i<instance.count;i++){instance.getMatrixAt(i,matrix);assert.ok(matrix.elements.every(Number.isFinite));}}}finally{assets.dispose();}
+  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets);assert.equal(layout.statistics.rooms,8);assert.equal(OFFICE3D_ROOMS.find(r=>r.id==='investment').title,'投资者关系部');assert.ok(OFFICE3D_ROOMS.find(r=>r.id==='general_office').x>OFFICE3D_ROOMS.find(r=>r.id==='investment').x);assert.deepEqual([...layout.statusLights.keys()].sort(),Object.keys(NODE_META).sort());assert.ok(layout.statistics.desks>=14);assert.equal(layout.statistics.racks,2);assert.ok(layout.statistics.plants>=10);assert.ok(layout.statistics.staticInstances>1500);assert.ok(layout.root.children.filter(child=>child.isInstancedMesh).length<150,'static fittings share instance batches');for(const instance of layout.root.children.filter(child=>child.isInstancedMesh)){assert.equal(instance.instanceColor?.count,instance.count);const matrix=new THREE.Matrix4();for(let i=0;i<instance.count;i++){instance.getMatrixAt(i,matrix);assert.ok(matrix.elements.every(Number.isFinite));}}}finally{assets.dispose();}
 });
 
 test('room floors and identities use opaque materials without shadows or light effects',()=>{
@@ -79,4 +79,65 @@ test('keyboard hands stay on desktop height for both detailed figure scales',()=
   const assets=createOffice3DAssets();try{for(const scale of[.98,1.12]){
     const actor=createOffice3DActor(assets,{id:'desk-contact'},{scale});actor.setPosition({x:145,y:263});actor.root.rotation.y=Math.PI;actor.setPose({seated:true,working:true});actor.animate(0,{reducedMotion:true});actor.root.updateMatrixWorld(true);const hand=new THREE.Vector3();actor.arms.right.hand.getWorldPosition(hand);assert.ok(hand.y>=26&&hand.y<=30,`scale ${scale} wrist y ${hand.y}`);
   }}finally{assets.dispose();}
+});
+
+test('orbit fits the complete building at every bearing and tilt without excess framing',()=>{
+  for(const aspect of[.45,1,1.6,2.3,3.2])for(const azimuth of[-Math.PI,-Math.PI/2,0,.7,Math.PI])for(const elevation of[.42,.76,1.28]){
+    const f=office3DFrustum(aspect,{azimuth,elevation});let maxX=0,maxY=0;
+    for(const x of[20,1035])for(const y of[-12,100])for(const z of[-7,625]){const point=new THREE.Vector3(x-527.5,y-35,z-309);maxX=Math.max(maxX,Math.abs(point.dot(f.right)-f.centerX));maxY=Math.max(maxY,Math.abs(point.dot(f.up)-f.centerY));}
+    assert.ok(maxX<=f.width/2&&maxY<=f.height/2);assert.ok(Math.max(maxX*2/f.width,maxY*2/f.height)>.96,'one fitted axis uses over 96% of the frame');
+  }
+});
+
+test('a settled colleague skips unchanged poses, while a real move invalidates the rig',()=>{
+  const assets=createOffice3DAssets();try{const actor=createOffice3DActor(assets,{id:'idle-proof'});assert.equal(actor.needsUpdate,false);assert.equal(actor.animate(1000),false);actor.setPose({walking:false,seated:false});assert.equal(actor.needsUpdate,false);actor.setPosition({x:200,y:320});assert.equal(actor.needsUpdate,true);assert.equal(actor.animate(1000,{reducedMotion:true}),true);assert.equal(actor.needsUpdate,false);actor.setPosition({x:200,y:320});assert.equal(actor.needsUpdate,false);actor.setPose({walking:true,stride:12});assert.equal(actor.isAnimating,true);assert.equal(actor.animate(1020),true);assert.equal(actor.animate(1040),true);actor.setPose({walking:false,stride:0});assert.equal(actor.animate(1050,{reducedMotion:true}),true);assert.equal(actor.animate(3000),false);}finally{assets.dispose();}
+});
+
+test('canvas input has distinct orbit and pan gestures and a bounded pixel budget',()=>{
+  assert.equal(scene3DGestureMode({button:0}), 'orbit');assert.equal(scene3DGestureMode({button:2}), 'pan');assert.equal(scene3DGestureMode({button:0,shiftKey:true}), 'pan');assert.equal(scene3DGestureMode({button:0},2),'touch');
+  for(const [width,height,device]of[[1440,900,2],[1920,1080,2],[3840,2160,2],[400,800,3]]){const ratio=scene3DPixelRatio(width,height,device);assert.ok(ratio<=1.5&&ratio>=.7);assert.ok(width*height*ratio*ratio<=Math.max(3000001,width*height*.49));}
+  assert.equal(scene3DFramePolicy(1000,1008,{dirty:true,interacting:true}).render,false,'a 120 Hz pointer stream does not force 120 redraws');assert.equal(scene3DFramePolicy(1000,1016,{interacting:true}).render,true);assert.equal(scene3DFramePolicy(1000,1016,{busy:false}).continue,false);
+});
+
+function mountedSceneFixture(callbacks={}){
+  const saved=new Map(['document','ResizeObserver','requestAnimationFrame','cancelAnimationFrame'].map(key=>[key,globalThis[key]]));let clock=1000,sequence=0;
+  const pending=new Map();class Element{
+    constructor(tag='div'){this.tagName=tag;this.children=[];this.style={};this.dataset={};this.attributes={};this.handlers=new Map();this.hidden=false;this.parentNode=null;this.captured=new Set();this.classList={add(){},remove(){}};}
+    append(...children){for(const child of children){child.parentNode=this;this.children.push(child);}}get firstChild(){return this.children[0];}
+    setAttribute(key,value){this.attributes[key]=value;}addEventListener(key,fn){this.handlers.set(key,fn);}removeEventListener(key){this.handlers.delete(key);}
+    getBoundingClientRect(){return {x:0,y:0,left:0,top:0,width:1440,height:900};}remove(){if(this.parentNode)this.parentNode.children=this.parentNode.children.filter(child=>child!==this);}
+    setPointerCapture(id){this.captured.add(id);}hasPointerCapture(id){return this.captured.has(id);}releasePointerCapture(id){this.captured.delete(id);}
+    emit(type,value={}){this.handlers.get(type)?.({preventDefault(){},stopPropagation(){},button:0,pointerId:1,pointerType:'mouse',...value});}
+  }
+  const doc=new Element();doc.hidden=false;doc.createElement=tag=>new Element(tag);globalThis.document=doc;globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+  globalThis.requestAnimationFrame=fn=>{const id=++sequence;pending.set(id,fn);return id;};globalThis.cancelAnimationFrame=id=>pending.delete(id);
+  const canvas=new Element('canvas'),renderer={domElement:canvas,shadowMap:{},info:{render:{calls:0,triangles:0}},setPixelRatio(){},setSize(){},render(scene){let calls=0;const visit=(item,visible=true)=>{visible=visible&&item.visible;if(!visible)return;if(item.isMesh&&item.material?.visible!==false)calls++;for(const child of item.children)visit(child,visible);};visit(scene);this.info.render.calls=calls;},dispose(){},forceContextLoss(){}};
+  const container=new Element(),api=mountScene3D(container,{...callbacks,rendererFactory:()=>renderer});
+  return{api,canvas,pending,container,document:doc,frame(){const callbacks=[...pending.values()];pending.clear();clock+=34;callbacks.forEach(fn=>fn(clock));},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
+}
+
+test('the mounted office stops rendering at rest and returns to idle after pointer rotation',()=>{
+  const f=mountedSceneFixture();try{f.frame();assert.equal(f.pending.size,0);const initial=f.api.getPerformanceStats();assert.equal(initial.renders,1);assert.ok(initial.drawCalls<100,JSON.stringify(initial));
+    const before=f.api.getNodeAnchor('server');f.canvas.emit('pointerdown',{clientX:900,clientY:400});f.canvas.emit('pointermove',{clientX:1010,clientY:440});f.frame();const after=f.api.getNodeAnchor('server');assert.ok(Math.abs(before.x-after.x)>20);assert.notEqual(f.api.getPerformanceStats().azimuth,initial.azimuth);f.canvas.emit('pointerup',{clientX:1010,clientY:440});f.frame();assert.equal(f.pending.size,0);
+    const settled=f.api.getPerformanceStats();assert.equal(settled.actorUpdates,initial.actorUpdates,'rotating the camera does not animate or upload static colleagues');assert.equal(settled.instanceUploads,initial.instanceUploads);
+    f.api.resetView();f.frame();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)<.001);
+  }finally{f.restore();}
+});
+
+test('twenty signed-in employees share render batches and disappear cleanly on logout',()=>{
+  const f=mountedSceneFixture();try{f.frame();const initial=f.api.getPerformanceStats(),people=Array.from({length:20},(_,i)=>({id:`real-${i}`,name:`同事${i}`,title:'销售',online:true,nodeId:'workstations'}));f.api.setPresence({enabled:true,currentUserId:'real-0',people});f.frame();const populated=f.api.getPerformanceStats();if(process.env.OFFICE_SCENE_BENCH==='1')console.log(JSON.stringify({idle:initial,twentyEmployees:populated}));assert.equal(populated.people,initial.people+20);assert.equal(populated.drawCalls,initial.drawCalls,'twenty colleagues reuse the same geometry batches');assert.ok(f.api.getHumanAnchor('real-0')?.visible);assert.equal(f.pending.size,0);f.api.setPresence({enabled:false,people:[]});f.frame();assert.equal(f.api.getPerformanceStats().people,initial.people);assert.equal(f.api.getHumanAnchor('real-0'),null);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+test('pan, pinch and twist stay independent of object selection and settle after release',()=>{
+  const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id),onSelectAgent:id=>selected.push(id),onSelectHuman:id=>selected.push(id)});try{f.frame();const initial=f.api.getPerformanceStats(),before=f.api.getNodeAnchor('server');
+    f.canvas.emit('pointerdown',{button:2,clientX:800,clientY:300});f.canvas.emit('pointermove',{button:2,clientX:890,clientY:320});f.frame();assert.equal(f.api.getPerformanceStats().azimuth,initial.azimuth);assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)>60);f.canvas.emit('pointerup',{button:2,clientX:890,clientY:320});f.frame();assert.deepEqual(selected,[]);
+    f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,clientX:600,clientY:400});f.canvas.emit('pointermove',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.frame();const gesture=f.api.getPerformanceStats();assert.ok(gesture.scale>1.4);assert.notEqual(gesture.azimuth,initial.azimuth);f.canvas.emit('pointerup',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.canvas.emit('pointerup',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.frame();assert.equal(f.pending.size,0);assert.deepEqual(selected,[]);f.api.rotate(Math.PI/4);f.frame();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-gesture.azimuth-Math.PI/4)<1e-8);
+  }finally{f.restore();}
+});
+
+test('an employee walk keeps rendering until arrival, while hidden pages never draw',()=>{
+  const f=mountedSceneFixture();try{f.frame();const people=[{id:'moving-person',name:'同事',online:true,nodeId:'workstations'}];f.api.setPresence({enabled:true,people});f.frame();const before=f.api.getHumanAnchor('moving-person');f.api.setPresence({enabled:true,people:people.map(p=>({...p,nodeId:'finance'}))});f.frame();assert.ok(f.pending.size>0,'the motion scheduler continues the walk');for(let i=0;i<800&&f.pending.size;i++)f.frame();assert.equal(f.pending.size,0);const after=f.api.getHumanAnchor('moving-person');assert.ok(Math.hypot(before.x-after.x,before.y-after.y)>100,'the figure arrives at the actual destination');
+    f.document.hidden=true;f.document.emit('visibilitychange');const settled=f.api.getPerformanceStats().renders;f.api.update({nodes:{server:'warning'}});f.api.setPresence({enabled:true,people});assert.equal(f.api.getPerformanceStats().renders,settled);assert.equal(f.pending.size,0);f.document.hidden=false;f.document.emit('visibilitychange');f.frame();assert.ok(f.api.getPerformanceStats().renders>settled);for(let i=0;i<800&&f.pending.size;i++)f.frame();assert.equal(f.pending.size,0);
+  }finally{f.restore();}
 });

@@ -1,6 +1,1 @@
-.erp-office-mode #incident-hud,.erp-office-mode #approval-request,.erp-office-mode #notice-layer{display:none!important}
-.erp-office-status{display:none;position:fixed;right:25px;top:25px;z-index:70;width:265px;padding:15px 18px;background:#faf8f1;border:1px solid #c9cbbd;border-radius:7px;color:#334232;box-shadow:none}
-.erp-office-mode .erp-office-status{display:block}.erp-office-status>small{display:block;color:#717767;font-size:11px;margin-bottom:4px}.erp-office-status button{background:none;border:0;color:inherit;text-align:left;padding:0;cursor:pointer;width:100%}.erp-office-status strong{display:block;font-size:15px;font-weight:600}.erp-office-status span{display:block;color:#717767;font-size:11px;margin-top:5px}.erp-office-status[data-awaiting="true"]{background:#f3e4d7;border-color:#ba9077;color:#873f31}.erp-office-mode .simulation-label{display:none}
-@media(max-width:620px){.erp-office-status{right:12px;top:92px;width:200px;padding:10px 13px}.erp-office-status strong{font-size:13px}.erp-office-status span{font-size:10px}.erp-office-mode #action-dock .dock-action{padding:10px}.erp-office-mode #action-dock .dock-action span{font-size:10px}}
-.erp-office-mode:has(.erp-layer:not([hidden])) #action-dock{visibility:hidden}
-@media(max-width:620px){.erp-office-mode .erp-layer{bottom:8px}}
+.erp-office-mode #incident-hud,.erp-office-mode #approval-request,.erp-office-mode #notice-layer,.erp-office-mode .erp-office-status,.erp-office-mode .simulation-label{display:none!important}
