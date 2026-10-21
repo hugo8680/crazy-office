@@ -33,7 +33,10 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
   const eyes=[];
   for(const side of[-1,1]){eyes.push(mesh('sphere','#303c35',head,side*1.9,-.6,4.08,.45,.6,.38));mesh('box',identity.hair,head,side*1.9,.7,4.12,1.5,.22,.24,0,0,-side*.07);}
   mesh('sphere',virtual?'#d3ac8f':'#c99477',head,0,-1.6,4.35,.58,.7,.65);
-  mesh('round','#ac7764',head,0,-3.15,3.78,1.7,.24,.18);
+  const neutralMouth=new THREE.Group(),smilingMouth=new THREE.Group();neutralMouth.name='neutral-mouth';smilingMouth.name='smiling-mouth';head.add(neutralMouth,smilingMouth);smilingMouth.visible=false;
+  mesh('round','#ac7764',neutralMouth,0,-3.15,3.78,1.7,.24,.18);
+  mesh('round','#a96d5d',smilingMouth,0,-3.25,3.9,1.25,.25,.22);
+  for(const side of[-1,1])mesh('round','#a96d5d',smilingMouth,side*.78,-2.99,3.92,.8,.25,.22,0,0,side*.55);
   if(virtual){
     for(const side of[-1,1]){mesh('round','#ecebe1',head,side*5.7,-.2,0,1.5,3.1,3.4);mesh('box','#7f9c87',head,side*6.5,-.1,.4,.2,1.2,1.3);}
     mesh('round','#dfe5d5',torso,-2.8,8,3.65,3.1,3.8,.5);mesh('box','#5c7c67',torso,-2.8,8,4,1.7,1.9,.2);
@@ -51,9 +54,9 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
   mesh('round',OFFICE3D_COLORS.copper,document,0,0,0,8.2,10.4,.8);mesh('round','#efe6d5',document,0,-.1,.5,7.3,9.4,.12);mesh('box',OFFICE3D_COLORS.copper,document,0,3,.65,7.5,3.8,.2);mesh('box','#f6e4d4',document,0,2.7,.8,3.6,.6,.12);document.visible=false;
   const target={seated:false,walking:false,phase:0,stride:0,bob:0,working:false,lounging:false,carrying:false,offering:false,receiving:false,heading:'down',nod:0};
   let dirty=true;
-  const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3,settling=false,reaction=null,faceAngle=null;
+  const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3,settling=false,reaction=null,faceAngle=null,greeting=false,wave=null;
   function animate(now=0,{reducedMotion=false,delta=16,idleMotion=false}={}) {
-    if(!dirty&&!settling&&!reaction&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
+    if(!dirty&&!settling&&!reaction&&!wave&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
     const weight=reducedMotion?1:1-Math.exp(-Math.min(delta,100)/95),goals={seated:target.seated?1:0,step:target.walking?target.stride*Math.PI/180*1.75:0,typing:target.working&&target.seated?1:0,offer:target.offering?1:target.carrying?.35:0};
     settling=false;for(const key of Object.keys(goals)){pose[key]=blend(pose[key],goals[key],weight);if(Math.abs(pose[key]-goals[key])<.001)pose[key]=goals[key];else settling=true;}
     let response=0;
@@ -67,8 +70,15 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
       arm.upper.rotation.x=-sit*(target.lounging?.28:Math.min(1.14,1.07-(scale-1)*1.6))-step*sign*.5-(side==='right'?pose.offer*.9:0)+type;arm.upper.rotation.z=-sign*(.065+pose.offer*.045);
       arm.lower.rotation.x=-sit*(target.lounging?1.15:.63)-(side==='right'?pose.offer*.32:.03)+type;
     }
+    arms.left.lower.rotation.z=0;arms.left.hand.rotation.z=0;
+    if(wave&&(reducedMotion||target.walking||target.offering||target.receiving||target.carrying))wave=null;
+    if(wave){
+      wave.started??=now;const progress=Math.min(1,Math.max(0,(now-wave.started)/1000)),envelope=Math.sin(progress*Math.PI),wrist=Math.sin(progress*Math.PI*6)*envelope;
+      arms.left.upper.rotation.z-=1.95*envelope;arms.left.upper.rotation.x-=.2*envelope;arms.left.lower.rotation.x-=.7*envelope;arms.left.lower.rotation.z=wrist*.2;arms.left.hand.rotation.z=wrist*.24;
+      if(progress===1)wave=null;
+    }
     head.rotation.x=(target.receiving&&!reducedMotion?Math.sin(now/160)*.09:0)+sit*.06+response*.09;
-    const blink=idleMotion&&!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:.6);
+    const blink=idleMotion&&!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:greeting?.32:.6);neutralMouth.visible=!greeting;smilingMouth.visible=greeting;
     document.visible=target.carrying||target.offering;
     if(target.walking)faceAngle=null;
     const facing=target.walking?facingForHeading(target.heading,root.rotation.y):faceAngle;
@@ -79,8 +89,9 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
     setPosition(point){if(root.position.x!==point.x||root.position.z!==point.y){root.position.set(point.x,1.9,point.y);dirty=true;}},
     facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);if(root.rotation.y!==angle){faceAngle=angle;dirty=true;}},
     react(kind='hover'){reaction={press:kind==='press',started:null};dirty=true;},
+    setGreeting(value,{animated=true}={}){const next=!!value;if(next===greeting)return;greeting=next;wave=next&&!virtual&&animated&&!target.walking&&!target.offering&&!target.receiving&&!target.carrying?{started:null}:null;dirty=true;},
     setPose(patch){for(const [key,value]of Object.entries(patch))if(target[key]!==value){target[key]=value;dirty=true;}},
-    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return settling||!!reaction||target.walking||target.offering||target.receiving;},
+    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return settling||!!reaction||!!wave||target.walking||target.offering||target.receiving;},get greetingActive(){return greeting;},get waving(){return !!wave;},
     get height(){return (target.seated?SEATED_ACTOR_HEIGHT:STANDING_ACTOR_HEIGHT)*scale;},
   };
   root.userData={identity,actorId:meta.id,virtual,background};

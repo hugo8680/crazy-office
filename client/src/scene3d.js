@@ -6,6 +6,13 @@ import { createOffice3DActor } from './scene3d-actors.js';
 import { createScene3DMotion } from './scene3d-motion.js';
 import { createOfficePresenceMotion } from './erp-presence.js';
 import { createViewTween } from './scene-motion.js';
+import { greetingForPerson } from './person-greeting.mjs';
+
+let greetingSequence=0;
+const greetingFaces={
+  human:'<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="#f5d8b7" stroke="#a57c5c" stroke-width="1.2"/><path d="M8.7 13.5q2-2.4 4 0m6.6 0q2-2.4 4 0" stroke="#674f3f" stroke-width="1.7" stroke-linecap="round"/><path d="M10.3 18.2q5.7 7 11.4 0" fill="#fff9ed" stroke="#926452" stroke-width="1.4" stroke-linecap="round"/><circle cx="8.2" cy="17" r="1.8" fill="#db9d8a" opacity=".55"/><circle cx="23.8" cy="17" r="1.8" fill="#db9d8a" opacity=".55"/></svg>',
+  robot:'<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M16 6V3m-13 12v6m26-6v6" stroke="#6c8b7d" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="3" r="2" fill="#bd7257"/><rect x="5" y="7" width="22" height="21" rx="7" fill="#dce9dc" stroke="#65816e" stroke-width="1.2"/><path d="M9 15q2-3.2 4 0m6 0q2-3.2 4 0" stroke="#416957" stroke-width="1.8" stroke-linecap="round"/><path d="M11 20q5 5.5 10 0" fill="#fffdf3" stroke="#416957" stroke-width="1.4" stroke-linecap="round"/><path d="M9 18h2m10 0h2" stroke="#b98c6d" stroke-width="1.4" stroke-linecap="round"/></svg>',
+};
 
 export class Scene3DUnavailableError extends Error {
   constructor(message='当前设备无法创建 3D 画面',cause){super(message,{cause});this.name='Scene3DUnavailableError';this.code='WEBGL_UNAVAILABLE';}
@@ -53,6 +60,8 @@ export function mountScene3D(container,{
   const canvas=renderer.domElement;canvas.className='office-scene3d-canvas';canvas.setAttribute('aria-hidden','true');canvas.style.touchAction='none';
   const labels=document.createElement('div');labels.className='office-scene3d-labels';
   wrapper.append(canvas,labels);container.append(wrapper);
+  const greetingElement=document.createElement('div');greetingElement.className='office3d-greeting';greetingElement.id=`office3d-person-greeting-${++greetingSequence}`;greetingElement.hidden=true;greetingElement.setAttribute('role','tooltip');greetingElement.setAttribute('aria-hidden','true');
+  const greetingFace=document.createElement('span');greetingFace.className='office3d-greeting-face';greetingFace.setAttribute('aria-hidden','true');const greetingText=document.createElement('span');greetingText.className='office3d-greeting-text';greetingElement.append(greetingFace,greetingText);labels.append(greetingElement);
   const camera=new THREE.OrthographicCamera(-600,600,450,-450,1,6000),target=new THREE.Vector3(527.5,35,309);
   let azimuth=defaultAzimuth,elevation=defaultElevation,cameraFrame=office3DFrustum(),pixelRatio=1;
   const stats={renders:0,actorUpdates:0,instanceUploads:0,drawCalls:0,triangles:0,lastRenderMs:0,frameMs:0,pixelRatio:1,staticInstances:layout.statistics.staticInstances};
@@ -69,7 +78,7 @@ export function mountScene3D(container,{
   const touches=new Map();let touchGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
-  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null;
+  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null;
   const actorList=()=>[...agents.values(),...humans.values(),...background];
   const disposables=[];
   const schedule=()=>{if(!frame&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
@@ -79,6 +88,24 @@ export function mountScene3D(container,{
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>positionEmployee(entry)});
   function listen(element,type,handler,options){element.addEventListener(type,handler,options);disposables.push(()=>element.removeEventListener(type,handler,options));}
   const buttonAnimations=new WeakMap();
+  function clearGreeting({redraw=true}={}){
+    if(!greeting)return;const previous=greeting;greeting=null;previous.actor.setGreeting(false);previous.anchor?.removeAttribute?.('aria-describedby');if(previous.anchor)delete previous.anchor.dataset.greeting;
+    greetingElement.hidden=true;greetingElement.setAttribute('aria-hidden','true');greetingText.textContent='';greetingFace.innerHTML='';delete greetingElement.dataset.person;delete greetingElement.dataset.kind;if(redraw&&!destroyed)markDirty();
+  }
+  function positionGreeting(){
+    if(!greeting)return;const {actor}=greeting,at=project(actor.point,actor.height+13);
+    if(!actor.root.visible||!at?.visible||at.x<0||at.y<0||at.x>width||at.y>height){clearGreeting();return;}
+    greetingElement.style.left=`${clamp(at.x,85,Math.max(85,width-85)).toFixed(1)}px`;greetingElement.style.top=`${clamp(at.y,62,Math.max(62,height-20)).toFixed(1)}px`;
+  }
+  function showGreeting(type,id,anchor){
+    if(destroyed||document.hidden||drag||touches.size||!['agent','human','employee'].includes(type))return;
+    const actor=type==='agent'?agents.get(id):humans.get(id);if(!actor?.root.visible||type==='human'&&presenceState.enabled)return;
+    const key=`${type}:${id}`;if(greeting?.key===key){positionGreeting();return;}clearGreeting();
+    const message=greetingForPerson({virtual:type==='agent'});greeting={key,type,id,actor,anchor:anchor||(type==='agent'?agentButtons.get(id):type==='employee'?employeeButtons.get(id):humanButtons.get(id))};
+    greetingFace.innerHTML=greetingFaces[message.kind]||greetingFaces.human;greetingText.textContent=message.text;greetingElement.dataset.kind=message.kind;greetingElement.dataset.person=id;greetingElement.hidden=false;greetingElement.setAttribute('aria-hidden','false');
+    if(greeting.anchor){greeting.anchor.dataset.greeting='true';greeting.anchor.setAttribute('aria-describedby',greetingElement.id);}actor.setGreeting(true,{animated:!reducedMotion});positionGreeting();markDirty();
+  }
+  function leavePerson(type,id){if(greeting?.key===`${type}:${id}`)clearGreeting();hoveredKey='';}
   function feedback(type,id,kind='hover',element){
     if(reducedMotion||destroyed)return;
     const actor=type==='agent'?agents.get(id):humans.get(id);if(actor){actor.react(kind);markDirty();}
@@ -92,7 +119,10 @@ export function mountScene3D(container,{
     clearSelectionTimer();pendingSelection={type,id};feedback(type,id,'press');selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)select(type,id);},350);
   }
   function button(className,label,choose){const el=document.createElement('button');el.type='button';el.className=className;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed','false');el.style.position='absolute';el.style.pointerEvents='auto';
-    listen(el,'pointerdown',e=>{e.stopPropagation();const p=identityFor(el);if(p)onDown(e,p);});listen(el,'contextmenu',e=>e.preventDefault());listen(el,'pointerenter',()=>{const p=identityFor(el);if(p)feedback(p.type,p.id,'hover',el);});listen(el,'click',e=>{e.stopPropagation();if(performance.now()<suppressClickUntil)return;const p=identityFor(el);if(p){feedback(p.type,p.id,'press',el);if(e.detail===0){clearSelectionTimer();select(p.type,p.id);}else queueSelection(p.type,p.id,e.detail);}else choose();});listen(el,'dblclick',e=>{e.preventDefault();e.stopPropagation();const p=identityFor(el);if(p)focusObject(p.type,p.id);});labels.append(el);return el;}
+    listen(el,'pointerdown',e=>{e.stopPropagation();const p=identityFor(el);if(p)onDown(e,p);});listen(el,'contextmenu',e=>e.preventDefault());
+    listen(el,'pointerenter',()=>{const p=identityFor(el);if(!p)return;if(['agent','human','employee'].includes(p.type))showGreeting(p.type,p.id,el);else{clearGreeting();feedback(p.type,p.id,'hover',el);}});
+    listen(el,'pointerleave',()=>{const p=identityFor(el);if(p)leavePerson(p.type,p.id);});listen(el,'focus',()=>{const p=identityFor(el);if(p)showGreeting(p.type,p.id,el);});listen(el,'blur',()=>{const p=identityFor(el);if(p)leavePerson(p.type,p.id);});
+    listen(el,'click',e=>{e.stopPropagation();if(performance.now()<suppressClickUntil)return;const p=identityFor(el);if(p){feedback(p.type,p.id,'press',el);if(e.detail===0){clearSelectionTimer();select(p.type,p.id);}else queueSelection(p.type,p.id,e.detail);}else choose();});listen(el,'dblclick',e=>{e.preventDefault();e.stopPropagation();const p=identityFor(el);if(p)focusObject(p.type,p.id);});labels.append(el);return el;}
   function select(type,id,notify=true){
     if(type==='node')selectedNode=id;else if(id)selectedNode=null;
     if(type==='agent')selectedAgent=id;else if(id)selectedAgent=null;
@@ -160,6 +190,7 @@ export function mountScene3D(container,{
   const approvalMarker=button('office3d-approval-marker','需要你审批',()=>select('human',latestState.approvalHumanId||'owner'));approvalMarker.textContent='!';approvalMarker.hidden=true;
   function positionEmployee(entry){const actor=actualPeople.get(entry.person.id);if(!actor)return;actor.point={...entry.point};actor.setPosition(entry.point);actor.setPose({seated:false,walking:!!entry.motion,heading:entry.sample?.heading||'down',stride:entry.sample?.stride||0,bob:entry.sample?.bob||0});}
   function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);const wanted=new Set(presenceMotion.entries.keys());let rosterChanged=false;
+    if(greeting?.type==='employee'&&!wanted.has(greeting.id)||greeting?.type==='human'&&presenceState.enabled)clearGreeting();
     for(const [id,actor]of actualPeople)if(!wanted.has(id)){rosterChanged=true;for(let i=picks.length-1;i>=0;i--)if(picks[i].userData.type==='employee'&&picks[i].userData.id===id)picks.splice(i,1);scene.remove(actor.root);humans.delete(id);actualPeople.delete(id);employeeButtons.get(id)?.remove();employeeButtons.delete(id);}
     for(const meta of HUMAN_EMPLOYEES){const actor=humans.get(meta.id);if(actor&&actor.root.visible===presenceState.enabled){actor.root.visible=!presenceState.enabled;actor.invalidate();}const el=humanButtons.get(meta.id);if(el)el.hidden=presenceState.enabled;}
     for(const [id,entry]of presenceMotion.entries){let actor=actualPeople.get(id);if(!actor){rosterChanged=true;actor=createOffice3DActor(assets,{...entry.person,id},{scale:1.12});scene.add(actor.root);actualPeople.set(id,actor);humans.set(id,actor);addPick(actor.root,'employee',id);
@@ -220,6 +251,7 @@ export function mountScene3D(container,{
     for(const [id,el]of humanButtons){const actor=humans.get(id),approval=!!latestState.humanApproval&&id===(latestState.approvalHumanId||'owner');place(el,actor.point,actor.height*.56);el.dataset.active=String(approval||selectedHuman===id);el.dataset.awaiting=String(approval);el.hidden=presenceState.enabled;}
     for(const [id,el]of employeeButtons){const actor=actualPeople.get(id),entry=presenceMotion.entries.get(id);place(el,actor.point,actor.height*.56);el.dataset.active=String(selectedHuman===id||!!entry?.person.current);el.dataset.working='false';}
     approvalMarker.hidden=presenceState.enabled||!latestState.humanApproval;const owner=humans.get(latestState.approvalHumanId||'owner');if(owner)place(approvalMarker,owner.point,owner.height+10);
+    positionGreeting();
     wrapper.dataset.deliveryPending=String(controller.pendingCount);wrapper.dataset.deliveryActive=String(controller.activeCount);
   }
   function draw(time,{busy=false,delta=16,labelsChanged=false}={}){
@@ -258,13 +290,13 @@ export function mountScene3D(container,{
   function pan(dx,dy){panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
   function sampleTouch(){const points=[...touches.values()],a=points[0],b=points[1];return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),angle:Math.atan2(b.y-a.y,b.x-a.x)}:null;}
   const onDown=(e,origin=null)=>{
-    if(![0,1,2].includes(e.button))return;e.preventDefault();viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
+    if(![0,1,2].includes(e.button))return;e.preventDefault();clearGreeting();hoveredKey='';viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
     if(e.pointerType==='touch'){touches.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touches.size>1){touchGesture=sampleTouch();if(drag)drag.moved=true;canvas.setPointerCapture?.(e.pointerId);return;}}
     drag={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false,mode:scene3DGestureMode(e),origin};
   };
   const onMove=e=>{
     if(touches.has(e.pointerId)){touches.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){pan(next.x-touchGesture.x,next.y-touchGesture.y);scale=clamp(scale*next.distance/touchGesture.distance,.72,3.2);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
-    if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){hoveredKey=key;if(hit)feedback(hit.type,hit.id);}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<5)return;
+    if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){hoveredKey=key;if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<5)return;
     clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
     const dx=e.clientX-drag.lastX,dy=e.clientY-drag.lastY;
     if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);}
@@ -280,9 +312,9 @@ export function mountScene3D(container,{
     if(moved||e.button!==0){suppressClickUntil=performance.now()+180;return;}
     const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit)queueSelection(hit.type,hit.id);if(active.origin)suppressClickUntil=performance.now()+80;
   };
-  const onCancel=e=>{touches.delete(e.pointerId);touchGesture=null;if(drag?.id===e.pointerId)drag=null;wrapper.classList.remove('is-panning');if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
+  const onCancel=e=>{clearGreeting();touches.delete(e.pointerId);touchGesture=null;if(drag?.id===e.pointerId)drag=null;wrapper.classList.remove('is-panning');if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
   listen(canvas,'pointerdown',onDown);listen(canvas,'pointermove',onMove);listen(canvas,'pointerup',onUp);listen(canvas,'pointercancel',onCancel);listen(canvas,'contextmenu',e=>e.preventDefault());
-  listen(canvas,'pointerleave',()=>{hoveredKey='';});
+  listen(canvas,'pointerleave',()=>{hoveredKey='';clearGreeting();});
   listen(canvas,'dblclick',e=>{e.preventDefault();clearSelectionTimer();const hit=lastClickTarget&&performance.now()-lastClickTarget.time<400?lastClickTarget:pickAt(e);if(hit)focusObject(hit.type,hit.id);else resetView();});
   listen(wrapper,'keydown',e=>{
     const target=e.target;
@@ -293,9 +325,9 @@ export function mountScene3D(container,{
     }
   });
   listen(canvas,'wheel',e=>{e.preventDefault();clearSelectionTimer();const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,3.2);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
-  listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;clearSelectionTimer();});
-  listen(canvas,'webglcontextlost',e=>{e.preventDefault();if(destroyed)return;contextLost=true;cancelAnimationFrame(frame);frame=0;controller.reset();const error=new Scene3DUnavailableError('3D 图形连接已中断，请切回 2D 视图');onUnavailable(error);container.dispatchEvent?.(new CustomEvent('scene3d-unavailable',{detail:error,bubbles:true}));});
-  listen(document,'visibilitychange',()=>{if(document.hidden){hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;schedule();}});
+  listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearGreeting();if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;clearSelectionTimer();});
+  listen(canvas,'webglcontextlost',e=>{e.preventDefault();if(destroyed)return;clearGreeting({redraw:false});contextLost=true;cancelAnimationFrame(frame);frame=0;controller.reset();const error=new Scene3DUnavailableError('3D 图形连接已中断，请切回 2D 视图');onUnavailable(error);container.dispatchEvent?.(new CustomEvent('scene3d-unavailable',{detail:error,bubbles:true}));});
+  listen(document,'visibilitychange',()=>{if(document.hidden){clearGreeting({redraw:false});hoveredKey='';hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;schedule();}});
   const onPreference=event=>{reducedMotion=event.matches;if(reducedMotion)viewTween.finish();controller.setReducedMotion(reducedMotion);presenceMotion.setReducedMotion(reducedMotion);markDirty();};motionPreference?.addEventListener?.('change',onPreference);
   scene.updateMatrixWorld(true);scene.matrixWorldAutoUpdate=false;
   layout.root.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
@@ -310,6 +342,6 @@ export function mountScene3D(container,{
     getAgentAnchor(id){const actor=agents.get(id);return actor?project(actor.point,actor.height*.55):null;},
     focusHuman(id='owner'){return focusPoint(humans.get(id)?.point);},focusAgent(id){return focusPoint(agents.get(id)?.point);},focusNode(id){return focusPoint(NODE_META[id]);},
     zoom,rotate,resetView,fit:resetView,getPerformanceStats:()=>({...stats,azimuth,elevation,scale,scheduled:!!frame,cameraMoving:viewTween.active,people:actorList().length,batches:actorBatches.size}),
-    destroy(){if(destroyed)return;destroyed=true;clearSelectionTimer();viewTween.cancel();cancelAnimationFrame(frame);frame=0;controller.destroy();presenceMotion.destroy();actualPeople.clear();employeeButtons.clear();resizeObserver.disconnect();motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
+    destroy(){if(destroyed)return;clearGreeting({redraw:false});destroyed=true;clearSelectionTimer();viewTween.cancel();cancelAnimationFrame(frame);frame=0;controller.destroy();presenceMotion.destroy();actualPeople.clear();employeeButtons.clear();resizeObserver.disconnect();motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
   };
 }

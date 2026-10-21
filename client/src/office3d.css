@@ -27,3 +27,12 @@
 #lab[data-view="3d"] .office-scene3d.is-panning{cursor:grabbing}
 #lab[data-view="3d"] :is(.office3d-hotspot,.office3d-room-label):focus-visible{outline:2px solid #ac503d;outline-offset:4px}
 #lab[data-view="3d"] .office-scene3d:focus-visible{outline:none}
+
+#lab[data-view="3d"] .office3d-greeting{position:absolute;z-index:12;display:flex;align-items:center;gap:9px;min-width:112px;max-width:190px;padding:8px 12px 8px 9px;border:1px solid #cbd8c6;border-radius:16px 16px 16px 5px;background:#fffdf4;color:#385644;transform:translate(-50%,-100%);pointer-events:none;box-shadow:none;font:550 13px/1.4 var(--sans);white-space:nowrap}
+#lab[data-view="3d"] .office3d-greeting[data-kind="human"]{border-color:#dbc9b2;color:#705640;background:#fffaf0}
+#lab[data-view="3d"] .office3d-greeting-face{display:block;width:31px;height:31px;flex:none}
+#lab[data-view="3d"] .office3d-greeting-face svg{display:block;width:100%;height:100%}
+#lab[data-view="3d"] .office3d-greeting:not([hidden]){animation:office3d-greeting-in .16s cubic-bezier(.2,.7,.2,1) both}
+#lab[data-view="3d"] .office3d-person-hit[data-greeting="true"] .office3d-person-label{display:none}
+@keyframes office3d-greeting-in{from{opacity:0;translate:0 3px}to{opacity:1;translate:0 0}}
+@media(prefers-reduced-motion:reduce){#lab[data-view="3d"] .office3d-greeting:not([hidden]){animation:none}}

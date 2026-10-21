@@ -2,6 +2,7 @@
 import { HUMAN_EMPLOYEES } from './people.js';
 import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming, createViewTween } from './scene-motion.js';
 import {createOfficePresenceMotion} from './erp-presence.js';
+import {greetingForPerson} from './person-greeting.mjs';
 const NODE_META = {
   investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
   general_office: { x:650, y:52, label:'总经办协作台', w:82, ly:-12 },
@@ -93,7 +94,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       <g class="cnl-person-arm-left" style="transform-origin:-10px 6px"><path d="M-10 6Q-15 12-15 20" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="7" stroke-linecap="round"/><path d="M-15 19L-15 23" stroke="#efc7a8" stroke-width="5" stroke-linecap="round"/></g>
       <g class="cnl-person-arm-right" style="transform-origin:10px 6px"><path d="M10 6Q15 12 15 20" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="7" stroke-linecap="round"/><path d="M15 19L15 23" stroke="#efc7a8" stroke-width="5" stroke-linecap="round"/></g>
       <g class="cnl-person-torso"><path d="M-10 4Q0-1 10 4L11 23Q0 28-11 23Z" fill="var(--shirt,#73aaa4)" stroke="#3e5a5b" stroke-width=".8"/><path d="M-2 3L0 11L3 3" fill="#f7f4e9" opacity=".82"/><path d="M0 11V24" stroke="#fff" opacity=".2" stroke-width="1"/><path d="M-9 20Q0 23 10 20" fill="none" stroke="#203e48" opacity=".13" stroke-width="1.5"/></g>
-      <g class="cnl-person-head"><rect x="-3" y="-2" width="6" height="8" rx="2" fill="#e5b38d"/><ellipse cy="-10" rx="10.4" ry="11.4" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><ellipse cx="-10" cy="-9" rx="2" ry="3" fill="#e9bd9b"/><ellipse cx="10" cy="-9" rx="2" ry="3" fill="#e9bd9b"/><path d="M-10-8Q-13-22 0-23Q14-23 11-8L8-15Q2-10-4-16L-8-12Z" fill="var(--hair,#3d393d)"/><path d="M-3-5Q0-3 3-5" fill="none" stroke="#a86f60" stroke-width=".9" stroke-linecap="round"/><circle cx="-4" cy="-10" r=".9" fill="#3f4548"/><circle cx="4" cy="-10" r=".9" fill="#3f4548"/><path d="M-6-13H-3M3-13H6" stroke="#7c6253" stroke-width=".7" stroke-linecap="round"/><ellipse cx="-7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/></g>
+      <g class="cnl-person-head"><rect x="-3" y="-2" width="6" height="8" rx="2" fill="#e5b38d"/><ellipse cy="-10" rx="10.4" ry="11.4" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><ellipse cx="-10" cy="-9" rx="2" ry="3" fill="#e9bd9b"/><ellipse cx="10" cy="-9" rx="2" ry="3" fill="#e9bd9b"/><path d="M-10-8Q-13-22 0-23Q14-23 11-8L8-15Q2-10-4-16L-8-12Z" fill="var(--hair,#3d393d)"/><g class="cnl-person-face-neutral"><path d="M-3-5Q0-3 3-5" fill="none" stroke="#a86f60" stroke-width=".9" stroke-linecap="round"/><circle cx="-4" cy="-10" r=".9" fill="#3f4548"/><circle cx="4" cy="-10" r=".9" fill="#3f4548"/><path d="M-6-13H-3M3-13H6" stroke="#7c6253" stroke-width=".7" stroke-linecap="round"/></g><g class="cnl-person-face-happy" fill="none" stroke-linecap="round"><path d="M-6-9Q-4-12-2-9M2-9Q4-12 6-9" stroke="#4f4841" stroke-width="1.2"/><path d="M-3.5-5Q0 0 3.5-5Z" fill="#b76f5b" stroke="#a86f60" stroke-width=".7"/><path d="M-2.2-4.5H2.2" stroke="#fff6e9" stroke-width="1.1"/></g><ellipse cx="-7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-6" rx="2" ry="1" fill="#e9a994" opacity=".6"/></g>
     </symbol>
     <symbol id="${uid}-seated" viewBox="-26 -59 52 63">
       <ellipse class="cnl-person-shadow" cy="1" rx="23" ry="4" fill="#344c48" opacity=".12"/>
@@ -133,6 +134,9 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-human .cnl-human-halo-static{fill:#edbd74;stroke:#ba955a;stroke-width:.6;opacity:.12}.cnl-human-ground{fill:#fff4db;stroke:#c8a264;stroke-width:.9}.cnl-human-identity>circle:first-child{fill:#fff5df;stroke:#b98b4c;stroke-width:.8}.cnl-human-identity>circle:nth-child(2){fill:#ab7b3e}.cnl-human-identity path{fill:none;stroke:#ab7b3e;stroke-width:1;stroke-linecap:round}.cnl-human .cnl-human-card{fill:#fff9ec;stroke:#c5a66f;stroke-width:.8}.cnl-human-card-stripe{fill:none;stroke:#bb8b47;stroke-width:2;stroke-linecap:round}.cnl-human .cnl-human-name{fill:#6f542c;font-size:7px}.cnl-human .cnl-human-type{fill:#a1783b;font-size:4.8px}.cnl-human .cnl-human-state{fill:#92764d;font-size:5.5px}.cnl-carry-document{filter:drop-shadow(1px 2px 1px #245a4940)}.cnl-agent .cnl-carry-document{fill:#f4fff9;stroke:#3d9c80}
     @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important;transition:none!important}}
     .cnl-presence{cursor:pointer;outline:none}.cnl-presence-name{font-size:7px;fill:#4a5149;font-weight:650;paint-order:stroke;stroke:#faf8ef;stroke-width:2.6;stroke-linejoin:round}.cnl-presence[data-current="true"] .cnl-presence-name{fill:#8b4835;font-weight:800}.cnl-presence:hover .cnl-presence-name,.cnl-presence:focus-visible .cnl-presence-name{text-decoration:underline}.cnl-presence-body{transform-origin:0 -12px}
+    .cnl-person-face-happy{display:none}.cnl-presence[data-greeting="human"] .cnl-person-face-neutral{display:none}.cnl-presence[data-greeting="human"] .cnl-person-face-happy{display:block}
+    .cnl-greeting-layer{pointer-events:none}.cnl-greeting-surface{fill:#fffdf6;stroke:#b5bba9;stroke-width:.85}.cnl-greeting-bubble text{font-size:10px;fill:#40584d;font-weight:650;letter-spacing:.15px}.cnl-greeting-layer[data-visible="true"] .cnl-greeting-bubble{animation:cnl-greeting-enter .16s ease-out both}.cnl-greeting-icon{stroke-linecap:round;stroke-linejoin:round}.cnl-greeting-icon path{fill:none;stroke-width:1.1}.cnl-greeting-icon-human{color:#a47a4e}.cnl-greeting-icon-robot{color:#357c6c}
+    @keyframes cnl-greeting-enter{from{opacity:0;translate:0 3px}to{opacity:1;translate:0 0}}
   </style>
 
   <g class="cnl-world">
@@ -259,7 +263,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     <g class="cnl-general-office-room" filter="url(#${uid}-soft)"><path d="M527 13L534 6H799L805 13V98H527Z" fill="#c5baa3" stroke="#a29377" stroke-width="1.1"/><rect x="527" y="10" width="278" height="91" rx="8" fill="#f0e9da" stroke="#b6aa90" stroke-width="1.1"/><path d="M528 35H804" stroke="#d8cdb8" stroke-width=".8"/>${title(668,25,'总经办','EXECUTIVE OFFICE','#b48e58')}<g class="cnl-device" data-device="general_office">${use('desk',552,43,.60,'style="--screen:#a4d5ca"')}${use('desk',723,43,.60,'style="--screen:#d5bc94"')}<g transform="translate(657 46)"><rect x="-7" y="-5" width="15" height="11" rx="2" fill="#fffbec" stroke="#ae9470" stroke-width=".7"/><path d="M-3-2H4M-3 0H4M-3 2H2" stroke="#b6a078" stroke-width=".7"/></g></g><path d="M527 101H536M564 101H805" stroke="#a99b7c" stroke-width="2"/><rect x="537" y="98" width="26" height="6" fill="#f8f3df"/><path d="M537 99V82H554" fill="none" stroke="#b5a68a" stroke-width=".8"/>${plant(788,81,.40)}</g>
     <g class="cnl-node-layer">${hotspots}</g>
     <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g><g class="cnl-presence-layer"></g>
-    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g>
+    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g><g class="cnl-greeting-layer" aria-hidden="true" style="display:none"></g>
   </g>
   </svg>`;
 
@@ -279,6 +283,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const humanElements = new Map();
   const humanPositions = new Map(HUMAN_EMPLOYEES.map(h => [h.id,{x:h.x,y:h.y}]));
   const presenceLayer=svg.querySelector('.cnl-presence-layer');
+  const greetingLayer=svg.querySelector('.cnl-greeting-layer');
   const presenceElements=new Map();let presenceState={enabled:false,people:[]},presenceFrame=0,presenceHiddenAt=null;
   const agentElements = new Map();
   const agentPositions = new Map();
@@ -306,20 +311,55 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let motionUntil = 0;
   let destroyed = false;
   let cameraMotionFrame=0,hoveredObject=null;
+  let greetingElement=null,greetingAnimation=null;
   const feedbackAnimations=new WeakMap();
   const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);applyView();}});
   function animateView(patch){const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);return next;}
   function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);}
   function stopCamera(){viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
+  function stopGreetingWave(){greetingAnimation?.cancel();greetingAnimation=null;}
+  function clearGreeting(){
+    stopGreetingWave();
+    if(greetingElement){delete greetingElement.dataset.greeting;greetingElement.removeAttribute?.('aria-describedby');}
+    greetingElement=null;greetingLayer.style.display='none';greetingLayer.dataset.visible='false';greetingLayer.setAttribute('aria-hidden','true');greetingLayer.innerHTML='';
+  }
+  function greetingPerson(target){
+    const element=target?.closest?.('[data-agent], [data-human]');
+    if(!element)return null;
+    if(element.dataset.agent&&agentElements.get(element.dataset.agent)===element)return element;
+    // Only actual signed-in people greet in ERP, never hidden lab representatives.
+    const id=element.dataset.human;
+    return presenceState.enabled&&presenceElements.get(id)===element&&presenceMotion.entries.has(id)?element:null;
+  }
+  function syncGreetingPoint(){
+    if(!greetingElement)return;
+    const point=greetingElement.dataset.agent?agentPositions.get(greetingElement.dataset.agent):humanPositions.get(greetingElement.dataset.human);
+    if(point)greetingLayer.setAttribute('transform',`translate(${point.x} ${point.y})`);else clearGreeting();
+  }
+  function showGreeting(element){
+    if(destroyed||document.hidden||drag){clearGreeting();return;}
+    if(element===greetingElement)return;
+    clearGreeting();if(!element)return;
+    const greeting=greetingForPerson({virtual:!!element.dataset.agent}),robot=greeting.kind==='robot',half=robot?49:44;
+    const icon=robot?'<rect x="-8" y="-6" width="16" height="13" rx="4" fill="#e0f0e6" stroke="currentColor" stroke-width=".9"/><path d="M0-6V-9M-10-2V3M10-2V3M-5-1Q-3-4-1-1M1-1Q3-4 5-1M-3 3Q0 6 3 3" stroke="currentColor"/><circle cy="-10" r="1.4" fill="currentColor"/>':'<circle r="9" fill="#f5e7cf"/><path d="M-6-1Q-4-4-2-1M2-1Q4-4 6-1M-4 3Q0 7 4 3" stroke="currentColor"/>';
+    greetingElement=element;element.dataset.greeting=greeting.kind;element.setAttribute('aria-describedby',`${uid}-greeting`);
+    greetingLayer.innerHTML=`<g class="cnl-greeting-bubble" id="${uid}-greeting" role="tooltip"><path class="cnl-greeting-surface" d="M${-half+10}-76H${half-10}Q${half}-76 ${half}-66V-59Q${half}-49 ${half-10}-49H5L0-43L-5-49H${-half+10}Q${-half}-49 ${-half}-59V-66Q${-half}-76 ${-half+10}-76Z"/><g class="cnl-greeting-icon cnl-greeting-icon-${greeting.kind}" transform="translate(${-half+18} -62.5)">${icon}</g><text x="${-half+34}" y="-59">${esc(greeting.text)}</text></g>`;
+    greetingLayer.style.display='';greetingLayer.dataset.visible='true';greetingLayer.setAttribute('aria-hidden','false');syncGreetingPoint();
+    const id=element.dataset.human,entry=presenceMotion.entries.get(id),arm=element.querySelector('.cnl-person-arm-right');
+    if(!robot&&!reducedMotion&&!entry?.motion&&!deliveryQueue.locked(id)&&arm?.animate){
+      greetingAnimation=arm.animate([{transform:'rotate(0deg)',offset:0},{transform:'rotate(-130deg)',offset:.27},{transform:'rotate(-108deg)',offset:.4},{transform:'rotate(-143deg)',offset:.53},{transform:'rotate(-110deg)',offset:.66},{transform:'rotate(-134deg)',offset:.78},{transform:'rotate(0deg)',offset:1}],{duration:920,easing:'ease-in-out',iterations:1});
+    }
+  }
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>setPresencePoint(entry)});
   function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample}=entry;el.setAttribute('transform',`translate(${point.x} ${point.y})`);humanPositions.set(entry.person.id,{...point});el.dataset.walking=String(!!entry.motion);el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
+    if(el===greetingElement){if(entry.motion||deliveryQueue.locked(entry.person.id))stopGreetingWave();syncGreetingPoint();}
     const body=el.querySelector('.cnl-presence-body');if(body)body.style.transform=`translateY(${sample?.bob||0}px) rotate(${sample?.lean||0}deg)`;
     for(const [selector,sign]of[['.cnl-person-leg-left',1],['.cnl-person-leg-right',-1],['.cnl-person-arm-left',-.65],['.cnl-person-arm-right',.65]]){const limb=el.querySelector(selector);if(limb)limb.style.transform=`rotate(${(sample?.stride||0)*sign}deg)`;}
   }
   function ensurePresenceFrame(){if(!presenceFrame&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
   function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();}
-  function presenceVisibility(){if(document.hidden){presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
+  function presenceVisibility(){if(document.hidden){clearGreeting();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
   document.addEventListener?.('visibilitychange',presenceVisibility);
   function syncLegacyHumanVisibility(){
     const hidden=presenceState.enabled;humanLayer.style.display=hidden?'none':'';humanLayer.setAttribute('aria-hidden',String(hidden));
@@ -327,11 +367,11 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     humanApproval.style.display=hidden?'none':'';humanApproval.setAttribute('aria-hidden',String(hidden||!humanApproval.classList.contains('is-requesting')));humanApproval.setAttribute('tabindex',hidden?'-1':'0');
   }
   function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);const present=new Set(presenceMotion.entries.keys());
-    for(const [id,el]of presenceElements)if(!present.has(id)){el.remove();presenceElements.delete(id);humanElements.delete(id);humanPositions.delete(id);}
+    for(const [id,el]of presenceElements)if(!present.has(id)){if(el===greetingElement)clearGreeting();el.remove();presenceElements.delete(id);humanElements.delete(id);humanPositions.delete(id);}
     syncLegacyHumanVisibility();
     for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
       const p=entry.person;el.dataset.current=String(p.current);el.setAttribute('aria-label',`${p.name}，真实员工${p.title?'，'+p.title:''}，${p.current?'你，':''}在线，查看个人与待办`);el.setAttribute('aria-pressed',String(selectedHuman===id));
-      const signature=JSON.stringify([p.name,p.title,p.current,p.color,p.hair]);if(el.dataset.signature!==signature){el.dataset.signature=signature;el.innerHTML=`<title>${esc(p.name)}${p.title?' · '+esc(p.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(p.color,p.hair,{scale:.66})}<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(p.name.slice(0,9))}${p.name.length>9?'…':''}${p.current?' · 你':''}</text>`;}setPresencePoint(entry);
+      const signature=JSON.stringify([p.name,p.title,p.current,p.color,p.hair]);if(el.dataset.signature!==signature){if(el===greetingElement)stopGreetingWave();el.dataset.signature=signature;el.innerHTML=`<title>${esc(p.name)}${p.title?' · '+esc(p.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(p.color,p.hair,{scale:.66})}<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(p.name.slice(0,9))}${p.name.length>9?'…':''}${p.current?' · 你':''}</text>`;}setPresencePoint(entry);
     }
     ensurePresenceFrame();scheduleViewChange();
   }
@@ -428,6 +468,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     el.style.transform=`translate(${point.x}px, ${point.y}px)`;
     el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
     if(point.facing) el.style.setProperty('--facing',String(point.facing));
+    if(el===greetingElement)syncGreetingPoint();
     const home=AGENT_META[id];el.classList.toggle('is-seated',!!home&&(id.startsWith('invest_')||id==='boss')&&Math.hypot(point.x-home.x,point.y-home.y)<2);
   }
 
@@ -548,6 +589,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       // Lock the actual receiver, including a colleague in transit, until exchange is complete.
       if(!pair.recipientHuman) { stopWalk(pair.recipient);const receiving=agentElements.get(pair.recipient);if(receiving){receiving.dataset.motionPhase='receiving';receiving.classList.add('is-delivering');motionPhrase(pair.recipient);} }
       const receiver=pair.recipientHuman?humanElements.get(pair.recipient):agentElements.get(pair.recipient);
+      if(receiver===greetingElement)stopGreetingWave();
       receiver?.classList.add('is-handoff');
       const route=routeBetweenPoints(mover,recipient),length=routeLength(route);
       const near=pointAlongRoute(route,length>25?(length-25)/length:0);
@@ -585,7 +627,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   const onMotionPreferenceChange=event=>{
-    reducedMotion=event.matches;presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
+    reducedMotion=event.matches;if(reducedMotion)stopGreetingWave();presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
     viewTween.finish();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;
     cancelAnimationFrame(motionFrame);motionFrame=0;
     for(const [id,motion] of [...motions]) {motions.delete(id);setAgentPoint(id,motion.route.at(-1));clearWalkPose(agentElements.get(id));motion.onArrive?.();}
@@ -645,6 +687,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   const onPointerDown = e => {
+    clearGreeting();
     const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-employee], .cnl-human-approval');if(object){objectFeedback(object,true);return;}
     if (e.button !== 0) return;
     stopCamera();
@@ -677,8 +720,16 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     zoomAt(-Math.max(-.15, Math.min(.15, e.deltaY * .0015)), e.clientX, e.clientY);
   };
   svg.addEventListener('pointerdown', onPointerDown);
-  const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object)objectFeedback(object);}};
+  const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object&&!object.dataset.agent&&!object.dataset.human)objectFeedback(object);}showGreeting(greetingPerson(e.target));};
+  const onObjectOut=e=>{if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
+  const onObjectLeave=()=>{hoveredObject=null;clearGreeting();};
+  const onPersonFocus=e=>showGreeting(greetingPerson(e.target));
+  const onPersonBlur=e=>{if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
   svg.addEventListener('pointerover',onObjectHover);
+  svg.addEventListener('pointerout',onObjectOut);
+  svg.addEventListener('pointerleave',onObjectLeave);
+  svg.addEventListener('focusin',onPersonFocus);
+  svg.addEventListener('focusout',onPersonBlur);
   svg.addEventListener('pointermove', onPointerMove);
   svg.addEventListener('pointerup', onPointerEnd);
   svg.addEventListener('pointercancel', onPointerEnd);
@@ -689,6 +740,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   motionPreference?.addEventListener?.('change',onMotionPreferenceChange);
   renderHumans([]);
   renderAgents([],{snap:true});
+  clearGreeting();
 
   return {
     update,
@@ -715,7 +767,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     resetView() { animateView({scale:1,panX:0,panY:0}); },
     destroy() {
       destroyed = true;
-      stopCamera();svg.removeEventListener('pointerover',onObjectHover);
+      stopCamera();clearGreeting();svg.removeEventListener('pointerover',onObjectHover);svg.removeEventListener('pointerout',onObjectOut);svg.removeEventListener('pointerleave',onObjectLeave);svg.removeEventListener('focusin',onPersonFocus);svg.removeEventListener('focusout',onPersonBlur);
       resizeObserver.disconnect();
       motionPreference?.removeEventListener?.('change',onMotionPreferenceChange);
       document.removeEventListener?.('visibilitychange',presenceVisibility);cancelAnimationFrame(presenceFrame);presenceFrame=0;presenceMotion.destroy();presenceElements.clear();
