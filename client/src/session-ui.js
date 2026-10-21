@@ -5,34 +5,35 @@ const ROLE_NAMES = Object.freeze({admin:'管理员',manager:'负责人',procurem
 export function mountSession({container=document.body,requestRaw=(...args)=>fetch(...args),onAuthenticated=()=>{},onSignedOut=()=>{},onSessionExpired=()=>{},onChange=()=>{}}={}) {
   const dialog=document.createElement('dialog');
   dialog.className='session-dialog';
+  dialog.dataset.view='login';
   dialog.setAttribute('aria-labelledby','session-title');
   const spinner=id=>`<svg id="${id}" class="session-spinner" viewBox="0 0 24 24" aria-hidden="true" hidden><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8"/></svg>`;
+  const fieldIcon=kind=>`<svg class="session-field-icon" viewBox="0 0 24 24" aria-hidden="true">${kind==='account'?'<circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a7 7 0 0 1 14 0v1"/>':'<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>'}</svg>`;
   dialog.innerHTML=`<section class="session-card">
-    <header class="session-heading"><span class="session-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18V9l8-5 8 5v9M4 18h16M9 18v-6h6v6"/></svg></span><button type="button" class="session-close" data-session-action="close" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
-    <h1 id="session-title">登录</h1>
+    <header class="session-heading"><div class="session-heading-main"><span class="session-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><g data-session-icon="login"><path d="M15 5h10v22H15M5 16h14m-4-4 4 4-4 4"/><circle cx="22" cy="16" r=".7"/></g><g data-session-icon="profile"><rect x="4" y="4" width="24" height="24" rx="7"/><circle cx="16" cy="13" r="4"/><path d="M9 24a7 7 0 0 1 14 0"/></g><g data-session-icon="password"><circle cx="12" cy="12" r="7"/><circle cx="10" cy="10" r="1.5"/><path d="m17 17 10 10m-4-4 3-3m-7-1 3-3"/></g><g data-session-icon="invitation"><rect x="3" y="7" width="26" height="20" rx="5"/><path d="m4 10 12 9 12-9M13 5h6"/><path d="m11 23 3 3 7-7"/></g></svg></span><h1 id="session-title">登录</h1></div><button type="button" class="session-close" data-session-action="close" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
     <p class="session-message" id="session-message" aria-live="polite" hidden></p>
     <form id="session-login-form" class="session-form">
-      <label for="session-username">账号<input id="session-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required></label>
-      <label for="session-password">密码<input id="session-password" name="password" type="password" autocomplete="current-password" required></label>
+      <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-username"><span class="session-field-label">账号</span><span class="session-input">${fieldIcon('account')}<input id="session-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required></span></label>
+      <label for="session-password"><span class="session-field-label">密码</span><span class="session-input">${fieldIcon('password')}<input id="session-password" name="password" type="password" autocomplete="current-password" required></span></label></fieldset>
       <p class="session-error" id="session-login-error" role="alert" hidden></p>
       <button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">登录</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button>
     </form>
     <section id="session-profile" hidden>
-      <div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div><h2 id="session-name"></h2><p id="session-account"></p></div></div>
-      <dl class="session-facts"><div><dt>部门</dt><dd id="session-department"></dd></div><div><dt>岗位</dt><dd id="session-position"></dd></div><div><dt>角色</dt><dd id="session-roles"></dd></div></dl>
+      <div class="session-profile-card"><div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div class="session-person-copy"><h2 id="session-name"></h2><p id="session-account"></p></div></div>
+      <dl class="session-facts"><div><dt>部门</dt><dd id="session-department"></dd></div><div><dt>岗位</dt><dd id="session-position"></dd></div><div><dt>角色</dt><dd id="session-roles"></dd></div></dl></div>
       <p class="session-error" id="session-profile-error" role="alert" hidden></p>
-      <div class="session-profile-actions"><button type="button" data-session-action="password" id="session-password-entry" class="session-secondary">修改密码</button><button type="button" data-session-action="signout" id="session-signout-submit" class="session-signout">${spinner('session-signout-spinner')}<span id="session-signout-label">退出登录</span></button></div>
+      <div class="session-profile-actions"><button type="button" data-session-action="password" id="session-password-entry" class="session-secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="4"/><path d="m11 11 9 9m-3-3 2-2m-5-1 2-2"/></svg>修改密码</button><button type="button" data-session-action="signout" id="session-signout-submit" class="session-signout">${spinner('session-signout-spinner')}<span id="session-signout-label">退出登录</span></button></div>
     </section>
     <form id="session-password-form" class="session-form" hidden>
-      <label for="session-current">原密码<input id="session-current" name="currentPassword" type="password" autocomplete="current-password" required></label>
-      <label for="session-new">新密码<input id="session-new" name="newPassword" type="password" autocomplete="new-password" minlength="12" required><span class="session-field-note">至少 12 个字符</span></label>
-      <label for="session-confirm">确认新密码<input id="session-confirm" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label>
+      <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-current"><span class="session-field-label">原密码</span><span class="session-input">${fieldIcon('password')}<input id="session-current" name="currentPassword" type="password" autocomplete="current-password" required></span></label>
+      <label for="session-new"><span class="session-field-label">新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-new" name="newPassword" type="password" autocomplete="new-password" minlength="12" required></span><span class="session-field-note">至少 12 个字符</span></label>
+      <label for="session-confirm"><span class="session-field-label">确认新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-confirm" name="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></span></label></fieldset>
       <p class="session-error" id="session-password-error" role="alert" hidden></p>
       <div class="session-form-actions"><button type="button" data-session-action="profile" class="session-secondary">取消</button><button id="session-password-submit" class="session-primary" type="submit">${spinner('session-password-spinner')}<span id="session-password-label">保存密码</span></button></div>
     </form>
     <form id="session-invitation-form" class="session-form" hidden>
-      <label for="session-invitation-password">新密码<input id="session-invitation-password" type="password" autocomplete="new-password" minlength="12" required><span class="session-field-note">至少 12 个字符</span></label>
-      <label for="session-invitation-confirm">确认新密码<input id="session-invitation-confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+      <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-invitation-password"><span class="session-field-label">新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-invitation-password" type="password" autocomplete="new-password" minlength="12" required></span><span class="session-field-note">至少 12 个字符</span></label>
+      <label for="session-invitation-confirm"><span class="session-field-label">确认新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-invitation-confirm" type="password" autocomplete="new-password" minlength="12" required></span></label></fieldset>
       <p class="session-error" id="session-invitation-error" role="alert" hidden></p>
       <button id="session-invitation-submit" class="session-primary" type="submit">${spinner('session-invitation-spinner')}<span id="session-invitation-label">设置密码</span></button>
     </form>
@@ -109,6 +110,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     const opened=dialog.open,changed=mode!==view,reopening=closing;
     cancelClose();
     mode=view;
+    dialog.dataset.view=view;
     login.hidden=view!=='login';profile.hidden=view!=='profile';passwordForm.hidden=view!=='password';invitationForm.hidden=view!=='invitation';
     q('#session-title').textContent=view==='login'?'登录':view==='password'?'修改密码':view==='invitation'?'设置密码':'账户';
     message('#session-message',notice);

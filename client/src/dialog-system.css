@@ -1,0 +1,33 @@
+:root{
+  --dialog-paper:#fffdf6;
+  --dialog-ink:#29483d;
+  --dialog-muted:#687565;
+  --dialog-line:#d3ddcd;
+  --dialog-soft:#eef2e6;
+  --dialog-accent:#3c7160;
+  --dialog-radius:24px;
+  --dialog-ease:cubic-bezier(.2,.75,.25,1);
+}
+
+/* Shared materials. Each surface keeps its own layout and interaction model. */
+:where(.erp-layer,.session-dialog,.workspace-view-menu,.workspace-receipt){
+  background:var(--dialog-paper);
+  color:var(--dialog-ink);
+  border:1px solid var(--dialog-line);
+  border-radius:var(--dialog-radius);
+  box-shadow:none;
+  -webkit-font-smoothing:antialiased;
+}
+:where(.erp-layer,.session-dialog,.workspace-view-menu,.workspace-receipt) :is(button,a,input,select,textarea,summary):focus-visible{
+  outline:2px solid var(--dialog-accent);
+  outline-offset:3px;
+}
+:where(.erp-layer,.session-dialog,.workspace-view-menu){
+  scrollbar-width:thin;
+  scrollbar-color:#c5d0bc transparent;
+}
+@media(prefers-reduced-motion:reduce){
+  :where(.erp-layer,.session-dialog,.workspace-view-menu,.workspace-receipt,.workspace-toast){
+    scroll-behavior:auto;
+  }
+}

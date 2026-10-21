@@ -39,3 +39,22 @@ body{background:var(--paper);color:var(--ink)}#lab{background:#f2f1e8;background
 @media(max-width:720px){.workspace-perspective{top:max(17px,env(safe-area-inset-top));left:max(17px,env(safe-area-inset-left));border-radius:11px;padding:4px}.workspace-perspective button{width:34px;height:34px;border-radius:7px}.erp-layer .erp-heading{padding-top:64px}}
 @media(hover:hover) and (pointer:fine){.workspace-dock button:hover{transform:translateY(-2px)}.workspace-dock button:active{transform:translateY(0) scale(.96)}.workspace-receipt>button:first-child:hover .workspace-receipt-mark{background:#dce8d3}.workspace-view-row button:hover{background:#dfe7d5}}
 @media(prefers-reduced-motion:reduce){.workspace-dock button,.workspace-view-menu button,.workspace-receipt button,.workspace-perspective button{transition:none!important;transform:none!important}}
+
+/* Compact feedback uses the same materials as business and account windows. */
+.workspace-view-menu{width:272px;padding:14px;background:var(--dialog-paper);border-color:var(--dialog-line);border-radius:20px;color:var(--dialog-ink)}
+.workspace-view-row{gap:16px;padding:12px;border:1px solid #dce3d2;border-radius:13px;background:var(--dialog-soft);font-size:12px;font-weight:550;color:var(--dialog-ink)}
+.workspace-view-row>div{gap:5px}.workspace-view-row button{width:35px;height:35px;border:1px solid #cdd9c3;border-radius:10px;background:var(--dialog-paper);color:var(--dialog-accent);font-size:21px}
+.workspace-view-option{gap:12px;min-height:46px;margin-top:5px;padding:11px 12px;border:1px solid transparent;border-radius:12px;color:var(--dialog-ink);font-size:12px;text-align:left}
+.workspace-view-option .icon{width:19px;height:19px;color:var(--dialog-accent)}
+.workspace-view-option:hover{background:var(--dialog-soft);border-color:#dce3d2}
+.workspace-view-option span:last-child:not(:first-child){font-size:11px;color:var(--dialog-muted)}
+.workspace-receipt{gap:6px;padding:12px;background:var(--dialog-paper);border-color:var(--dialog-line);border-radius:20px}
+.workspace-receipt>button:first-child{gap:13px;padding:1px 5px 1px 1px}
+.workspace-receipt-mark{width:44px;height:44px;border:1px solid #cbd9c2;border-radius:15px;background:var(--dialog-soft);color:var(--dialog-accent)}
+.workspace-receipt-mark .icon{width:21px;height:21px}
+.workspace-receipt small{margin-bottom:4px;color:var(--dialog-muted);font-size:10px;letter-spacing:.02em}
+.workspace-receipt strong{color:var(--dialog-ink);font-size:13px;font-weight:600;line-height:1.6}
+.workspace-receipt>button:last-child{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:6px;border:1px solid #e0e5d8;border-radius:10px;color:var(--dialog-muted)}
+.workspace-receipt>button:last-child:hover{border-color:#bdcdb2;background:var(--dialog-soft);color:var(--dialog-ink)}
+.workspace-toast{padding:13px 22px;border-color:#527c68;border-radius:16px;background:#294b3f;color:#fffdf6;font-size:13px;line-height:1.65;overflow-wrap:anywhere}
+@media(max-width:480px){.workspace-view-menu{width:min(272px,calc(100vw - 24px));padding:12px;border-radius:18px}.workspace-receipt{max-width:calc(100vw - 24px);padding:10px;border-radius:17px}.workspace-receipt strong{max-width:min(220px,calc(100vw - 135px))}}
