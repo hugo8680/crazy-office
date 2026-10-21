@@ -17,10 +17,10 @@ class InlineStyle{
   removeProperty(name){this.values.delete(name);this.writes.push({name,removed:true});}
   snapshot(){return Object.fromEntries(this.values);}
 }
-function fixture({viewport:metrics={offsetLeft:0,offsetTop:0,width:1440,height:900,scale:1},initial={},requestFrame=true,children=[]}={}){
+function fixture({viewport:metrics={offsetLeft:0,offsetTop:0,width:1440,height:900,scale:1},initial={},requestFrame=true,children=[],boundsTarget}={}){
   const viewport=metrics===null?null:Object.assign(new Events(),metrics),windowTarget=new Events(),style=new InlineStyle(initial),frames=new Map(),cancelled=[];
   let sequence=0;
-  const options={viewport,windowTarget,requestFrame:requestFrame?(fn=>{const id=sequence++;frames.set(id,fn);return id;}):undefined,cancelFrame:id=>{cancelled.push(id);frames.delete(id);}};
+  const options={viewport,windowTarget,boundsTarget,requestFrame:requestFrame?(fn=>{const id=sequence++;frames.set(id,fn);return id;}):undefined,cancelFrame:id=>{cancelled.push(id);frames.delete(id);}};
   const element={style,children},mounted=mountWorkspaceViewport(element,options);
   return {element,viewport,windowTarget,style,frames,cancelled,mounted,flush(){const queued=[...frames.values()];frames.clear();for(const fn of queued)fn();}};
 }
@@ -111,4 +111,26 @@ test('missing VisualViewport leaves the CSS fallback and unrelated inline styles
 test('an environment without animation frames can update once without starting a timer loop',()=>{
   const f=fixture({requestFrame:false});
   try{Object.assign(f.viewport,{offsetLeft:10,offsetTop:20,width:720,height:450,scale:2});f.viewport.emit('resize');assert.equal(f.style.getPropertyValue('transform'),'scale(0.5)');assert.equal(f.frames.size,0);}finally{f.mounted.destroy();}
+});
+
+test('business windows receive real visible bounds while the office surface keeps its logical resolution',()=>{
+  const boundsTarget={style:new InlineStyle()},f=fixture({boundsTarget,viewport:{offsetLeft:310,offsetTop:120,width:720,height:450,scale:2}});
+  try{
+    assert.equal(f.style.getPropertyValue('width'),'1440px');
+    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-width'),'720px');
+    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-left'),'310px');
+    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-height'),'450px');
+    const writes=boundsTarget.style.writes.length;f.viewport.emit('resize');f.viewport.emit('scroll');f.flush();assert.equal(boundsTarget.style.writes.length,writes);
+    Object.assign(f.viewport,{offsetLeft:420,offsetTop:180,width:480,height:300,scale:3});f.viewport.emit('resize');f.flush();
+    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-width'),'480px');
+    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-top'),'180px');
+    assert.equal(f.style.getPropertyValue('width'),'1440px');
+  }finally{f.mounted.destroy();}
+});
+
+test('business viewport bounds are restored with their prior priorities on teardown',()=>{
+  const initial={'--workspace-visible-width':{value:'95vw',priority:'important'},color:'green'},style=new InlineStyle(initial),before=style.snapshot();
+  const f=fixture({boundsTarget:{style},viewport:{offsetLeft:20,offsetTop:30,width:720,height:450,scale:2}});
+  f.viewport.offsetTop=50;f.viewport.emit('scroll');const late=[...f.frames.values()][0];f.mounted.destroy();late();
+  assert.deepEqual(style.snapshot(),before);
 });

@@ -1,8 +1,10 @@
 const OWNED_PROPERTIES=['left','top','width','height','transform','transform-origin'];
+const BOUNDS_PROPERTIES=['--workspace-visible-left','--workspace-visible-top','--workspace-visible-width','--workspace-visible-height','--workspace-inverse-scale'];
 
 /** Keep office controls in the visible viewport without scaling business content. */
 export function mountWorkspaceViewport(element,{
   viewport=globalThis.visualViewport,
+  boundsTarget,
   windowTarget=globalThis.window,
   requestFrame=globalThis.requestAnimationFrame,
   cancelFrame=globalThis.cancelAnimationFrame
@@ -11,6 +13,9 @@ export function mountWorkspaceViewport(element,{
   const style=element.style;
   const original=new Map(OWNED_PROPERTIES.map(name=>[name,{value:style.getPropertyValue(name),priority:style.getPropertyPriority(name)}]));
   const written=new Map(),touched=new Set();
+  const boundsStyle=boundsTarget?.style;
+  const boundsOriginal=boundsStyle?new Map(BOUNDS_PROPERTIES.map(name=>[name,{value:boundsStyle.getPropertyValue(name),priority:boundsStyle.getPropertyPriority(name)}])):null;
+  const boundsWritten=new Map(),boundsTouched=new Set();
   let destroyed=false,pending=null;
 
   function update(){
@@ -27,6 +32,16 @@ export function mountWorkspaceViewport(element,{
       if(style.getPropertyValue(name)===value&&!style.getPropertyPriority(name))continue;
       touched.add(name);
       style.setProperty(name,value);
+    }
+    if(boundsStyle){
+      const values=[left,top,width,height,inverse];
+      for(const [index,name] of BOUNDS_PROPERTIES.entries()){
+        const value=index===4?String(inverse):`${values[index]}px`;
+        if(boundsWritten.get(name)===value)continue;
+        boundsWritten.set(name,value);
+        if(boundsStyle.getPropertyValue(name)===value&&!boundsStyle.getPropertyPriority(name))continue;
+        boundsTouched.add(name);boundsStyle.setProperty(name,value);
+      }
     }
   }
   function schedule(){
@@ -52,5 +67,11 @@ export function mountWorkspaceViewport(element,{
       else style.removeProperty(name);
     }
     touched.clear();written.clear();
+    for(const name of boundsTouched){
+      const saved=boundsOriginal.get(name);
+      if(saved.value)boundsStyle.setProperty(name,saved.value,saved.priority);
+      else boundsStyle.removeProperty(name);
+    }
+    boundsTouched.clear();boundsWritten.clear();
   }};
 }

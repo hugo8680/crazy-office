@@ -13,7 +13,8 @@ const viewMenu=document.querySelector('#view-menu');
 const viewSwitch=document.querySelector('#view-switch');
 const receipt=document.querySelector('#workspace-receipt');
 const toastElement=document.querySelector('#toast');
-const viewportChrome=mountWorkspaceViewport(document.querySelector('#workspace-chrome'));
+const viewportScene=mountWorkspaceViewport(document.querySelector('#workspace-stage'));
+const viewportChrome=mountWorkspaceViewport(document.querySelector('#workspace-chrome'),{boundsTarget:lab});
 const observer=createDocumentObserver();
 const motionPreference=window.matchMedia?.('(prefers-reduced-motion: reduce)');
 const surfaceMotions=new Map();
@@ -56,7 +57,7 @@ function renderDock(){
     const focusedView=document.activeElement?.closest?.('#view-switch button');
     if(focusedView)viewFocus=focusedView.dataset.officeView;
     viewSignature=nextViewSignature;
-    viewSwitch.innerHTML=[['2d','plan','平面视角'],['3d','cube','立体视角']].map(([mode,symbol,label])=>`<button type="button" data-office-view="${mode}" aria-label="${label}" title="${label}" aria-pressed="${scene.mode===mode}" ${scene.pending?'disabled':''}>${icon(symbol)}</button>`).join('');
+    viewSwitch.innerHTML=[['2d','plan','平面视角'],['3d','cube','立体视角']].map(([mode,symbol,label])=>`<button type="button" data-office-view="${mode}" aria-label="${label}" title="${label}" aria-pressed="${scene.mode===mode}" ${scene.pending?'disabled':''}>${icon(symbol)}</button>`).join('')+`<button type="button" data-office-action="fit" aria-label="恢复全景" title="${scene.mode==='3d'?'恢复全景（Home）':'恢复全景'}" ${scene.pending?'disabled':''}>${icon('target')}</button>`;
     if(viewFocus&&!scene.pending){for(const button of viewSwitch.querySelectorAll('button'))if(button.dataset.officeView===viewFocus){button.focus();break;}viewFocus=null;}
   }
   const counts=workspaceCounts(snapshot,actor().id),name=actor().name||'账户';
@@ -71,7 +72,7 @@ function renderDock(){
   if(focusData)for(const button of dock.querySelectorAll('button'))if(['officeAction','officeSection','officeView'].some(key=>focusData[key]&&button.dataset[key]===focusData[key])){button.focus();break;}
 }
 function renderViewMenu(){
-  viewMenu.innerHTML=`<div class="workspace-view-row"><span>缩放</span><div><button type="button" data-office-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button type="button" data-office-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button><button type="button" data-office-action="fit" aria-label="恢复全景" title="恢复全景（Home）">${icon('target')}</button></div></div>${scene.mode==='3d'?`<div class="workspace-view-row"><span>旋转</span><div><button type="button" data-office-action="rotate-left" aria-label="向左旋转" title="向左旋转">↶</button><button type="button" data-office-action="rotate-right" aria-label="向右旋转" title="向右旋转">↷</button></div></div>`:''}<button type="button" class="workspace-view-option" data-office-action="topology" aria-pressed="${topology}">${icon('network')}<span>网络连线</span><span>${topology?'开':'关'}</span></button><button type="button" class="workspace-view-option" data-office-action="fullscreen">${icon(document.fullscreenElement?'fullscreen-exit':'fullscreen')}<span>${document.fullscreenElement?'退出全屏':'全屏'}</span></button>`;
+  viewMenu.innerHTML=`<div class="workspace-view-row"><span>缩放</span><div><button type="button" data-office-action="zoom-out" aria-label="缩小" title="缩小">${icon('minus')}</button><button type="button" data-office-action="zoom-in" aria-label="放大" title="放大">${icon('plus')}</button><button type="button" data-office-action="fit" aria-label="恢复全景" title="${scene.mode==='3d'?'恢复全景（Home）':'恢复全景'}">${icon('target')}</button></div></div>${scene.mode==='3d'?`<div class="workspace-view-row"><span>旋转</span><div><button type="button" data-office-action="rotate-left" aria-label="向左旋转" title="向左旋转">↶</button><button type="button" data-office-action="rotate-right" aria-label="向右旋转" title="向右旋转">↷</button></div></div>`:''}<button type="button" class="workspace-view-option" data-office-action="topology" aria-pressed="${topology}">${icon('network')}<span>网络连线</span><span>${topology?'开':'关'}</span></button><button type="button" class="workspace-view-option" data-office-action="fullscreen">${icon(document.fullscreenElement?'fullscreen-exit':'fullscreen')}<span>${document.fullscreenElement?'退出全屏':'全屏'}</span></button>`;
 }
 function requireAccount(){if(isAuthenticated()&&erp)return true;account?.requireLogin();return false;}
 async function openSection(next,context={}){
@@ -151,4 +152,4 @@ await account.ready;
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelSurfaceMotions();else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
 try{const saved=localStorage.getItem('office-view-mode');if(saved==='3d')void scene.setMode('3d');}catch{}
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;viewportChrome.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;viewportScene.destroy();viewportChrome.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});

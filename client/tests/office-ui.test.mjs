@@ -118,7 +118,7 @@ test('the HTML shell contains one office scene and dock without the removed stat
 test('perspective controls are accessible icons in the scene, with no duplicated text controls in the dock',async()=>{
   const h=await harness();try{
     assert.match(h.element('#view-switch').innerHTML,/aria-label="平面视角"/);assert.match(h.element('#view-switch').innerHTML,/aria-label="立体视角"/);
-    assert.match(h.element('#view-switch').innerHTML,/#i-cube/);assert.match(h.element('#view-switch').innerHTML,/#i-plan/);
+    assert.match(h.element('#view-switch').innerHTML,/#i-cube/);assert.match(h.element('#view-switch').innerHTML,/#i-plan/);assert.match(h.element('#view-switch').innerHTML,/data-office-action="fit"[^>]*aria-label="恢复全景"/);await h.click({officeAction:'fit'});assert.ok(h.scene.viewCalls.some(([kind])=>kind==='reset'));
     assert.doesNotMatch(h.element('#view-switch').innerHTML,/>2D<|>3D</);assert.doesNotMatch(h.element('#action-dock').innerHTML,/data-office-view/);assert.doesNotMatch(h.element('#view-menu').innerHTML,/data-office-view/);
     await h.click({officeView:'3d'});assert.match(h.element('#view-switch').innerHTML,/data-office-view="3d"[^>]*aria-pressed="true"/);assert.equal(h.scene.mode,'3d');assert.equal(h.requests.filter(r=>r.method!=='GET').length,0);
   }finally{h.cleanup();}

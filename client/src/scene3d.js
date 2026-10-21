@@ -272,7 +272,7 @@ export function mountScene3D(container,{
     wrapper.dataset.renderCount=String(stats.renders);wrapper.dataset.drawCalls=String(stats.drawCalls);wrapper.dataset.frameMs=stats.frameMs.toFixed(2);
     if(labelsDirty||busy||labelsChanged){updateLabels();labelsDirty=false;onViewChange();}renderDirty=false;
   }
-  function resize(){if(destroyed||contextLost)return;const rect=container.getBoundingClientRect(),nextWidth=Number(rect.width),nextHeight=Number(rect.height);
+  function resize(){if(destroyed||contextLost)return;const rect=container.getBoundingClientRect(),nextWidth=Number(container.clientWidth??rect.width),nextHeight=Number(container.clientHeight??rect.height);
     if(!Number.isFinite(nextWidth)||!Number.isFinite(nextHeight)||nextWidth<=0||nextHeight<=0)return;
     const nextRatio=scene3DPixelRatio(nextWidth,nextHeight,globalThis.devicePixelRatio||1,{maxDimension:maxBufferDimension});
     if(stats.resizes&&width===nextWidth&&height===nextHeight&&Math.abs(pixelRatio-nextRatio)<1e-8)return;
@@ -298,20 +298,25 @@ export function mountScene3D(container,{
   function zoom(delta=.15){clearSelectionTimer();const next=clamp(viewTween.target.scale+Number(delta||0),.72,3.2);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});return next;}
   function rotate(delta=Math.PI/8,tilt=0){clearSelectionTimer();const next={...viewTween.target,azimuth:viewTween.target.azimuth+(Number(delta)||0),elevation:clamp(viewTween.target.elevation+(Number(tilt)||0),.42,1.28)};viewTween.start(next,{immediate:reducedMotion});return {azimuth:next.azimuth,elevation:next.elevation};}
   function focusPoint(point){if(!point)return false;const diff=new THREE.Vector3(point.x-target.x,0,point.y-target.z);viewTween.start({scale:Math.max(scale,1.4),panX:diff.dot(cameraFrame.right)-cameraFrame.centerX,panY:diff.dot(cameraFrame.up)-cameraFrame.centerY},{immediate:reducedMotion});return true;}
+  // A viewport-compensating ancestor can scale the stage without changing its
+  // layout. Camera/labels use layout pixels; pointer coordinates use its rect.
+  function logicalPointer(event){const rect=canvas.getBoundingClientRect();return {x:(event.clientX-rect.left)*width/Math.max(1,rect.width),y:(event.clientY-rect.top)*height/Math.max(1,rect.height)};}
   function pan(dx,dy){panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
   function sampleTouch(){const points=[...touches.values()],a=points[0],b=points[1];return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),angle:Math.atan2(b.y-a.y,b.x-a.x)}:null;}
   const onDown=(e,origin=null)=>{
     if(![0,1,2].includes(e.button))return;e.preventDefault();clearGreeting();hoveredKey='';viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
-    if(e.pointerType==='touch'){touches.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touches.size>1){touchGesture=sampleTouch();if(drag)drag.moved=true;canvas.setPointerCapture?.(e.pointerId);return;}}
-    drag={id:e.pointerId,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false,mode:scene3DGestureMode(e),origin};
+    const point=logicalPointer(e);
+    if(e.pointerType==='touch'){touches.set(e.pointerId,point);if(touches.size>1){touchGesture=sampleTouch();if(drag)drag.moved=true;canvas.setPointerCapture?.(e.pointerId);return;}}
+    drag={id:e.pointerId,x:point.x,y:point.y,lastX:point.x,lastY:point.y,moved:false,mode:scene3DGestureMode(e),origin};
   };
   const onMove=e=>{
-    if(touches.has(e.pointerId)){touches.set(e.pointerId,{x:e.clientX,y:e.clientY});if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){pan(next.x-touchGesture.x,next.y-touchGesture.y);scale=clamp(scale*next.distance/touchGesture.distance,.72,3.2);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
-    if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){hoveredKey=key;if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(e.clientX-drag.x,e.clientY-drag.y)<5)return;
+    const point=logicalPointer(e);
+    if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){pan(next.x-touchGesture.x,next.y-touchGesture.y);scale=clamp(scale*next.distance/touchGesture.distance,.72,3.2);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
+    if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){hoveredKey=key;if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(point.x-drag.x,point.y-drag.y)<5)return;
     clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
-    const dx=e.clientX-drag.lastX,dy=e.clientY-drag.lastY;
+    const dx=point.x-drag.lastX,dy=point.y-drag.lastY;
     if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);}
-    drag.lastX=e.clientX;drag.lastY=e.clientY;applyView();
+    drag.lastX=point.x;drag.lastY=point.y;applyView();
   };
   const visiblePick=object=>{for(let p=object;p&&p!==scene;p=p.parent)if(!p.visible)return false;return true;};
   function pickAt(e){const rect=canvas.getBoundingClientRect();pointer.set((e.clientX-rect.left)/Math.max(1,rect.width)*2-1,-(e.clientY-rect.top)/Math.max(1,rect.height)*2+1);raycaster.setFromCamera(pointer,camera);return raycaster.intersectObjects(picks.filter(visiblePick),false)[0]?.object.userData||null;}
@@ -324,7 +329,7 @@ export function mountScene3D(container,{
     const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit)queueSelection(hit.type,hit.id);if(active.origin)suppressClickUntil=performance.now()+80;
   };
   const onCancel=e=>{clearGreeting();touches.delete(e.pointerId);touchGesture=null;if(drag?.id===e.pointerId)drag=null;wrapper.classList.remove('is-panning');if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
-  listen(canvas,'pointerdown',onDown);listen(canvas,'pointermove',onMove);listen(canvas,'pointerup',onUp);listen(canvas,'pointercancel',onCancel);listen(canvas,'contextmenu',e=>e.preventDefault());
+  listen(canvas,'pointerdown',onDown);listen(canvas,'pointermove',onMove);listen(canvas,'pointerup',onUp);listen(canvas,'pointercancel',onCancel);listen(wrapper,'contextmenu',e=>e.preventDefault());
   listen(canvas,'pointerleave',()=>{hoveredKey='';clearGreeting();});
   listen(canvas,'dblclick',e=>{e.preventDefault();clearSelectionTimer();const hit=lastClickTarget&&performance.now()-lastClickTarget.time<400?lastClickTarget:pickAt(e);if(hit)focusObject(hit.type,hit.id);else resetView();});
   listen(wrapper,'keydown',e=>{
@@ -337,6 +342,8 @@ export function mountScene3D(container,{
   });
   // Labels are HTML siblings of the canvas. Handle their bubbling wheel/pinch
   // events here as well, so the browser never zooms the entire office page.
+  // Wheel deltas are scroll units, not transformed pointer coordinates: keep
+  // pixel values unchanged, resolve lines to 16px and pages to logical height.
   listen(wrapper,'wheel',e=>{e.preventDefault();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,3.2);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
   listen(wrapper,'gesturestart',e=>{e.preventDefault();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};suppressClickUntil=performance.now()+200;},{passive:false});
   listen(wrapper,'gesturechange',e=>{e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;const nextScale=Number(e.scale),rotation=Number(e.rotation);if(Number.isFinite(nextScale)&&nextScale>0)scale=clamp(nativeGesture.scale*nextScale,.72,3.2);if(Number.isFinite(rotation))azimuth=nativeGesture.azimuth-rotation*Math.PI/180;applyView();suppressClickUntil=performance.now()+200;},{passive:false});

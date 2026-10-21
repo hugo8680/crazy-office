@@ -306,17 +306,19 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let selected = null;
   let selectedAgent = null;
   let drag = null;
+  const touches=new Map(),inputDisposers=[];
+  let touchGesture=null,nativeGesture=null;
   let suppressClickUntil = 0;
   let viewFrame = 0;
   let motionUntil = 0;
   let destroyed = false;
-  let cameraMotionFrame=0,hoveredObject=null;
+  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null;
   let greetingElement=null,greetingAnimation=null;
   const feedbackAnimations=new WeakMap();
-  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);applyView();}});
-  function animateView(patch){const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);return next;}
-  function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);}
-  function stopCamera(){viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
+  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);applyView();if(wheelAnchor){const after=worldPoint(wheelAnchor.x,wheelAnchor.y);panX+=wheelAnchor.world.x-after.x;panY+=wheelAnchor.world.y-after.y;applyView();}}});
+  function animateView(patch,anchor=null){wheelAnchor=anchor;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
+  function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
+  function stopCamera(){wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
   function stopGreetingWave(){greetingAnimation?.cancel();greetingAnimation=null;}
   function clearGreeting(){
@@ -359,7 +361,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
   function ensurePresenceFrame(){if(!presenceFrame&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
   function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();}
-  function presenceVisibility(){if(document.hidden){clearGreeting();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
+  function presenceVisibility(){if(document.hidden){clearGreeting();resetInput();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
   document.addEventListener?.('visibilitychange',presenceVisibility);
   function syncLegacyHumanVisibility(){
     const hidden=presenceState.enabled;humanLayer.style.display=hidden?'none':'';humanLayer.setAttribute('aria-hidden',String(hidden));
@@ -628,7 +630,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   const onMotionPreferenceChange=event=>{
     reducedMotion=event.matches;if(reducedMotion)stopGreetingWave();presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
-    viewTween.finish();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;
+    viewTween.finish();wheelAnchor=null;cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;
     cancelAnimationFrame(motionFrame);motionFrame=0;
     for(const [id,motion] of [...motions]) {motions.delete(id);setAgentPoint(id,motion.route.at(-1));clearWalkPose(agentElements.get(id));motion.onArrive?.();}
     scheduleViewChange();
@@ -675,9 +677,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     return matrix ? new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse()) : new DOMPoint();
   }
 
-  function zoomAt(delta, clientX, clientY) {
-    const before = worldPoint(clientX, clientY);
-    scale = Math.max(.72, Math.min(2.25, scale + delta));
+  function scaleAt(nextScale,clientX,clientY,before=worldPoint(clientX,clientY)) {
+    scale = Math.max(.72, Math.min(2.25, nextScale));
     applyView();
     const after = worldPoint(clientX, clientY);
     panX += before.x - after.x;
@@ -685,15 +686,30 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     applyView();
     return scale;
   }
+  function sampleTouches(){const [a,b]=touches.values();return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))}:null;}
+  function gesturePoint(event){if(Number.isFinite(event.clientX)&&Number.isFinite(event.clientY))return {x:event.clientX,y:event.clientY};const rect=svg.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};}
+  function releasePointer(id){if(svg.hasPointerCapture?.(id))svg.releasePointerCapture(id);}
+  function resetInput(){stopCamera();const ids=[...touches.keys()];if(drag)ids.push(drag.id);touches.clear();touchGesture=null;nativeGesture=null;drag=null;svg.classList.remove('is-panning');for(const id of ids)releasePointer(id);}
+  function listenInput(target,type,handler,options){target?.addEventListener?.(type,handler,options);inputDisposers.push(()=>target?.removeEventListener?.(type,handler,options));}
 
   const onPointerDown = e => {
+    if(destroyed)return;
     clearGreeting();
+    if(e.pointerType==='touch'){
+      touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(touches.size>1){e.preventDefault();stopCamera();nativeGesture=null;touchGesture=sampleTouches();drag=null;svg.classList.add('is-panning');for(const id of touches.keys())svg.setPointerCapture?.(id);suppressClickUntil=performance.now()+200;return;}
+    }
     const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-employee], .cnl-human-approval');if(object){objectFeedback(object,true);return;}
     if (e.button !== 0) return;
     stopCamera();
     drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false };
   };
   const onPointerMove = e => {
+    if(destroyed)return;
+    if(touches.has(e.pointerId)){
+      touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(touches.size>1){e.preventDefault();const next=sampleTouches();if(touchGesture&&next){const before=worldPoint(touchGesture.x,touchGesture.y);scaleAt(scale*next.distance/touchGesture.distance,next.x,next.y,before);}touchGesture=next;suppressClickUntil=performance.now()+200;return;}
+    }
     if (!drag || drag.id !== e.pointerId) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
     if (!drag.moved) { drag.moved = true; svg.setPointerCapture(e.pointerId); svg.classList.add('is-panning'); }
@@ -704,6 +720,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     applyView();
   };
   const onPointerEnd = e => {
+    if(destroyed)return;
+    const wasPinching=!!touchGesture;
+    touches.delete(e.pointerId);if(touches.size<2)touchGesture=null;releasePointer(e.pointerId);
+    if(wasPinching){drag=null;svg.classList.remove('is-panning');suppressClickUntil=performance.now()+200;return;}
     if (!drag || drag.id !== e.pointerId) return;
     if (drag.moved) {
       suppressClickUntil = performance.now() + 200;
@@ -715,11 +735,18 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     if (performance.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); }
   };
   const onWheel = e => {
+    if(destroyed)return;
     e.preventDefault();
-    stopCamera();
-    zoomAt(-Math.max(-.15, Math.min(.15, e.deltaY * .0015)), e.clientX, e.clientY);
+    if(nativeGesture||touches.size>1)return;
+    const rect=svg.getBoundingClientRect(),amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?(svg.clientHeight||rect.height):1);
+    if(!Number.isFinite(amount)||!amount)return;
+    const next=Math.max(.72,Math.min(2.25,viewTween.target.scale*Math.exp(-Math.max(-120,Math.min(120,amount))*.0009))),world=worldPoint(e.clientX,e.clientY);
+    animateView({scale:next,panX:world.x-530-(world.x-530-panX)*scale/next,panY:world.y-325-(world.y-325-panY)*scale/next},{x:e.clientX,y:e.clientY,world});
   };
-  svg.addEventListener('pointerdown', onPointerDown);
+  const onGestureStart=e=>{if(destroyed)return;e.preventDefault();clearGreeting();stopCamera();const point=gesturePoint(e);nativeGesture=touches.size>1?null:{scale,anchor:worldPoint(point.x,point.y)};suppressClickUntil=performance.now()+200;};
+  const onGestureChange=e=>{if(destroyed)return;e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture||!Number.isFinite(e.scale)||e.scale<=0)return;const point=gesturePoint(e);scaleAt(nativeGesture.scale*e.scale,point.x,point.y,nativeGesture.anchor);suppressClickUntil=performance.now()+200;};
+  const onGestureEnd=e=>{if(destroyed)return;e.preventDefault();nativeGesture=null;suppressClickUntil=performance.now()+200;};
+  listenInput(svg,'pointerdown',onPointerDown);
   const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object&&!object.dataset.agent&&!object.dataset.human)objectFeedback(object);}showGreeting(greetingPerson(e.target));};
   const onObjectOut=e=>{if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
   const onObjectLeave=()=>{hoveredObject=null;clearGreeting();};
@@ -730,11 +757,16 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   svg.addEventListener('pointerleave',onObjectLeave);
   svg.addEventListener('focusin',onPersonFocus);
   svg.addEventListener('focusout',onPersonBlur);
-  svg.addEventListener('pointermove', onPointerMove);
-  svg.addEventListener('pointerup', onPointerEnd);
-  svg.addEventListener('pointercancel', onPointerEnd);
-  svg.addEventListener('click', onBlankClick, true);
-  svg.addEventListener('wheel', onWheel, { passive:false });
+  listenInput(svg,'pointermove',onPointerMove);
+  listenInput(svg,'pointerup',onPointerEnd);
+  listenInput(svg,'pointercancel',onPointerEnd);
+  listenInput(svg,'lostpointercapture',onPointerEnd);
+  listenInput(svg,'click',onBlankClick,true);
+  listenInput(svg,'wheel',onWheel,{passive:false});
+  listenInput(svg,'gesturestart',onGestureStart,{passive:false});
+  listenInput(svg,'gesturechange',onGestureChange,{passive:false});
+  listenInput(svg,'gestureend',onGestureEnd,{passive:false});
+  listenInput(globalThis.window,'blur',resetInput);
   const resizeObserver = new ResizeObserver(() => scheduleViewChange());
   resizeObserver.observe(container);
   motionPreference?.addEventListener?.('change',onMotionPreferenceChange);
@@ -767,6 +799,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     resetView() { animateView({scale:1,panX:0,panY:0}); },
     destroy() {
       destroyed = true;
+      resetInput();for(const dispose of inputDisposers)dispose();inputDisposers.length=0;
       stopCamera();clearGreeting();svg.removeEventListener('pointerover',onObjectHover);svg.removeEventListener('pointerout',onObjectOut);svg.removeEventListener('pointerleave',onObjectLeave);svg.removeEventListener('focusin',onPersonFocus);svg.removeEventListener('focusout',onPersonBlur);
       resizeObserver.disconnect();
       motionPreference?.removeEventListener?.('change',onMotionPreferenceChange);
