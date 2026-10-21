@@ -48,6 +48,7 @@ type Automation interface {
 	Shutdown(context.Context) error
 }
 type Config struct {
+	BulletinVideoHosts                                                                    []string
 	DataDir, DataAssetsDir, PublicOrigin, BindHost, Username, PasswordHash, SessionSecret string
 	Port                                                                                  int
 	Provider                                                                              model.Provider
@@ -234,12 +235,28 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 			return e
 		}
 		if result.Cookie != "" {
+			// Bind the avatar to the actual signed browser login. A fresh login
+			// starts at its persisted department, never metadata from the form.
+			joined := r.Clone(r.Context())
+			joined.Header = r.Header.Clone()
+			joined.Header.Set("Cookie", strings.SplitN(result.Cookie, ";", 2)[0])
+			if session := a.Access.Authenticate(joined); session != nil && session.Actor != nil && a.Flow != nil {
+				if _, e = a.Flow.JoinOffice(session.Actor, officeSessionLease(joined)); e != nil {
+					return e
+				}
+			}
 			w.Header().Set("Set-Cookie", result.Cookie)
 		}
 		write(w, 200, M{"session": result.Session})
 		return nil
 	}
 	if path == "/api/session/logout" && r.Method == "POST" {
+		if current := a.Access.Authenticate(r); current != nil && current.Actor != nil && a.Flow != nil {
+			if expected := r.Header.Values("X-Office-Actor"); len(expected) > 0 && (len(expected) != 1 || expected[0] != current.Actor.ID) {
+				return fail(401, "登录信息已变更，请重新登录。")
+			}
+			a.Flow.LeaveOfficeSession(current.Actor.ID, officeSessionLease(r))
+		}
 		w.Header().Set("Set-Cookie", a.Access.LogoutCookie())
 		write(w, 200, M{"ok": true})
 		return nil
@@ -403,6 +420,8 @@ func (a *App) erp(w http.ResponseWriter, r *http.Request, actor *identity.Actor)
 	path := r.URL.Path
 	ctx := r.Context()
 	switch {
+	case path == "/api/erp/bulletin" || strings.HasPrefix(path, "/api/erp/bulletin/"):
+		return a.bulletin(w, r, actor)
 	case path == "/api/erp/notices" || strings.HasPrefix(path, "/api/erp/notices/"):
 		return a.notices(w, r, actor)
 	case path == "/api/erp/organization" && r.Method == "GET":
@@ -650,7 +669,7 @@ func (a *App) erp(w http.ResponseWriter, r *http.Request, actor *identity.Actor)
 			if e != nil {
 				return e
 			}
-			online, e := a.Flow.Touch(actor, erpflow.S(p["nodeId"]))
+			online, e := a.Flow.UpdateOfficePresenceSession(actor, p, officeSessionLease(r))
 			if e != nil {
 				return e
 			}

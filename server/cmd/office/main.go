@@ -126,7 +126,7 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	app, e := httpapi.New(httpapi.Config{DataDir: dataDir, DataAssetsDir: env("OFFICE_ASSETS_DIR", "data"), PublicOrigin: os.Getenv("OFFICE_PUBLIC_ORIGIN"), BindHost: host, Port: port, Username: env("OFFICE_ACCESS_USERNAME", env("OFFICE_ACCESS_USER", "office")), PasswordHash: os.Getenv("OFFICE_ACCESS_PASSWORD_HASH"), SessionSecret: os.Getenv("OFFICE_SESSION_SECRET"), Provider: provider, Lab: engine, Automation: automation, Catalog: agent.Catalog})
+	app, e := httpapi.New(httpapi.Config{BulletinVideoHosts: strings.Split(env("OFFICE_BULLETIN_VIDEO_HOSTS", ""), ","), DataDir: dataDir, DataAssetsDir: env("OFFICE_ASSETS_DIR", "data"), PublicOrigin: os.Getenv("OFFICE_PUBLIC_ORIGIN"), BindHost: host, Port: port, Username: env("OFFICE_ACCESS_USERNAME", env("OFFICE_ACCESS_USER", "office")), PasswordHash: os.Getenv("OFFICE_ACCESS_PASSWORD_HASH"), SessionSecret: os.Getenv("OFFICE_SESSION_SECRET"), Provider: provider, Lab: engine, Automation: automation, Catalog: agent.Catalog})
 	if e != nil {
 		return e
 	}

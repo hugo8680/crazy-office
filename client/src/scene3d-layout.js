@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.module.js';
 
-import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
+import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
 import { employeeAppearance } from './employee-appearance.mjs';
 import { OFFICE_EXTERIOR } from './office-environment.mjs';
 
@@ -32,7 +32,7 @@ export function createOffice3DAssets() {
   const geometries={box:new THREE.BoxGeometry(1,1,1),sphere:new THREE.SphereGeometry(1,12,8),cylinder:new THREE.CylinderGeometry(1,1,1,12),cone:new THREE.ConeGeometry(1,1,9),torus:new THREE.TorusGeometry(1,.16,5,12),hair:new THREE.SphereGeometry(1,12,8,0,Math.PI*2,0,Math.PI*.44)};
   const shape=new THREE.Shape();const r=.08;
   shape.moveTo(-.5+r,-.5);shape.lineTo(.5-r,-.5);shape.quadraticCurveTo(.5,-.5,.5,-.5+r);shape.lineTo(.5,.5-r);shape.quadraticCurveTo(.5,.5,.5-r,.5);shape.lineTo(-.5+r,.5);shape.quadraticCurveTo(-.5,.5,-.5,.5-r);shape.lineTo(-.5,-.5+r);shape.quadraticCurveTo(-.5,-.5,-.5+r,-.5);
-  geometries.round=new THREE.ExtrudeGeometry(shape,{depth:.92,bevelEnabled:true,bevelSize:.035,bevelThickness:.04,bevelSegments:2,steps:1,curveSegments:3});geometries.round.translate(0,0,-.46);
+  geometries.round=new THREE.ExtrudeGeometry(shape,{depth:.92,bevelEnabled:true,bevelSize:.035,bevelThickness:.04,bevelSegments:2,steps:1,curveSegments:2});geometries.round.translate(0,0,-.46);
   // Bevels must stay inside the declared footprint; both views and the path
   // planner treat w/h as exact dimensions. Extrusion otherwise adds 7%.
   geometries.round.computeBoundingBox();const roundedSize=new THREE.Vector3();geometries.round.boundingBox.getSize(roundedSize);geometries.round.scale(1/roundedSize.x,1/roundedSize.y,1/roundedSize.z);
@@ -86,13 +86,53 @@ export function createOffice3DLayout(assets) {
   const parking=outside.parking;
   slab('#d0d5c7',parking.x+parking.w/2,-8.8,parking.y+parking.h/2,parking.w,1,parking.h);
   for(let i=0;i<=parking.spaces;i++)box('#f7f4e8',parking.x+i*parking.w/parking.spaces,-8.2,parking.y+parking.h*.5,1.2,.1,parking.h*.75);
-  for(const index of[0,2]){
-    const x=parking.x+(index+.5)*parking.w/parking.spaces,z=parking.y+parking.h*.5;
-    round(index===0?'#7d9fa2':'#d4b398',x,3,z,35,18,61);round('#c1d5cc',x,15,z+2,31,14,32);
-    round('#516d72',x,16,z+18.3,27,10,.6);round('#536d72',x,16,z-14.3,27,10,.6);
-    for(const side of[-1,1])for(const offset of[-18,18])part('cylinder','#485a53',x+side*17,-2.7,z+offset,5.5,4,5.5,0,0,Math.PI/2);
-    box('#ede4c8',x,5,z+31,26,3,.6);
+  // Four small silhouettes share the existing instance buffers. Their grille,
+  // lamps and proportions carry the make without texture maps or text decals.
+  function parkedCar(car){
+    const {x,y:z,w,h:d,color,glass,make}=car,suv=car.body==='suv',bodyY=suv?6:3,front=z+d/2,roofY=suv?24:17;
+    round(color,x,bodyY,z,w,19,d);round(color,x,roofY,z-2,w*.88,suv?24:17,d*.5);
+    round(glass,x,roofY+1,z+d*.22,w*.77,suv?15:11,.7);
+    round(glass,x,roofY+1,z-d*.27,w*.75,suv?15:10,.7);
+    for(const side of[-1,1]){
+      round(glass,x+side*w*.448,roofY+1,z-2,.65,suv?15:10,d*.36);
+      box(color,x+side*w*.46,roofY+1,z-2,1.1,suv?18:13,1.7);
+      round(color,x+side*w*.54,bodyY+9,z+d*.16,4,3.2,4.4);
+      for(const dz of[-d*.28,d*.28]){
+        part('cylinder','#344b46',x+side*w*.48,-2,z+dz,6.8,4.3,6.8,0,0,Math.PI/2);
+        part('cylinder','#d2d9d3',x+side*w*.535,-2,z+dz,3.7,.5,3.7,0,0,Math.PI/2);
+      }
+      round('#d85541',x+side*w*.32,bodyY+3,z-d/2-.4,w*.18,3.3,.6);
+      box('#d7ddd5',x+side*w*.46,bodyY-3,z,w*.025,.65,d*.6);
+    }
+    round('#35504c',x,bodyY+1,front+.4,w*.63,9,1);
+    round('#e9e6d7',x,bodyY-5,front+1.1,11,2.4,.4);
+    for(const side of[-1,1])round('#f5efda',x+side*w*.34,bodyY+6,front+.6,w*.22,3.3,.65);
+    if(make==='mercedes'){
+      for(const yy of[-1,2])box('#c5d0ca',x,bodyY+yy,front+1,w*.57,.7,.5);
+      part('torus','#e4e9df',x,bodyY+1,front+1.7,3.4,3.4,3.4);
+      for(let a=0;a<3;a++){const angle=a*Math.PI*2/3;stem([x,bodyY+1,front+1.8],[x+Math.sin(angle)*3,bodyY+1+Math.cos(angle)*3,front+1.8],.35,'#e4e9df');}
+    }else if(make==='bmw'){
+      for(const side of[-1,1]){
+        round('#d2ddd6',x+side*4.6,bodyY+1.8,front+1.2,7.3,8,.5);round('#263e3e',x+side*4.6,bodyY+1.8,front+1.5,5.6,6.4,.3);
+        for(const dx of[-1.3,1.3])box('#96ada8',x+side*4.6+dx,bodyY+1.8,front+1.7,.45,5.5,.2);
+        for(const dx of[-2.2,2.2])part('torus','#eaf4e4',x+side*w*.33+dx,bodyY+6,front+1,1.5,1.5,1.5);
+      }
+      ball('#c4d7d2',x,bodyY+10,front-8,1.6,.3,1.6);
+    }else if(make==='audi'){
+      for(let row=0;row<3;row++)box('#b9c9c0',x,bodyY-1+row*2.3,front+1,w*.59,.55,.3);
+      for(let index=0;index<4;index++)part('torus','#e2e9e0',x+(index-1.5)*3.5,bodyY+2.5,front+1.6,2.2,2.2,2.2);
+      for(const side of[-1,1])box('#edf5e2',x+side*w*.34,bodyY+7.8,front+1,w*.22,.75,.3);
+    }else{
+      // Upright greenhouse, clamshell bonnet and stepped tail distinguish the SUV.
+      box('#a5b398',x,bodyY+10,z+d*.3,w*.9,1.2,d*.3);
+      for(const side of[-1,1])round('#2a4640',x+side*w*.34,bodyY+6,front+.8,8,5.8,.7);
+      for(let row=0;row<2;row++)box('#9dad99',x,bodyY+row*3,front+1,w*.53,.85,.4);
+      round('#a5b596',x+w*.17,bodyY+3,front+1.6,7.5,3.2,.4);
+      box('#8b9e80',x,roofY+13,z-2,w*.85,1,d*.49);
+      round('#345346',x,roofY+13.6,z-2,w*.58,.6,d*.23);
+    }
   }
+  outside.vehicles.forEach(parkedCar);statistics.vehicles=outside.vehicles.length;statistics.vehicleMakes=outside.vehicles.map(car=>car.make);
   const bikes=outside.bikes;
   for(let index=0;index<bikes.count;index++){
     const x=bikes.x+index*bikes.spacing,z=bikes.y;
@@ -202,6 +242,27 @@ export function createOffice3DLayout(assets) {
     }
   }
   OFFICE_FITTINGS.forEach(furnishing);statistics.fittings=OFFICE_FITTINGS.length;
+  const recreation=OFFICE_RECREATION_AREA;
+  slab('#d6d7bf',recreation.x+recreation.w/2,1.2,recreation.y+recreation.h/2,recreation.w,1.8,recreation.h);
+  // Rubber workout mat, a compact treadmill and a real barbell rack.
+  const treadmill=recreation.treadmill;
+  round('#4c665b',treadmill.x,5,treadmill.y,treadmill.w,6,treadmill.h);
+  round('#2f4843',treadmill.x,8.4,treadmill.y+3,treadmill.w-6,1.1,treadmill.h-9);
+  for(const side of[-1,1]){stem([treadmill.x+side*12,7,treadmill.y-13],[treadmill.x+side*12,34,treadmill.y-21],1.1,'#82978a');stem([treadmill.x+side*12,30,treadmill.y-20],[treadmill.x+side*12,27,treadmill.y-2],1,'#82978a');}
+  round('#6b8578',treadmill.x,35,treadmill.y-21,27,9,4);round('#b2cfc0',treadmill.x,36,treadmill.y-18.7,20,5,.5);
+  const weight=recreation.weightRack;
+  for(const side of[-1,1]){box('#6e8579',weight.x+side*weight.w*.38,16,weight.y,2.2,28,weight.h);box('#577465',weight.x+side*weight.w*.38,2.5,weight.y,6,2,weight.h+4);}
+  for(const level of[12,24]){box('#8a9d8a',weight.x,level,weight.y,weight.w,1.8,weight.h*.67);for(const dz of[-11,0,11]){stem([weight.x-8,level+4,weight.y+dz],[weight.x+8,level+4,weight.y+dz],.9,'#b8c3b6');for(const side of[-1,1])part('cylinder','#38584d',weight.x+side*6.5,level+4,weight.y+dz,3.6,2.6,3.6,0,0,Math.PI/2);}}
+  const exerciseBench=recreation.bench;
+  round('#a87150',exerciseBench.x,10,exerciseBench.y,exerciseBench.w,4,exerciseBench.h);for(const side of[-1,1])box('#607d6d',exerciseBench.x+side*exerciseBench.w*.34,5,exerciseBench.y,3,8,exerciseBench.h*.7);
+  const pool=recreation.poolTable;
+  for(const side of[-1,1])for(const dz of[-pool.h*.31,pool.h*.31])round('#775b44',pool.x+side*pool.w*.36,10,pool.y+dz,7,18,7);
+  round('#816448',pool.x,22,pool.y,pool.w,11,pool.h);round('#b89b68',pool.x,28,pool.y,pool.w+2,3,pool.h+2);round('#357d63',pool.x,29.7,pool.y,pool.w-11,1.2,pool.h-11);
+  for(const dx of[-pool.w*.43,0,pool.w*.43])for(const dz of[-pool.h*.39,pool.h*.39])cyl('#244f41',pool.x+dx,30.5,pool.y+dz,3.5,1.1);
+  for(let index=0;index<4;index++)ball(['#f5eee0','#b97a47','#bda74f','#a85b4d'][index],pool.x-20+index*8,31.5,pool.y+(index%2?3:-4),1.6);
+  const cues=recreation.cueRack;box('#8c704f',cues.x,16,cues.y,cues.w,2,cues.h);
+  for(let index=0;index<3;index++)stem([cues.x-2,3,cues.y-16+index*14],[cues.x-1,42,cues.y-14+index*14],.65,'#c6ac73');
+  statistics.recreationAreas=1;statistics.poolTables=1;statistics.workoutStations=3;
   // Seated figures share body-part instance ranges for finite idle poses.
   // Their geometry is separate from authenticated names and business state.
   function seatedPost(seat,index) {
@@ -344,6 +405,26 @@ export function createOffice3DLayout(assets) {
   // Network appliances remain in the operations department. Their IDs retain
   // compatibility with existing tasks while all coordinates come from the plan.
   function rack(x,z){statistics.racks++;round('#465b59',x,44,z,36,85,30);box('#273e3d',x,45,z+15.5,30,76,1.3);box('#667b77',x,86,z,38,2,32);for(let i=0;i<7;i++){round('#4b6361',x,15+i*9.5,z+16.3,26,7.4,1.4);box('#9aaba3',x-3,16+i*9.5,z+17.1,13,.7,.3);ball('#b9d09e',x+9,15+i*9.5,z+17.2,1,1,.7);}}
+  const dataCenter=OFFICE_DATA_CENTER;
+  slab('#a4b9af',dataCenter.x+dataCenter.w/2,-4,dataCenter.y+dataCenter.h/2,dataCenter.w+9,9,dataCenter.h+9);
+  slab('#d2e2db',dataCenter.x+dataCenter.w/2,1.4,dataCenter.y+dataCenter.h/2,dataCenter.w,1.4,dataCenter.h);
+  wall(dataCenter.x+dataCenter.w/2,dataCenter.y,dataCenter.w,4,23);wall(dataCenter.x,dataCenter.y+dataCenter.h/2,4,dataCenter.h,18);wall(dataCenter.x+dataCenter.w,dataCenter.y+dataCenter.h/2,4,dataCenter.h,10);
+  for(const [start,end]of[[dataCenter.x,dataCenter.door.x-dataCenter.door.w/2],[dataCenter.door.x+dataCenter.door.w/2,dataCenter.x+dataCenter.w]])wall((start+end)/2,dataCenter.y+dataCenter.h,end-start,4,7);
+  for(let x=dataCenter.x+22;x<dataCenter.x+dataCenter.w;x+=28)box('#a9c6bc',x,2.2,dataCenter.y+dataCenter.h/2,.35,.1,dataCenter.h-8);
+  for(let y=dataCenter.y+30;y<dataCenter.y+dataCenter.h;y+=28)box('#b9cec4',dataCenter.x+dataCenter.w/2,2.2,y,dataCenter.w-8,.1,.35);
+  for(const server of dataCenter.racks){
+    rack(server.x,server.y);
+    round('#bdd7ce',server.x,4,server.y-22,server.w-4,1,7);
+  }
+  const console=dataCenter.serviceConsole;
+  round('#66897c',console.x,18,console.y,console.w,32,console.h);slab('#c0d1c3',console.x,35,console.y,console.w+2,2,console.h+2);
+  monitor(console.x,console.y-1,35,.74);box('#adc4b7',console.x,36.4,console.y+7,23,.8,7);
+  const cooling=dataCenter.cooling;
+  round('#a6bfb4',cooling.x,26,cooling.y,cooling.w,46,cooling.h);round('#dfebe0',cooling.x,28,cooling.y+cooling.h/2+.6,cooling.w-4,39,.8);
+  for(let index=0;index<7;index++)box('#8ba89a',cooling.x,15+index*3.5,cooling.y+cooling.h/2+1.1,cooling.w-9,.8,.4);
+  const power=dataCenter.ups;round('#76998a',power.x,19,power.y,power.w,33,power.h);round('#c4d7c4',power.x,26,power.y+power.h/2+.5,power.w-5,6,.8);
+  for(let row=0;row<4;row++)box('#4e7461',power.x,9+row*2.7,power.y+power.h/2+1,power.w-5,.7,.3);
+  statistics.dataCenters=1;statistics.dataCenterRacks=dataCenter.racks.length;
   function status(id,x,y,z){const mesh=new THREE.Mesh(assets.geometries.sphere,assets.material('#7d9e76'));mesh.scale.set(1.8,1.8,1.2);mesh.position.set(x,y,z);root.add(mesh);statusLights.set(id,mesh);nodeAnchors.set(id,{x,y,z});}
   const networkIds=new Set(['internet','firewall','core','server','storage','ups','access']);
   const network=OFFICE_NODE_ANCHORS;

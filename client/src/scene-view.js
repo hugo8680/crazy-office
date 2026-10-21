@@ -74,6 +74,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
     getNodeAnchor:(...args) => current.getNodeAnchor(...args),
     getAgentAnchor:(...args) => current.getAgentAnchor(...args),
     focusHuman:(...args) => current.focusHuman?.(...args),
+    focusPoint:(...args) => current.focusPoint?.(...args),
     focusNode:(...args) => current.focusNode(...args),
     focusAgent:(...args) => current.focusAgent(...args),
     zoom:(...args) => current.zoom(...args), resetView:() => current.resetView(),

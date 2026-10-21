@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800">
+  <rect width="1280" height="800" fill="#f5f4ed"/>
+  <g fill="#294e43" transform="translate(606 290) scale(.1943) translate(-40 -40)">
+    <path d="M115 104 190 52v121l-17 14v52l-58 55Z"/>
+    <path d="M57 349 378 130 211 274h120l-44 45H133l80-64Z"/>
+  </g>
+  <g text-anchor="middle" font-family="PingFang SC,Microsoft YaHei,sans-serif">
+    <text x="640" y="434" font-size="58" fill="#294e43">疯狂办公室</text>
+    <text x="640" y="491" font-size="17" fill="#61746b">吉林云投莱森购数字科技有限公司</text>
+  </g>
+</svg>

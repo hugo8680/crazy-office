@@ -1,12 +1,23 @@
-import {OFFICE_WALKING_SEGMENTS} from './organization.mjs';
+import {OFFICE_WALKING_SEGMENTS,OFFICE_DATA_CENTER,OFFICE_DATA_CENTER_WALKING_SEGMENTS} from './organization.mjs';
 import {createFloorRouter} from './floor-routing.mjs';
 
 export const FLOOR_SEGMENTS=OFFICE_WALKING_SEGMENTS;
 const officeRouter=createFloorRouter(FLOOR_SEGMENTS);
+const dataCenterRouter=createFloorRouter(OFFICE_DATA_CENTER_WALKING_SEGMENTS.slice(1));
+const dataCenterEntry={x:OFFICE_DATA_CENTER.door.x,y:OFFICE_DATA_CENTER.door.y+10};
+const inDataCenter=p=>p.x>=OFFICE_DATA_CENTER.x&&p.x<=OFFICE_DATA_CENTER.x+OFFICE_DATA_CENTER.w&&p.y>=OFFICE_DATA_CENTER.y&&p.y<=OFFICE_DATA_CENTER.y+OFFICE_DATA_CENTER.h;
 const same=(a,b)=>Math.abs(a.x-b.x)<.001&&Math.abs(a.y-b.y)<.001;
 const point=p=>Array.isArray(p)?{x:p[0],y:p[1]}:{x:p.x,y:p.y};
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
-export function routeBetweenPoints(start,end){return officeRouter.route(start,end);}
+export function routeBetweenPoints(start,end){
+  start=point(start);end=point(end);const fromAnnex=inDataCenter(start),toAnnex=inDataCenter(end);
+  if(fromAnnex&&toAnnex)return dataCenterRouter.route(start,end);
+  // Restrict the first/last projection to annex lanes. A global nearest lane
+  // could otherwise choose the adjacent office through a solid exterior wall.
+  const approach=fromAnnex?dataCenterRouter.route(start,dataCenterEntry):[],departure=toAnnex?dataCenterRouter.route(dataCenterEntry,end):[];
+  const route=[...approach,...officeRouter.route(fromAnnex?dataCenterEntry:start,toAnnex?dataCenterEntry:end),...departure];
+  return route.filter((p,index)=>!index||!same(p,route[index-1]));
+}
 
 export function routeLength(route) { return route.slice(1).reduce((sum,p,i)=>sum+distance(route[i],p),0); }
 export function pointAlongRoute(route,progress) {

@@ -27,6 +27,33 @@ export const OFFICE_CONVENIENCE_AREA=freeze({
   anchor:{x:706,y:737},
 });
 
+
+// Shared amenities use the same footprints in both views. They do not add
+// departments, employee accounts or routes to the business navigation graph.
+export const OFFICE_RECREATION_AREA=freeze({
+  id:'recreation',title:'健身区',x:320,y:580,w:125,h:160,
+  treadmill:{x:346,y:621,w:32,h:43},
+  weightRack:{x:417,y:619,w:23,h:42},
+  bench:{x:399,y:651,w:42,h:14},
+  poolTable:{x:382,y:700,w:104,h:56},
+  cueRack:{x:438,y:698,w:6,h:48},
+});
+export const OFFICE_DATA_CENTER=freeze({
+  id:'data_center',title:'莱森购数据中心',x:-155,y:810,w:180,h:260,
+  racks:[-122,-66,-10].flatMap((x,column)=>[920,1006].map((y,row)=>({id:`dc-rack-${column+1}-${row+1}`,x,y,w:34,h:35}))),
+  serviceConsole:{x:-66,y:850,w:65,h:18},
+  cooling:{x:-3,y:1043,w:44,h:18},ups:{x:-125,y:1041,w:20,h:28},
+  door:{x:-65,y:1070,w:46},
+});
+
+// The annex has one entrance on its south edge. Cross aisles run between the
+// rack rows; longitudinal lanes stay in the gaps between the rack columns.
+export const OFFICE_DATA_CENTER_WALKING_SEGMENTS=freeze([
+  [[25,1080],[-65,1080]],[[-65,1080],[-65,1058]],
+  [[-140,1058],[12,1058]],[[-140,965],[12,965]],[[-140,875],[12,875]],
+  [[-94,875],[-94,1058]],[[-38,875],[-38,1058]],
+]);
+
 const specs = [
   {id:'business',name:'商务部',english:'BUSINESS',staff:5,x:895,y:40,w:220,h:180,columns:3,rowGap:51,doorSide:'bottom',floor:'#f0dfb9',manager:'business_channels_manager'},
   {id:'hr_admin',name:'人力资源与行政管理部',english:'PEOPLE & ADMINISTRATION',staff:3,x:40,y:300,w:210,h:240,columns:2,rowGap:64,doorSide:'right',doorY:450,floor:'#e3ecc7'},
@@ -96,8 +123,8 @@ for (const spec of specs) {
   departments.push({id:spec.id,name:spec.name,title:spec.name,managerPersonId:spec.manager||`${spec.id}_manager_001`,headcount:members.length,roleCounts,members,teams:teamZones.map(team=>({id:team.id,name:team.title,headPersonId:team.headPersonId,staffCount:team.staffCount,memberPersonIds:team.seats.map(post=>post.personId)}))});
 }
 
-// Overview shows representative posts only. Full rosters and headcounts remain
-// authoritative, and a department/team focus progressively reveals its desks.
+// Every ordinary department shows its entire roster. The 206-person AI floor
+// alone uses representatives until a specific team is opened.
 for(const room of rooms) {
   const visible=new Set();
   if(room.id==='ai_data') {
@@ -111,20 +138,11 @@ for(const room of rooms) {
       }
     }
   } else {
-    const staff=room.seats.filter(post=>post.role==='staff');
-    for(const post of room.seats.filter(post=>post.role!=='staff'))visible.add(post.id);
-    for(const index of [0,Math.floor((staff.length-1)/2),staff.length-1])if(staff[index])visible.add(staff[index].id);
+    for(const post of room.seats)visible.add(post.id);
   }
   room.overviewSeatIds=[...visible];
   for(const post of room.seats)post.overviewVisible=visible.has(post.id);
-  if(room.id!=='ai_data'&&room.seats.length>4){
-    const rowYs=[...new Set(room.seats.map(post=>post.desk.y))].sort((a,b)=>a-b);
-    const selected=room.seats.filter(post=>visible.has(post.id));
-    for(const [index,post]of selected.entries()){
-      const x=room.x+room.w*(index%2?.72:.28),deskY=index<2?rowYs[0]:rowYs.at(-1);
-      post.overviewGeometry={x,y:deskY+24,scale:.66,desk:{x,y:deskY,w:Math.min(68,room.w*.34),h:26}};
-    }
-  }
+
 }
 
 export const OFFICE_ROOMS=freeze(rooms);
@@ -208,6 +226,7 @@ export const OFFICE_AGENT_HOMES=freeze(Object.fromEntries(Object.entries(identit
 // Orthogonal floor lanes are the common navigation graph, not renderer hints.
 // Desk rows connect along chair-side lanes; vertical travel stays beside desks.
 const walking=[
+  ...OFFICE_DATA_CENTER_WALKING_SEGMENTS,
   [[285,280],[285,1080]],[[840,280],[840,1080]],
   [[25,280],[1360,280]],
   [[25,1080],[840,1080]],[[285,775],[840,775]],
@@ -258,7 +277,7 @@ for(const room of rooms) {
 fitting('shared_lounge','sofa',420,420,150,42);
 fitting('shared_lounge','sofa',420,540,150,42,180);
 fitting('shared_lounge','coffee_table',420,480,78,40);
-fitting('shared_lounge','collaboration_table',520,680,210,90);
+fitting('shared_lounge','collaboration_table',540,680,170,80);
 fitting('shared_lounge','plant',340,355,24,28);
 fitting('shared_lounge','plant',770,355,24,28);
 fitting('ai_data','sofa',1105,478,100,28);

@@ -200,20 +200,25 @@ type Toolbox interface {
 	Execute(context.Context, string, map[string]any, model.Role) (map[string]any, error)
 }
 type Service struct {
-	Store          *erp.Store
-	Identity       *identity.Store
-	Provider       model.Provider
-	ToolboxFactory func(string, M) (Toolbox, error)
-	dir            string
-	mu             sync.RWMutex
-	entry          sync.Mutex
-	runs           map[string]*Run
-	controls       map[string]context.CancelFunc
-	roles          map[string]chan struct{}
-	presence       map[string]M
-	wg             sync.WaitGroup
-	stopping       bool
-	sequence       uint64
+	Store           *erp.Store
+	Identity        *identity.Store
+	Provider        model.Provider
+	ToolboxFactory  func(string, M) (Toolbox, error)
+	dir             string
+	mu              sync.RWMutex
+	entry           sync.Mutex
+	runs            map[string]*Run
+	controls        map[string]context.CancelFunc
+	roles           map[string]chan struct{}
+	presence        map[string]M
+	presenceMu      sync.Mutex
+	presenceLeases  map[string]officeLease
+	presenceClosed  map[string]int64
+	presenceSerial  uint64
+	presenceStopped bool
+	wg              sync.WaitGroup
+	stopping        bool
+	sequence        uint64
 }
 
 func New(store *erp.Store, ids *identity.Store, provider model.Provider, dataDir string) (*Service, error) {
@@ -650,28 +655,20 @@ func (s *Service) Touch(a *identity.Actor, node string) ([]M, error) {
 	if _, allowed := presenceAreas[node]; !allowed {
 		return nil, failure(400, "请选择办公室内的工作区域。")
 	}
-	s.mu.Lock()
-	appearanceKey := a.ID
-	if len(a.OrganizationSeatIDs) > 0 {
-		appearanceKey = a.OrganizationSeatIDs[0]
-	}
-	s.presence[a.ID] = M{"id": a.ID, "name": a.Name, "department": a.Department, "title": a.Title, "appearanceKey": appearanceKey, "nodeId": node, "updatedAt": time.Now().UnixMilli(), "online": true}
-	s.mu.Unlock()
-	return s.Online(), nil
+	return s.updateOfficePresence(a, M{"operation": "legacy", "nodeId": node}, "", false)
 }
 func (s *Service) Online() []M {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	out := []M{}
-	for id, p := range s.presence {
-		u := s.Identity.GetEmployee(id)
-		if u == nil || !u.Active || time.Now().UnixMilli()-N(p["updatedAt"]) > 45000 {
-			delete(s.presence, id)
-			continue
-		}
-		out = append(out, Clone(p))
+	if s.Identity == nil {
+		return out
 	}
-	sort.Slice(out, func(i, j int) bool { return S(out[i]["id"]) < S(out[j]["id"]) })
+	_ = s.Identity.ReadActiveSessions(func(resolve func(string, int64) *identity.Actor) error {
+		s.presenceMu.Lock()
+		defer s.presenceMu.Unlock()
+		s.expirePresenceLocked(resolve)
+		out = s.onlinePresenceLocked()
+		return nil
+	})
 	return out
 }
 func (s *Service) Active() int { s.mu.RLock(); defer s.mu.RUnlock(); return len(s.controls) }
@@ -683,6 +680,11 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		cancel()
 	}
 	s.mu.Unlock()
+	s.presenceMu.Lock()
+	s.presenceStopped = true
+	clear(s.presence)
+	clear(s.presenceLeases)
+	s.presenceMu.Unlock()
 	s.entry.Unlock()
 	done := make(chan struct{})
 	go func() { s.wg.Wait(); close(done) }()

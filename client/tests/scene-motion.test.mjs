@@ -201,3 +201,14 @@ test('onboarding intake, HR approval and final handoff keep human identity throu
   const path=routeBetweenPoints(departmentWorkPoint('hr_admin',5),hr);assert.deepEqual(path.at(-1),{x:hr.x,y:hr.y});assert.ok(path.every(p=>p.y===departmentWorkPoint('hr_admin').y));
   const queue=createDeliveryQueue();queue.ingest([intake,approval,final]);assert.equal(queue.startReady()[0].id,'hr-approval');assert.ok(queue.locked('hr_owner'));queue.finish('hr-approval');assert.equal(queue.startReady()[0].id,'hr-intake');queue.finish('hr-intake');assert.equal(queue.startReady()[0].id,'hr-final');queue.finish('hr-final');assert.equal(queue.activeCount,0);
 });
+
+test('data center walks use its south door and the campus south corridor rather than the maintenance wall',()=>{
+ const inside=[{x:-94,y:875},{x:-38,y:965},{x:20,y:1068}],maintenance=OFFICE_ROOMS.find(room=>room.id==='maintenance'),destination=departmentWorkPoint('maintenance');
+ for(const source of inside)for(const reverse of[false,true]){const route=routeBetweenPoints(...(reverse?[destination,source]:[source,destination]));assert.ok(routePasses(route,{x:-65,y:1070}),'the annex south door');assert.ok(routePasses(route,{x:25,y:1080}),'the outside south corridor');assert.ok(routePasses(route,maintenance.door),'the maintenance east doorway');assert.deepEqual(route[0],reverse?destination:source);assert.deepEqual(route.at(-1),reverse?source:destination);
+  for(let index=1;index<route.length;index++){const a=route[index-1],b=route[index];if(a.x<=40&&b.x>=40||b.x<=40&&a.x>=40){const ratio=(40-a.x)/(b.x-a.x),y=a.y+(b.y-a.y)*ratio;assert.ok(!(y>850&&y<1060),'never crosses the solid maintenance west wall');}if(a.y<1070&&b.y>1070||b.y<1070&&a.y>1070){const ratio=(1070-a.y)/(b.y-a.y),x=a.x+(b.x-a.x)*ratio;if(x>=-155&&x<=25)assert.ok(x>=-88&&x<=-42,'annex boundary crossing stays inside its glass door');}}
+ }
+});
+
+test('data center internal lane routes stay between the six rack footprints without taking a shortcut through the office',()=>{
+ const targets=[{x:-94,y:875},{x:-38,y:875},{x:-94,y:965},{x:-38,y:965},{x:-94,y:1058},{x:-38,y:1058}];for(const a of targets)for(const b of targets){const route=routeBetweenPoints(a,b);assert.ok(route.every(p=>p.x>=-155&&p.x<=25&&p.y>=810&&p.y<=1070));for(let index=1;index<route.length;index++){const p=route[index-1],q=route[index];for(const x of[-122,-66,-10])for(const y of[920,1006]){const horizontal=p.y===q.y,crosses=horizontal?p.y>y-17.5&&p.y<y+17.5&&Math.max(p.x,q.x)>x-17&&Math.min(p.x,q.x)<x+17:p.x>x-17&&p.x<x+17&&Math.max(p.y,q.y)>y-17.5&&Math.min(p.y,q.y)<y+17.5;assert.equal(crosses,false,`rack ${x},${y}`);}}}
+});

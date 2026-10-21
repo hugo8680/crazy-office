@@ -5,6 +5,8 @@ import {createSceneViewController} from './scene-view.js';
 import {mountErp} from './erp.js';
 import {mountErpPresence} from './erp-presence.js';
 import {mountSession} from './session-ui.js';
+import {mountBulletinCenter} from './bulletin-center.js';
+import {mountOfficeLocation} from './office-location.js';
 import {escapeHtml as e} from './erp-ui.mjs';
 import {mountWorkspaceViewport} from './workspace-viewport.mjs';
 import {CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver} from './workspace-state.mjs';
@@ -31,8 +33,9 @@ function revealSurface(element,kind='menu'){
 const cancelSurfaceMotions=()=>{for(const element of surfaceMotions.keys())cancelSurfaceMotion(element);};
 const updateMotionPreference=()=>{if(motionPreference?.matches)cancelSurfaceMotions();};
 motionPreference?.addEventListener?.('change',updateMotionPreference);
-let session=null,account=null,erp=null,presence=null,snapshot={},section=null,sessionEpoch=0,toastTimer,receiptTimer,pollTimer;
+let session=null,account=null,erp=null,presence=null,bulletin=null,locationMenu=null,snapshot={},section=null,sessionEpoch=0,toastTimer,receiptTimer,pollTimer;
 let preferredDocument=null,dockSignature='',viewSignature='',viewFocus=null;
+let pendingLoginLocation=false;
 const departmentIDs=new Set(ORGANIZATION_DEPARTMENTS.map(item=>item.id));
 const navigation=[['desk','工作台','grid'],['projects','项目','book'],['flows','单据','layers'],['inventory','进销存','server'],['people','人员','users'],['reports','报表','activity']];
 const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -41,7 +44,8 @@ const actor=()=>session?.actor||session?.user||{};
 function toast(message){clearTimeout(toastTimer);toastElement.textContent=message;toastElement.hidden=false;revealSurface(toastElement,'toast');toastTimer=setTimeout(()=>{toastElement.hidden=true;cancelSurfaceMotion(toastElement);},4500);}
 function cleanPrivateState(){
   cancelSurfaceMotions();
-  sessionEpoch++;setOrganizationOccupants([]);erp?.destroy();erp=null;presence?.destroy();presence=null;session=null;snapshot={};section=null;preferredDocument=null;observer.reset();
+  pendingLoginLocation=false;
+  sessionEpoch++;setOrganizationOccupants([]);bulletin?.destroy();bulletin=null;locationMenu?.destroy();locationMenu=null;erp?.destroy();erp=null;presence?.destroy();presence=null;session=null;snapshot={};section=null;preferredDocument=null;observer.reset();
   clearTimeout(receiptTimer);clearTimeout(toastTimer);receipt.hidden=true;receipt.innerHTML='';toastElement.hidden=true;toastElement.textContent='';scene.setPresence({enabled:true,people:[],currentUserId:null});scene.update(sceneProjection());scene.setSelectedNode(null);scene.setSelectedAgent(null);renderDock();
 }
 async function api(path,method='GET',body){
@@ -75,8 +79,8 @@ function renderDock(){
 function requireAccount(){if(isAuthenticated()&&erp)return true;account?.requireLogin();return false;}
 async function openSection(next,context={}){
   if(!requireAccount())return;
+  bulletin?.hidePreview();
   scene.setSelectedNode(SECTION_ROOMS[next]||null);section=next;renderDock();
-  void presence?.moveTo(SECTION_ROOMS[next]||'general_office');
   await erp.open(next,context);
 }
 async function openDocument(id){
@@ -98,28 +102,34 @@ function receiveSnapshot(value){
     receipt.innerHTML=`<button type="button" data-office-document="${e(notice.id)}"><span class="workspace-receipt-mark">${icon(notice.kind==='approval'?'clock':notice.kind==='error'?'info':'check')}</span><span><small>${e(notice.label)}</small><strong>${e(notice.title)}</strong></span>${icon('arrow')}</button><button type="button" data-office-action="dismiss-receipt" aria-label="关闭通知">${icon('close')}</button>`;
     receipt.hidden=false;revealSurface(receipt,'receipt');receiptTimer=setTimeout(()=>{receipt.hidden=true;cancelSurfaceMotion(receipt);},18000);
     // New work is opened directly when the person is in the office. Never replace a form.
-    if(!erp.isOpen&&!account?.session?.anonymous)void openDocument(notice.id);
+    if(!erp.isOpen&&!bulletin?.isOpen&&!locationMenu?.isOpen&&!document.querySelector('dialog[open]')&&!account?.session?.anonymous)void openDocument(notice.id);
   }
 }
 const scene=createSceneViewController(document.querySelector('#office-scene'),{
-  onSelectNode:id=>{if(id==='bulletin'){void openSection('notices');return;}if(departmentIDs.has(id)){scene.focusNode(id);if(isAuthenticated())void presence?.moveTo(id);return;}void openSection(ROOM_SECTIONS[id]||'desk');},
+  onSelectNode:id=>{if(id==='bulletin'){if(requireAccount()){erp?.close();void bulletin?.open();}return;}if(departmentIDs.has(id)){scene.focusNode(id);return;}void openSection(ROOM_SECTIONS[id]||'desk');},
+  onMovePoint:point=>{if(requireAccount()&&!erp?.isOpen&&!bulletin?.isOpen)void presence?.movePoint(point);},
+  onSelectSeat:id=>{if(requireAccount()){erp?.close();bulletin?.hidePreview();locationMenu?.openSeat(id);}},
   onSelectAgent:id=>{if(!requireAccount())return;const document=crewDocument(snapshot,id);if(document)void openDocument(document.id);else void openSection(CREW.find(p=>p.id===id)?.section||'desk');},
   onSelectHuman:()=>void openSection('desk')
-},{mount2D:mountScene,onChange:({mode})=>{lab.dataset.view=mode;renderDock();try{localStorage.setItem('office-view-mode',mode);}catch{}},onError:()=>toast('3D 暂不可用，已切换为 2D。')});
+},{mount2D:mountScene,onChange:({mode})=>{lab.dataset.view=mode;renderDock();focusLoginLocation();try{localStorage.setItem('office-view-mode',mode);}catch{}},onError:()=>toast('3D 暂不可用，已切换为 2D。')});
 scene.setTopology(false);scene.setPresence({enabled:true,people:[],currentUserId:null});scene.update(sceneProjection());
+function focusLoginLocation(){if(pendingLoginLocation&&!scene.pending&&presence?.self){pendingLoginLocation=false;scene.focusHuman(presence.self.id,2.1);}}
 async function startSession(next){
   const nextActor=next?.actor||next?.user;
   if(!nextActor?.id){cleanPrivateState();return;}
   if(isAuthenticated()&&actor().id===nextActor.id){session=next;erp?.updateSession(next);renderDock();return;}
-  cleanPrivateState();session=next;
+  cleanPrivateState();session=next;pendingLoginLocation=true;
   erp=mountErp({request:api,session,scene,container:businessFrame,onChange:({snapshot:value})=>receiveSnapshot(value),onNavigate:({section:nextSection,opened,documentId})=>{section=opened?nextSection:null;preferredDocument=documentId||null;renderDock();},onClose:()=>{scene.setSelectedNode(null);scene.setSelectedAgent(null);}});
-  presence=mountErpPresence({scene,request:api,session,onSelectEmployee:person=>{if(!requireAccount())return;if(person.id===actor().id)void openSection('desk');else void erp.openPerson(person.id);}});
+  presence=mountErpPresence({scene,request:api,session,onError:toast,onSelectEmployee:person=>{if(!requireAccount())return;if(person.id===actor().id){bulletin?.hidePreview();locationMenu?.openSelf();}else void erp.openPerson(person.id);}});
+  locationMenu=mountOfficeLocation({container:lab,presence,scene,onWork:()=>void openSection('desk'),onError:toast});
+  bulletin=mountBulletinCenter({container:lab,chrome:document.querySelector('#workspace-chrome'),request:api,session,onError:toast,onOpenNotices:()=>void openSection('notices'),isBlocked:()=>!!erp?.isOpen||!!locationMenu?.isOpen||!!document.querySelector('dialog[open]')});
   renderDock();
   const directoryEpoch=sessionEpoch;
   const results=await Promise.allSettled([erp.refresh(),api('/api/erp/organization')]);
   if(directoryEpoch!==sessionEpoch)return;
   if(results[1].status==='fulfilled')setOrganizationOccupants(results[1].value.employees);
   else if(results[1].reason?.status!==401)toast('通讯录暂未载入，请刷新重试。');
+  await presence?.ready;if(directoryEpoch===sessionEpoch)focusLoginLocation();
 }
 async function toggleFullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await lab.requestFullscreen();}catch{toast('浏览器未允许全屏。');}renderDock();}
 async function handleOfficeClick(event){
@@ -130,8 +140,8 @@ async function handleOfficeClick(event){
     if(target.dataset.officeDocument)return await openDocument(target.dataset.officeDocument);
     if(target.dataset.officeView){return await scene.setMode(target.dataset.officeView);}
     switch(target.dataset.officeAction){
-      case 'home':erp?.close();break;
-      case 'account':account?.open();break;
+      case 'home':erp?.close();void bulletin?.close();locationMenu?.close();break;
+      case 'account':bulletin?.hidePreview();account?.open();break;
       case 'fullscreen':await toggleFullscreen();break;
       case 'dismiss-receipt':receipt.hidden=true;break;
     }
@@ -147,4 +157,4 @@ await account.ready;
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelSurfaceMotions();else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
 try{const saved=localStorage.getItem('office-view-mode');if(saved==='3d')void scene.setMode('3d');}catch{}
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);bulletin?.destroy();locationMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});

@@ -76,16 +76,28 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
   mesh('cylinder','#f7efe1',ambientCup,0,2,0,2.1,4.2,2.1);mesh('cylinder','#aa7854',ambientCup,0,4.15,0,1.65,.2,1.65);mesh('torus','#f7efe1',ambientCup,2.1,2,0,1.25,1.25,1.25);
   const ambientTablet=new THREE.Group();ambientTablet.name='ambient-tablet';arms.left.hand.add(ambientTablet);ambientTablet.position.set(1,0,2.5);ambientTablet.rotation.set(-.5,0,.12);ambientTablet.visible=false;
   mesh('round','#345c51',ambientTablet,0,0,0,9,12,.8);mesh('round','#b4d9c5',ambientTablet,0,.2,.48,7.4,9.2,.16);mesh('box','#e9f3df',ambientTablet,0,2.1,.6,4.5,.6,.1);mesh('box','#78a795',ambientTablet,-.7,0,.6,3.1,.5,.1);
-  const target={seated:false,walking:false,phase:0,stride:0,bob:0,working:false,lounging:false,carrying:false,offering:false,receiving:false,heading:'down',nod:0};
-  let dirty=true;
+  // Free sitting has a physical support. The folded chair is part of the
+  // colleague's existing instance range, never a new render loop or mesh batch.
+  const seatSupport=new THREE.Group();seatSupport.name='portable-seat';seatSupport.visible=false;root.add(seatSupport);
+  mesh('round','#8b9f8c',seatSupport,0,13.2,0,14,2.4,13);
+  mesh('round','#a7b79a',seatSupport,0,23,-7,14,11,2);
+  for(const side of[-1,1]){
+    mesh('box','#5b796a',seatSupport,side*5.7,16,-7,1.3,25,1.3);
+    mesh('box','#5b796a',seatSupport,side*5.7,6,3.8,1.3,12,1.3);
+    mesh('box','#5b796a',seatSupport,side*5.7,5,0,1.1,1,12);
+  }
+  const target={seated:false,seatSupport:false,walking:false,phase:0,stride:0,bob:0,working:false,lounging:false,carrying:false,offering:false,receiving:false,heading:'down',nod:0};
+  let dirty=true,displayScale=scale,targetScale=scale;
   const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3,settling=false,reaction=null,faceAngle=null,greeting=false,wave=null,ambient=null;
   function animate(now=0,{reducedMotion=false,delta=16,idleMotion=false}={}) {
     if(!dirty&&!settling&&!reaction&&!wave&&!ambient&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
     const weight=reducedMotion?1:1-Math.exp(-Math.min(delta,100)/95),goals={seated:target.seated?1:0,step:target.walking?target.stride*Math.PI/180*1.75:0,typing:target.working&&target.seated?1:0,offer:target.offering?1:target.carrying?.35:0};
-    settling=false;for(const key of Object.keys(goals)){pose[key]=blend(pose[key],goals[key],weight);if(Math.abs(pose[key]-goals[key])<.001)pose[key]=goals[key];else settling=true;}
+    settling=false;if(Math.abs(displayScale-targetScale)>.0001){displayScale=blend(displayScale,targetScale,weight);if(Math.abs(displayScale-targetScale)<.0001)displayScale=targetScale;else settling=true;root.scale.setScalar(displayScale);}
+    for(const key of Object.keys(goals)){pose[key]=blend(pose[key],goals[key],weight);if(Math.abs(pose[key]-goals[key])<.001)pose[key]=goals[key];else settling=true;}
     let response=0;
     if(reaction&&!reducedMotion){reaction.started??=now;const progress=Math.min(1,Math.max(0,(now-reaction.started)/(reaction.press?420:320)));response=Math.sin(progress*Math.PI)*(reaction.press?1:.6);if(progress===1)reaction=null;}else reaction=null;
     rig.scale.setScalar(1+response*.025);torso.rotation.z=-response*.025;
+    seatSupport.visible=!!target.seatSupport&&(target.seated||pose.seated>.02);
     const sit=pose.seated,step=pose.step,breath=reducedMotion||!idleMotion?0:Math.sin(now/1600+idleOffset)*.09;
     rig.position.y=23-sit*7+(target.walking?Math.max(0,-target.bob):breath);torso.rotation.x=sit*.07;torso.position.z=sit*3.5;
     for(const [index,side]of['left','right'].entries()){
@@ -128,7 +140,8 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
     if(facing!=null){let diff=facing-root.rotation.y;diff=Math.atan2(Math.sin(diff),Math.cos(diff));if(reducedMotion||Math.abs(diff)<.001){root.rotation.y+=diff;if(!target.walking)faceAngle=null;}else{root.rotation.y+=diff*weight;settling=true;}}
     dirty=false;return true;
   }
-  const api={root,identity,rig,head,arms,legs,document,ambientCup,ambientTablet,target,animate,
+  const api={root,identity,rig,head,arms,legs,document,ambientCup,ambientTablet,seatSupport,target,animate,
+    setScale(value){const next=Number(value);if(Number.isFinite(next)&&next>.15&&next<2&&next!==targetScale){targetScale=next;dirty=true;}},
     setPosition(point){if(root.position.x!==point.x||root.position.z!==point.y){root.position.set(point.x,1.9,point.y);dirty=true;}},
     facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);if(root.rotation.y!==angle){faceAngle=angle;dirty=true;}},
     react(kind='hover'){if(ambient){ambient=null;dirty=true;}reaction={press:kind==='press',started:null};dirty=true;},
@@ -137,7 +150,7 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
     clearAmbient(){if(!ambient)return false;ambient=null;dirty=true;return true;},get ambientKind(){return ambient?.kind||null;},
     setPose(patch){if(ambient&&['walking','working','carrying','offering','receiving'].some(key=>patch[key])){ambient=null;dirty=true;}for(const [key,value]of Object.entries(patch))if(target[key]!==value){target[key]=value;dirty=true;}},
     invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return settling||!!reaction||!!wave||!!ambient||target.walking||target.offering||target.receiving;},get hasUrgentMotion(){return settling||!!reaction||!!wave||target.walking||target.offering||target.receiving;},get greetingActive(){return greeting;},get waving(){return !!wave;},
-    get height(){return (target.seated?SEATED_ACTOR_HEIGHT:STANDING_ACTOR_HEIGHT)*scale;},
+    get height(){return (target.seated?SEATED_ACTOR_HEIGHT:STANDING_ACTOR_HEIGHT)*displayScale;},
   };
   root.userData={identity,actorId:meta.id,virtual,background};
   animate(0,{reducedMotion:true});root.updateMatrixWorld(true);

@@ -7,8 +7,8 @@ import (
 
 func TestPresenceCarriesOnlyStableWorkplaceAppearanceKey(t *testing.T) {
 	f := newFlow(t)
-	f.employee.OrganizationSeatIDs = []string{"research_staff_002", "maintenance_manager_001"}
-	people, err := f.svc.Touch(f.employee, "maintenance")
+	person := presenceRosterPerson(t, f.ids, "appearance", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_002", "maintenance_manager_001"})
+	people, err := f.svc.Touch(person, "maintenance")
 	if err != nil || len(people) != 1 {
 		t.Fatalf("presence failed: %v", err)
 	}
@@ -86,10 +86,10 @@ func TestPresenceLocationsKeepExistingExpirationAndEmployeeChecks(t *testing.T) 
 	if _, err := f.svc.Touch(f.employee, "ai_data"); err != nil {
 		t.Fatal(err)
 	}
-	f.svc.mu.Lock()
+	f.svc.presenceMu.Lock()
 	f.svc.presence[f.employee.ID]["updatedAt"] = time.Now().UnixMilli() - 45001
 	f.svc.presence["not-an-employee"] = M{"id": "not-an-employee", "nodeId": "research", "updatedAt": time.Now().UnixMilli(), "online": true}
-	f.svc.mu.Unlock()
+	f.svc.presenceMu.Unlock()
 	if people := f.svc.Online(); len(people) != 0 {
 		t.Fatalf("expired or unknown employees became online: %#v", people)
 	}

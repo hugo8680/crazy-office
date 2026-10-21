@@ -1,4 +1,4 @@
-import {OFFICE_ROOMS} from '../src/organization.mjs';
+import {OFFICE_ROOMS,OFFICE_SEATS} from '../src/organization.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeOfficePresence,MAX_OFFICE_PEOPLE,PRESENCE_NODE_IDS,presencePosition,createOfficePresenceMotion,mountErpPresence} from '../src/erp-presence.js';
@@ -41,9 +41,9 @@ function heartbeatFixture(request,options={}){
  return{presence,values,calls,timers,listeners,doc};
 }
 
-test('在线心跳只调用presence接口，15秒更新自身位置，并复用响应的在线名单',async()=>{
- const f=heartbeatFixture(async(_path,_method,body)=>({online:[person('me',body.nodeId),person('other','finance')]}));await f.presence.refresh();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0],['/api/erp/presence','PUT',{nodeId:'hr_admin'}]);assert.equal([...f.timers.values()][0].ms,15000);assert.equal(f.values.at(-1).people.length,2);assert.equal(f.values.at(-1).currentUserId,'me');
- await f.presence.moveTo('meeting');assert.equal(f.calls.at(-1)[2].nodeId,'research');assert.equal(await f.presence.moveTo('unknown'),false);assert(f.calls.every(([url])=>url==='/api/erp/presence'));f.presence.destroy();assert.equal(f.timers.size,0);assert.equal(f.listeners.size,0);assert.equal(f.values.at(-1).enabled,false);
+test('在线心跳使用三秒协议、读取真实名单，部门移动提交明确坐标',async()=>{
+ const f=heartbeatFixture(async(_path,_method,body)=>({online:[person('me',body.nodeId),person('other','finance')]}));await f.presence.refresh();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0],['/api/erp/presence','PUT',{operation:'heartbeat',nodeId:'hr_admin'}]);assert.equal([...f.timers.values()][0].ms,3000);assert.equal(f.values.at(-1).people.length,2);assert.equal(f.values.at(-1).currentUserId,'me');
+ await f.presence.moveTo('meeting');assert.equal(f.calls.at(-1)[2].nodeId,'research');assert.equal(f.calls.at(-1)[2].operation,'move');assert.deepEqual({x:f.calls.at(-1)[2].x,y:f.calls.at(-1)[2].y},presencePosition('research'));assert.equal(await f.presence.moveTo('unknown'),false);assert(f.calls.every(([url])=>url==='/api/erp/presence'));f.presence.destroy();assert.equal(f.timers.size,0);assert.equal(f.listeners.size,0);assert.equal(f.values.at(-1).enabled,false);
 });
 
 test('后台暂停心跳，前台立即刷新，销毁后迟到响应不能恢复在线人物',async()=>{
@@ -53,7 +53,7 @@ test('后台暂停心跳，前台立即刷新，销毁后迟到响应不能恢�
 });
 
 test('移动期间合并心跳并发送最新位置，网络断开不永久展示旧在线状态，401停用',async()=>{
- let release;const f=heartbeatFixture(()=>new Promise(yes=>{release=yes;}));await flush();const moving=f.presence.moveTo('finance');release({online:[person('me')]});await moving;await flush();assert.equal(f.calls.at(-1)[2].nodeId,'finance');release({online:[person('me','finance')]});await flush();f.presence.destroy();
+ let release;const f=heartbeatFixture(()=>new Promise(yes=>{release=yes;}));await flush();const moving=f.presence.moveTo('finance');release({online:[person('me')]});await flush();assert.equal(f.calls.at(-1)[2].nodeId,'finance');release({online:[person('me','finance')]});assert.equal(await moving,true);await flush();f.presence.destroy();
  let time=0,ok=true;const g=heartbeatFixture(async()=>{if(ok)return{people:[person('me')]};throw new Error('offline');},{now:()=>time});await g.presence.refresh();ok=false;time=46000;await g.presence.refresh();assert.deepEqual(g.values.at(-1).people,[]);g.presence.destroy();
  const h=heartbeatFixture(async()=>{throw Object.assign(new Error('login expired'),{status:401});});await h.presence.refresh();assert.equal(h.values.at(-1).enabled,false);assert.equal(h.timers.size,0);await h.presence.refresh();assert.equal(h.calls.length,1);h.presence.destroy();
 });
@@ -78,4 +78,47 @@ test('2D在线员工替换固定职能人物，实体便服工牌与直接点击
  f.scene.setPresence({enabled:true,currentUserId:'me',people:[person('me'),person('other','finance')],onSelectEmployee:p=>selected.push(p.id)});assert(fixed.every(el=>el.style.display==='none'));const real=f.layers.get('.cnl-presence-layer').children;assert.equal(real.length,2);assert(real.every(el=>!el.innerHTML.includes('cnl-human-card')&&!el.innerHTML.includes('cnl-human-halo')));assert.equal(real[0].dataset.current,'true');assert.equal(f.layers.get('.cnl-agent-layer').children.length,agentCount);real[0].listeners.get('click')({stopPropagation(){}});assert.deepEqual(selected,['me']);
  f.scene.setPresence({enabled:false,people:[]});assert.equal(f.layers.get('.cnl-presence-layer').children.length,0);assert(fixed.every(el=>el.style.display===''));assert.deepEqual(fixed.map(el=>el.innerHTML),before);assert.equal(fixed.length,HUMAN_EMPLOYEES.length);
  }finally{f.destroy();}assert.equal(f.visibility.size,0);
+});
+
+test('服务端坐标、姿态、占用座位和版本完整保留，越界与错误姿态不能进入画面',()=>{
+ const seat=OFFICE_SEATS.find(seat=>seat.id==='research_staff_002'),source=person('me','research',{x:seat.x,y:seat.y,posture:'seated',seatId:seat.id,revision:4,appearanceKey:seat.id});const normalized=normalizeOfficePresence({enabled:true,currentUserId:'me',people:[source]}).people[0];assert.deepEqual(normalized.point,{x:seat.x,y:seat.y});assert.equal(normalized.posture,'seated');assert.equal(normalized.seatId,seat.id);assert.equal(normalized.revision,4);assert.equal(normalized.appearanceKey,seat.id);
+ const invalid=normalizeOfficePresence({people:[person('bad','research',{x:1e6,y:20,posture:'unknown',revision:-3})]}).people[0];assert.equal(invalid.point,null);assert.equal(invalid.posture,'standing');assert.equal(invalid.revision,0);
+});
+
+test('移动、工位占座、空地坐下与起身按顺序提交，并在执行时读取最新版本',async()=>{
+ const deferred=[],errors=[],ready=[];const f=heartbeatFixture((_path,_method,body)=>new Promise((resolve,reject)=>deferred.push({body,resolve,reject})),{onError:error=>errors.push(error),onReady:me=>ready.push(me.id)});try{
+  await flush();assert.equal(deferred.length,1);deferred.shift().resolve({online:[person('me','research',{x:350,y:900,revision:3})]});await f.presence.ready;
+  const seat=OFFICE_SEATS.find(seat=>seat.id==='research_staff_002'),move=f.presence.movePoint({x:450,y:1000}),sit=f.presence.sit(seat.id),stand=f.presence.stand(),floor=f.presence.sitAt({x:510,y:740});await flush();assert.equal(deferred.length,1,'commands never race each other');assert.deepEqual(deferred[0].body,{operation:'move',x:450,y:1000,expectedRevision:3});
+  deferred.shift().resolve({online:[person('me','research',{x:450,y:1000,revision:4})]});assert.equal(await move,true);await flush();assert.deepEqual(deferred[0].body,{operation:'sit',seatId:seat.id,expectedRevision:4});
+  deferred.shift().resolve({online:[person('me','research',{x:seat.x,y:seat.y,seatId:seat.id,posture:'seated',revision:5})]});assert.equal(await sit,true);await flush();assert.deepEqual(deferred[0].body,{operation:'stand',expectedRevision:5});
+  deferred.shift().resolve({online:[person('me','research',{x:450,y:1000,revision:6})]});assert.equal(await stand,true);await flush();assert.deepEqual(deferred[0].body,{operation:'sit',x:510,y:740,expectedRevision:6});
+  deferred.shift().resolve({online:[person('me','courtyard',{x:510,y:740,posture:'seated',revision:7})]});assert.equal(await floor,true);assert.equal(f.presence.self.posture,'seated');assert.equal(f.presence.self.seatId,undefined);assert.deepEqual(ready,['me']);assert.deepEqual(errors,[]);
+  const before=f.calls.length;assert.equal(await f.presence.sit('invented-seat'),false);assert.equal(await f.presence.sitAt({x:0,y:0}),false);assert.equal(await f.presence.movePoint({x:NaN,y:400}),false);assert.equal(f.calls.length,before);
+ }finally{f.presence.destroy();}
+});
+
+test('移动中的心跳排队合并，不能以旧快照覆盖新目的地或坐姿',async()=>{
+ const deferred=[];const f=heartbeatFixture((_path,_method,body)=>new Promise(resolve=>deferred.push({body,resolve})));try{
+  await flush();deferred.shift().resolve({online:[person('me','research',{x:350,y:900,revision:1})]});await f.presence.ready;
+  const move=f.presence.movePoint({x:455,y:1030});await flush();assert.equal(deferred[0].body.operation,'move');const heartbeat1=f.presence.refresh(),heartbeat2=f.presence.refresh();assert.equal(heartbeat1,heartbeat2);await flush();assert.equal(deferred.length,1,'no heartbeat request exists until the pending move settles');
+  deferred.shift().resolve({online:[person('me','research',{x:455,y:1030,revision:2})]});assert.equal(await move,true);await flush();assert.equal(f.values.at(-1).people[0].x,455);assert.deepEqual(deferred[0].body,{operation:'heartbeat',nodeId:'research'});deferred.shift().resolve({online:[person('me','research',{x:455,y:1030,revision:2})]});await heartbeat1;assert.equal(f.presence.self.x,455);assert.equal(f.presence.self.revision,2);
+ }finally{f.presence.destroy();}
+});
+
+test('占座冲突保留错误并刷新权威状态，队列可继续，登录失效后排队动作不再提交',async()=>{
+ let revision=1;const errors=[],f=heartbeatFixture(async(_path,_method,body)=>{if(body.operation==='sit')throw Object.assign(new Error('这个位置已有人'),{status:409});if(body.operation==='stand')revision++;return{online:[person('me','research',{x:350,y:900,revision})]};},{onError:error=>errors.push(error)});try{
+  await f.presence.ready;assert.equal(await f.presence.sit('research_staff_002'),false);assert.deepEqual(errors,['这个位置已有人']);assert.deepEqual(f.calls.map(call=>call[2].operation),['heartbeat','sit','heartbeat']);assert.equal(await f.presence.stand(),true);assert.equal(f.presence.self.revision,2);
+ }finally{f.presence.destroy();}
+ let release;const g=heartbeatFixture((_path,_method,body)=>body.operation==='heartbeat'?Promise.resolve({online:[person('me','research',{revision:1})]}):new Promise((_resolve,reject)=>{release=reject;}));try{
+  await g.presence.ready;const first=g.presence.movePoint({x:350,y:990}),second=g.presence.stand();await flush();release(Object.assign(new Error('expired'),{status:401}));assert.equal(await first,false);assert.equal(await second,false);assert.equal(g.calls.length,2);assert.equal(g.timers.size,0);assert.equal(g.values.at(-1).enabled,false);
+ }finally{g.presence.destroy();}
+});
+
+test('在途坐姿目标、重复心跳与跨视角种子保持实际路程，不跳回部门默认入口',()=>{
+ let time=0;const target={x:480,y:1020},motion=createOfficePresenceMotion({now:()=>time});const state={enabled:true,currentUserId:'me',people:[person('me','research',{x:350,y:1000,revision:1})]};motion.set(state);motion.set({...state,people:[person('me','research',{...target,seatId:'research_staff_002',posture:'seated',revision:2})]});const started=motion.entries.get('me').motion.started;time=400;motion.tick(time);const halfway={...motion.entries.get('me').point};motion.set({...state,people:[person('me','research',{...target,seatId:'research_staff_002',posture:'seated',revision:2})]});assert.equal(motion.entries.get('me').motion.started,started);
+ const next=createOfficePresenceMotion({now:()=>time});next.set({...state,positions:motion.snapshot().positions,people:[person('me','research',{...target,seatId:'research_staff_002',posture:'seated',revision:2})]});assert.deepEqual(next.entries.get('me').point,halfway);assert.deepEqual(next.entries.get('me').target,target);assert.equal(next.entries.get('me').person.posture,'seated');time=30000;next.tick(time);assert.deepEqual(next.entries.get('me').point,target);assert.equal(next.busy,false);motion.destroy();next.destroy();
+});
+
+test('销毁后排队动作与慢响应都不能重建员工或触发就绪回调',async()=>{
+ let release;const ready=[],f=heartbeatFixture(()=>new Promise(resolve=>{release=resolve;}),{onReady:person=>ready.push(person.id)});await flush();const move=f.presence.movePoint({x:350,y:1000});f.presence.destroy();const count=f.values.length;release({online:[person('me','research',{revision:1})]});await f.presence.ready;assert.equal(await move,false);assert.equal(f.calls.length,1);assert.equal(f.values.length,count);assert.deepEqual(ready,[]);assert.equal(f.timers.size,0);
 });

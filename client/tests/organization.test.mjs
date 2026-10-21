@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {OFFICE_WORLD,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_OVERVIEW_SEATS,OFFICE_DETAIL_ZOOM,officeSeatsForView,ORGANIZATION_DEPARTMENTS,ORGANIZATION_PEOPLE,ORGANIZATION_TOTALS,OFFICE_AGENT_HOMES,OFFICE_NODE_ANCHORS,OFFICE_WALKING_SEGMENTS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,canonicalDepartmentId,departmentById,roomForDepartment,departmentWorkPoint} from '../src/organization.mjs';
+import {OFFICE_WORLD,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_OVERVIEW_SEATS,OFFICE_DETAIL_ZOOM,officeSeatsForView,ORGANIZATION_DEPARTMENTS,ORGANIZATION_PEOPLE,ORGANIZATION_TOTALS,OFFICE_AGENT_HOMES,OFFICE_NODE_ANCHORS,OFFICE_WALKING_SEGMENTS,OFFICE_DATA_CENTER_WALKING_SEGMENTS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,canonicalDepartmentId,departmentById,roomForDepartment,departmentWorkPoint} from '../src/organization.mjs';
 
 test('organization has exact requested posts without inventing accounts',()=>{
   assert.equal(ORGANIZATION_DEPARTMENTS.length,12);
@@ -89,7 +89,7 @@ test('navigation segments remain orthogonal, within the campus and never cross a
     const [a,b]=segment;
     assert.ok(a[0]===b[0]||a[1]===b[1],'orthogonal segment');
     assert.notDeepEqual(a,b,'nonempty segment');
-    for(const p of segment)assert.ok(p[0]>=0&&p[1]>=0&&p[0]<=OFFICE_WORLD.width&&p[1]<=OFFICE_WORLD.height);
+    for(const p of segment){const annexLane=OFFICE_DATA_CENTER_WALKING_SEGMENTS.includes(segment);assert.ok(p[0]>=(annexLane?-155:0)&&p[1]>=0&&p[0]<=OFFICE_WORLD.width&&p[1]<=OFFICE_WORLD.height);}
     for(const post of OFFICE_SEATS){
       const d=post.desk;
       const crosses=a[1]===b[1]
@@ -179,7 +179,7 @@ test('overview uses readable representative geometry while preserving exact full
   for(const room of OFFICE_ROOMS){
     const visible=overview.filter(post=>post.departmentId===room.id);
     assert.equal(visible.length,room.overviewSeatIds.length);
-    assert.ok(visible.length<=(room.id==='ai_data'?21:4));
+    if(room.id==='ai_data')assert.equal(visible.length,21);else{assert.equal(visible.length,room.seats.length,'ordinary departments never hide members');for(const post of visible)assert.equal(post,OFFICE_SEATS.find(item=>item.id===post.id),'ordinary overview preserves exact workstation geometry');}
   }
   for(const team of roomForDepartment('ai_data').teamZones){
     const visible=overview.filter(post=>post.teamId===team.id);

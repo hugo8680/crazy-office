@@ -111,3 +111,19 @@ bin/import-roster --identity-file /private/data/erp/identities.json --roster /pr
 ```
 
 导入一次原子保存全部账号及审计记录，重复执行不重置密码、不增加重复账号、不重复记审计。`--verify-logins` 验证本次新增账号的登录及部门、工位映射，输出汇总数字，不输出密码。导入后重启 API，再检查员工会话、组织目录和审批权限。创建账号时的指定初始口令仅用于该离线导入入口；普通邀请和修改密码仍采用原有密码规则。
+
+### 信息公开栏
+
+`GET /api/erp/bulletin` 仅向登录员工返回 `board.training`、`dashboard`、`video`、`messages`。训练成绩默认空；看板仅聚合现有权限可见的项目、待完成任务、产品种类、未结单据数量，不返回金额、员工绩效、业务名称、客户或业务编号。
+
+- 留言：`POST /api/erp/bulletin/messages`，输入 `_requestId`、`body`。正文为纯文本，最多600个字符，作者及时间从服务器账号生成。每位员工间隔15秒、每小时最多10条，删除后仍计入限频；相同请求重试不会重复发布。`POST /api/erp/bulletin/messages/:id/delete` 输入 `_requestId`、`expectedVersion`，仅作者或管理员可软删除。最新100条及分页游标由 `GET /api/erp/bulletin/messages?before=...` 返回；客户端须使用 `textContent` 或 HTML 转义渲染文本。
+- 训练成绩：`POST /api/erp/bulletin/training` 由管理员或经理录入。`entries` 每次1至250条，字段为实际 `employeeId`、`periodStart`、`periodEnd`、`completedCount`、`accuracy`、`expectedVersion`，另有可选内部批次参考 `sourceRef`。准确率为0至100、最多两位小数；创建版本为0，修改须提交当前版本。员工必须真实存在且在职。整批事务、幂等及审计保存实际提交值；排行榜按完成量、准确率排序，同分同名次。默认读取最新已录入周期，可用 `periodStart`、`periodEnd` 查询指定周期；没有训练流水时不自动构造分数。
+- 宣传片：`POST /api/erp/bulletin/video` 仅管理员可设置，输入 `_requestId`、`src`、`title`、`expectedVersion`（首次0）。空地址表示未配置。站内只接受 `/media/`、`/assets/` 下的 MP4、WebM、Ogg 媒体；外部地址须为 HTTPS 且位于服务端官方域名名单，不允许用户名密码、任意外部主机、路径穿越、查询凭据或脚本地址。官方扩展域名由服务器环境变量 `OFFICE_BULLETIN_VIDEO_HOSTS` 逗号分隔指定，不接受客户端扩展名单。服务器不主动抓取视频地址。
+
+公开栏使用三张独立的追加式表，迁移版本为6；与原有业务表、备份、幂等和审计共用 SQLite 事务。默认不写入留言、视频地址或训练成绩。降级回滚应保留新增表及数据；部署时核对原业务表指纹，不应把新增空表误认为原业务记录发生变化。
+
+### 在线办公室位置与座位
+
+`PUT /api/erp/presence` 支持 `operation: heartbeat | move | sit | stand`。心跳只续期，不读取其坐标或节点字段；其余动作必须提交最近一次响应的 `expectedRevision`。`move` 接受地图坐标；`sit` 接受组织中的 `seatId`，或本部门/公共区内的 `x,y`；`stand` 原地起身。坐下位置之间至少相距 18px；同一位置并发抢占只有一个请求成功，旧版本返回 409。
+
+登录后在真实主部门建立位置，部门及可坐区域以服务端员工目录为准，页面传入的角色或部门不会改变权限。多部门员工可使用各所属部门的座位。签名浏览器会话绑定服务端内存租约，同 Cookie 的标签页共享位置，不同独立登录通过新登录接管；旧登录无法续期或退出新登录的位置。离座、移动、退出、停用、部门调动失去座位权限及 45 秒未续期均释放座位。服务重启后全部离线；在线位置不写入业务数据库，浏览器租约标识不公开。
