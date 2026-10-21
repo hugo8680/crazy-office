@@ -17,19 +17,19 @@
   --office-ui-weight-regular:400;
   --office-ui-weight-medium:500;
   --office-ui-weight-semibold:600;
-  --office-ui-paper:#fffdf6;
-  --office-ui-ink:#29483d;
-  --office-ui-muted:#62705f;
-  --office-ui-line:#d3ddcd;
-  --office-ui-soft:#eef2e6;
-  --office-ui-canvas:#f2f1e8;
-  --office-ui-surface:#f9faf2;
-  --office-ui-surface-muted:#f5f7ee;
-  --office-ui-accent:#3c7160;
-  --office-ui-accent-hover:#2f5c4b;
-  --office-ui-on-accent:#fffdf1;
-  --office-ui-control-line:#ccd9c3;
-  --office-ui-scrollbar:#c0cfb9;
+  --office-ui-paper:#fffefa;
+  --office-ui-ink:#243c38;
+  --office-ui-muted:#5d6d65;
+  --office-ui-line:#dce2d9;
+  --office-ui-soft:#eef2eb;
+  --office-ui-canvas:#f1f2e9;
+  --office-ui-surface:#f8f9f4;
+  --office-ui-surface-muted:#f4f5ee;
+  --office-ui-accent:#285d50;
+  --office-ui-accent-hover:#1c493d;
+  --office-ui-on-accent:#fffefa;
+  --office-ui-control-line:#c9d2c7;
+  --office-ui-scrollbar:#bac8bb;
   --office-ui-danger:#a05a43;
   --office-ui-warning:#8e5c33;
   --office-ui-warning-soft:#f9eddb;
@@ -37,7 +37,7 @@
   --office-ui-radius-control:9px;
   --office-ui-radius-card:12px;
   --office-ui-radius-section:15px;
-  --office-ui-radius-window:24px;
+  --office-ui-radius-window:20px;
   --office-ui-radius-pill:999px;
   --office-ui-control-compact:36px;
   --office-ui-control-height:38px;
@@ -95,4 +95,22 @@ a{color:inherit}
 }
 :where(.workspace-business,.workspace-chrome,.session-dialog) :disabled{
   opacity:var(--office-ui-disabled-opacity);
+}
+
+/* Large displays use a readable control scale without changing scene coordinates. */
+@media(min-width:2560px){
+  :root{
+    --office-ui-text-caption:13px;
+    --office-ui-text-meta:14px;
+    --office-ui-text-control:16px;
+    --office-ui-text-body:17px;
+    --office-ui-text-section:18px;
+    --office-ui-text-subheading:20px;
+    --office-ui-text-input-touch:18px;
+    --office-ui-text-title:26px;
+    --office-ui-text-value:28px;
+    --office-ui-control-compact:42px;
+    --office-ui-control-touch:50px;
+    --office-ui-field-height:46px;
+  }
 }

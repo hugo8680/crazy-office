@@ -1,3 +1,4 @@
+import {setOrganizationOccupants,organizationOccupant,subscribeOrganizationOccupants} from '../src/organization-occupants.mjs';
 import {ORGANIZATION_DEPARTMENTS} from '../src/organization.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +20,7 @@ const documentRow=(overrides={})=>({id:'order-a',title:'服务器采购',status:
 const response=(status,data)=>({__response:true,status,data});
 
 async function harness({sessionValue=null,savedView=null,reducedMotion=false}={}){
-  const elements=new Map(),documentEvents=new Map(),windowEvents=new Map(),requests=[],intervals=new Map(),timeouts=new Map(),stored=new Map(),animations=[],motionListeners=new Map();let timerSequence=0,responder;
+  const elements=new Map(),documentEvents=new Map(),windowEvents=new Map(),requests=[],intervals=new Map(),timeouts=new Map(),stored=new Map(),animations=[],motionListeners=new Map(),directoryWrites=[];let timerSequence=0,responder;
   const motionPreference={matches:reducedMotion,addEventListener(type,listener){motionListeners.set(type,listener);},removeEventListener(type){motionListeners.delete(type);}};
   class Element{
     constructor(){this.dataset={};this.hidden=false;this.innerHTML='';this.textContent='';this.children=[];this.style={};this.attributes=new Map();this.handlers=new Map();}
@@ -31,9 +32,9 @@ async function harness({sessionValue=null,savedView=null,reducedMotion=false}={}
   element('#lab').requestFullscreen=async()=>{document.fullscreenElement=element('#lab');documentEvents.get('fullscreenchange')?.();};
   const scene={focusNode(id){this.viewCalls.push(['focusNode',id]);},mode:'2d',pending:false,updates:[],presence:[],selected:[],viewCalls:[],update(value){this.updates.push(plain(value));},setPresence(value){this.presence.push(plain(value));},setSelectedNode(id){this.selected.push(['node',id]);},setSelectedAgent(id){this.selected.push(['agent',id]);},setSelectedHuman(id){this.selected.push(['human',id]);},setTopology(value){this.viewCalls.push(['topology',value]);},zoom(delta){this.viewCalls.push(['zoom',delta]);},rotate(delta){this.viewCalls.push(['rotate',delta]);},resetView(){this.viewCalls.push(['reset']);},fit(){this.viewCalls.push(['fit']);},destroy(){this.destroyed=true;}};
   const erps=[],presences=[];let account,sessionOptions;
-  responder=request=>request.path==='/api/session'?{session:sessionValue||{authenticated:false}}:request.path==='/api/erp/snapshot'?businessSnapshot():{};
+  responder=request=>request.path==='/api/session'?{session:sessionValue||{authenticated:false}}:request.path==='/api/erp/snapshot'?businessSnapshot():request.path==='/api/erp/organization'?{employees:[]}:{};
   const fetch=async(path,options={})=>{const request={path:String(path),method:options.method||'GET',credentials:options.credentials,cache:options.cache,headers:options.headers||{},...(options.body===undefined?{}:{body:JSON.parse(options.body)})};requests.push(request);const result=await responder(request);const status=result?.__response?result.status:200,data=result?.__response?result.data:result;return{status,ok:status>=200&&status<300,json:async()=>data};};
-  const scope={console,ORGANIZATION_DEPARTMENTS,CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver,mountWorkspaceViewport,e:escapeHtml,document,fetch,window:{matchMedia:()=>motionPreference,addEventListener:(type,fn)=>windowEvents.set(type,fn)},localStorage:{getItem:key=>key==='office-view-mode'?savedView:null,setItem:(key,value)=>stored.set(key,value)},setInterval(fn,ms){const id=++timerSequence;intervals.set(id,{fn,ms});return id;},clearInterval:id=>intervals.delete(id),setTimeout(fn,ms){const id=++timerSequence;timeouts.set(id,{fn,ms});return id;},clearTimeout:id=>timeouts.delete(id),mountScene(){},
+  const scope={console,setOrganizationOccupants(records){const value=Array.isArray(records)?records:[];setOrganizationOccupants(value);directoryWrites.push(plain(value));},ORGANIZATION_DEPARTMENTS,CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver,mountWorkspaceViewport,e:escapeHtml,document,fetch,window:{matchMedia:()=>motionPreference,addEventListener:(type,fn)=>windowEvents.set(type,fn)},localStorage:{getItem:key=>key==='office-view-mode'?savedView:null,setItem:(key,value)=>stored.set(key,value)},setInterval(fn,ms){const id=++timerSequence;intervals.set(id,{fn,ms});return id;},clearInterval:id=>intervals.delete(id),setTimeout(fn,ms){const id=++timerSequence;timeouts.set(id,{fn,ms});return id;},clearTimeout:id=>timeouts.delete(id),mountScene(){},
     createSceneViewController(container,callbacks,options){scene.callbacks=callbacks;scene.setMode=async mode=>{scene.mode=mode;scene.viewCalls.push(['mode',mode]);options.onChange({mode,pending:false});return mode;};return scene;},
     mountErp(options){const instance={options,isOpen:false,destroyed:false,opens:[],documents:[],people:[],refreshes:[],draft:null,async refresh(settings={}){this.refreshes.push(plain(settings));const value=await options.request('/api/erp/snapshot');if(!this.destroyed)options.onChange({snapshot:value});return value;},async open(section,context){this.isOpen=true;this.opens.push({section,context:plain(context)});options.onNavigate({section,opened:true});},async openDocument(id){this.isOpen=true;this.documents.push(id);options.onNavigate({section:'flows',opened:true,documentId:id});},async openPerson(id){this.isOpen=true;this.people.push(id);options.onNavigate({section:'people',opened:true});},close(){if(!this.isOpen)return;this.isOpen=false;options.onNavigate({section:null,opened:false});options.onClose();},updateSession(next){this.lastSession=next;},destroy(){this.close();this.destroyed=true;this.draft=null;}};erps.push(instance);return instance;},
     mountErpPresence(options){const instance={options,moves:[],destroyed:false,async moveTo(node){this.moves.push(node);},destroy(){this.destroyed=true;}};presences.push(instance);return instance;},
@@ -43,8 +44,8 @@ async function harness({sessionValue=null,savedView=null,reducedMotion=false}={}
   const controller=await vm.runInContext(`(async()=>{${source}\nreturn {api,startSession,receiveSnapshot,handleOfficeClick,cleanPrivateState,state:()=>({session,snapshot,section,preferredDocument,sessionEpoch})};})()`,context);
   await flush();
   const target=dataset=>({dataset,closest(selector){if(selector.includes('[data-office-section]'))return this;if(selector==='#view-menu,[data-office-action="view"]')return dataset.officeAction==='view'?this:null;return null;}});
-  return{scene,erps,presences,requests,document,documentEvents,windowEvents,intervals,timeouts,stored,animations,motionPreference,motionListeners,account,element,controller,context,scope,
-    setResponder(fn){responder=fn;},async login(value=loginSession()){account.session=value;sessionOptions.onAuthenticated(value);await flush();},async signOut(){account.session=null;sessionOptions.onSignedOut();await flush();},async click(dataset){await controller.handleOfficeClick({target:target(dataset)});await flush();},async documentClick(dataset){documentEvents.get('click')?.({target:target(dataset)});await flush();},publish(value){controller.receiveSnapshot(value);},async poll(){for(const timer of [...intervals.values()])if(timer.ms===8000)timer.fn();await flush();},async event(type){windowEvents.get(type)?.();await flush();},cleanup(){windowEvents.get('pagehide')?.();},get currentErp(){return erps.at(-1);},get currentPresence(){return presences.at(-1);}};
+  return{scene,erps,presences,requests,directoryWrites,document,documentEvents,windowEvents,intervals,timeouts,stored,animations,motionPreference,motionListeners,account,element,controller,context,scope,
+    setResponder(fn){responder=fn;},async login(value=loginSession()){account.session=value;sessionOptions.onAuthenticated(value);await flush();},async signOut(){account.session=null;sessionOptions.onSignedOut();await flush();},async click(dataset){await controller.handleOfficeClick({target:target(dataset)});await flush();},async documentClick(dataset){documentEvents.get('click')?.({target:target(dataset)});await flush();},publish(value){controller.receiveSnapshot(value);},async poll(){for(const timer of [...intervals.values()])if(timer.ms===8000)timer.fn();await flush();},async event(type){windowEvents.get(type)?.();await flush();},cleanup(){windowEvents.get('pagehide')?.();setOrganizationOccupants([]);},get currentErp(){return erps.at(-1);},get currentPresence(){return presences.at(-1);}};
 }
 
 test('anonymous startup keeps the office visible and requires same-layer sign-in before business access',async()=>{
@@ -178,4 +179,45 @@ test('all twelve department areas focus the office without opening a maintenance
 
 test('the physical public board opens real notices and moves the current employee to the board, without a new dock entry',async()=>{
  const h=await harness();try{await h.login();h.requests.length=0;h.scene.callbacks.onSelectNode('bulletin');await flush();assert.equal(h.currentErp.opens.at(-1).section,'notices');assert.equal(h.currentPresence.moves.at(-1),'bulletin');assert.doesNotMatch(h.element('#action-dock').innerHTML,/data-office-section="notices"/);assert.equal(h.requests.length,0);}finally{h.cleanup();}
+});
+
+
+const directorySeat='finance_manager_001';
+const directoryEmployee=(name,username='linqing@example.invalid')=>({personId:directorySeat,name,username,title:'财务经理',seatIds:[directorySeat]});
+
+test('authenticated startup reads the private directory once and publishes real names, then sign-out clears every workplace name',async()=>{
+ const h=await harness(),observed=[];const unsubscribe=subscribeOrganizationOccupants(()=>observed.push(organizationOccupant(directorySeat)?.name||null));
+ try{
+  assert.equal(h.requests.some(request=>request.path==='/api/erp/organization'),false);assert.equal(organizationOccupant(directorySeat),null);
+  h.setResponder(request=>request.path==='/api/erp/organization'?{employees:[directoryEmployee('林青')]}:businessSnapshot());await h.login();
+  const reads=h.requests.filter(request=>request.path==='/api/erp/organization');assert.equal(reads.length,1);assert.equal(reads[0].method,'GET');assert.equal(reads[0].headers['X-Office-Actor'],'employee-a');assert.equal(reads[0].credentials,'same-origin');assert.equal(reads[0].cache,'no-store');assert.equal(organizationOccupant(directorySeat).name,'林青');assert.equal(organizationOccupant(directorySeat).title,'财务经理');assert.ok(observed.includes('林青'));
+  await h.login({...loginSession(),actor:{...loginSession().actor,title:'交付负责人'}});assert.equal(h.requests.filter(request=>request.path==='/api/erp/organization').length,1,'session metadata refresh keeps the existing directory');
+  await h.signOut();assert.equal(organizationOccupant(directorySeat),null);assert.equal(observed.at(-1),null);assert.deepEqual(h.directoryWrites.at(-1),[]);assert.equal(h.controller.state().session,null);
+ }finally{unsubscribe();h.cleanup();}
+});
+
+test('slow directory and snapshot responses from a previous account cannot repopulate names after an account switch',async()=>{
+ const h=await harness(),slowDirectory=deferred(),slowSnapshot=deferred();try{
+  h.setResponder(request=>request.path==='/api/erp/organization'?slowDirectory.promise:slowSnapshot.promise);await h.login();assert.equal(organizationOccupant(directorySeat),null);
+  const firstDirectory=h.requests.find(request=>request.path==='/api/erp/organization');assert.equal(firstDirectory.headers['X-Office-Actor'],'employee-a');
+  h.setResponder(request=>request.path==='/api/erp/organization'?{employees:[directoryEmployee('李岩','liyan@example.invalid')]}:businessSnapshot({currentUser:loginSession('employee-b','李岩').actor}));await h.login(loginSession('employee-b','李岩'));
+  assert.equal(organizationOccupant(directorySeat).name,'李岩');const afterSwitch=h.directoryWrites.length;
+  slowDirectory.resolve({employees:[directoryEmployee('旧账户私密姓名','old@example.invalid')]});slowSnapshot.resolve(businessSnapshot({currentUser:loginSession().actor}));await flush();
+  assert.equal(h.controller.state().session.actor.id,'employee-b');assert.equal(organizationOccupant(directorySeat).name,'李岩');assert.equal(h.directoryWrites.length,afterSwitch,'stale completion does not write or clear the current directory');assert.doesNotMatch(JSON.stringify(h.directoryWrites),/旧账户私密姓名|old@example/);assert.doesNotMatch(h.element('#toast').textContent,/通讯录|工作数据/);
+ }finally{h.cleanup();}
+});
+
+test('sign-out while a private directory request is in flight leaves anonymous workplaces after it resolves',async()=>{
+ const h=await harness(),slow=deferred();try{
+  h.setResponder(request=>request.path==='/api/erp/organization'?slow.promise:businessSnapshot());await h.login();await h.signOut();const writes=h.directoryWrites.length;
+  slow.resolve({employees:[directoryEmployee('离线后迟到的私密姓名')]});await flush();assert.equal(organizationOccupant(directorySeat),null);assert.equal(h.directoryWrites.length,writes);assert.doesNotMatch(JSON.stringify(h.directoryWrites),/离线后迟到的私密姓名/);assert.equal(h.controller.state().session,null);assert.equal(h.element('#toast').hidden,true);
+ }finally{h.cleanup();}
+});
+
+test('directory failure gives a retry notice without exposing the previous account and directory 401 clears private state',async()=>{
+ const h=await harness();try{
+  h.setResponder(request=>request.path==='/api/erp/organization'?{employees:[directoryEmployee('林青')]}:businessSnapshot());await h.login();assert.equal(organizationOccupant(directorySeat).name,'林青');
+  h.setResponder(request=>request.path==='/api/erp/organization'?response(503,{error:'directory temporarily unavailable'}):businessSnapshot({currentUser:loginSession('employee-b','李岩').actor}));await h.login(loginSession('employee-b','李岩'));assert.equal(organizationOccupant(directorySeat),null);assert.equal(h.element('#toast').textContent,'通讯录暂未载入，请刷新重试。');assert.equal(h.controller.state().session.actor.id,'employee-b');
+  h.setResponder(request=>request.path==='/api/erp/organization'?response(401,{error:'expired'}):businessSnapshot({currentUser:loginSession('employee-c','周宁').actor}));await h.login(loginSession('employee-c','周宁'));assert.equal(organizationOccupant(directorySeat),null);assert.equal(h.controller.state().session,null);assert.equal(h.currentErp.destroyed,true);assert.equal(h.currentPresence.destroyed,true);assert.ok(h.account.loginRequests.some(message=>message.includes('过期')));assert.equal(h.element('#toast').hidden,true);
+ }finally{h.cleanup();}
 });

@@ -16,10 +16,12 @@ test:
 build:
 	@mkdir -p bin
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o bin/office-api ./cmd/office
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags='-s -w' -o bin/import-roster ./cmd/import-roster
 
 build-linux:
 	@mkdir -p bin/$(GOOS)-$(GOARCH)
 	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -trimpath -ldflags='-s -w' -o bin/$(GOOS)-$(GOARCH)/office-api ./cmd/office
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) $(GO) build -trimpath -ldflags='-s -w' -o bin/$(GOOS)-$(GOARCH)/import-roster ./cmd/import-roster
 
 run:
 	$(GO) run ./cmd/office
@@ -33,6 +35,7 @@ release: build-linux
 	trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM; \
 	set -eu; \
 	cp bin/$(GOOS)-$(GOARCH)/office-api "$$stage/office-api"; \
+	cp bin/$(GOOS)-$(GOARCH)/import-roster "$$stage/import-roster"; \
 	cp -R data config "$$stage/"; \
 	printf '%s\n' "$(VERSION)" > "$$stage/RELEASE"; \
 	(cd "$$stage" && if command -v sha256sum >/dev/null 2>&1; then find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS; else find . -type f ! -name SHA256SUMS -exec shasum -a 256 {} + > SHA256SUMS; fi); \

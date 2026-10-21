@@ -8,7 +8,7 @@ release_id=$2
 case "$release_id" in ''|.|..|*[!A-Za-z0-9_.-]*) echo 'Invalid release id' >&2; exit 2;; esac
 base=/opt/office.laisengou.com/server
 release=$base/releases/$release_id
-[ -f "$source_dir/office-api" ] && [ -f "$source_dir/SHA256SUMS" ] && [ -f "$source_dir/RELEASE" ] && [ -d "$source_dir/data" ] && [ -d "$source_dir/config" ] || { echo 'Missing verified Go release output' >&2; exit 1; }
+[ -f "$source_dir/office-api" ] && [ -f "$source_dir/import-roster" ] && [ -f "$source_dir/SHA256SUMS" ] && [ -f "$source_dir/RELEASE" ] && [ -d "$source_dir/data" ] && [ -d "$source_dir/config" ] || { echo 'Missing verified Go release output' >&2; exit 1; }
 mkdir -p "$base/releases"
 chmod 755 "$base" "$base/releases"
 exec 9>"$base/.release.lock"
@@ -28,6 +28,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir "$stage"
 install -m 755 "$source_dir/office-api" "$stage/office-api"
+install -m 755 "$source_dir/import-roster" "$stage/import-roster"
 cp -R "$source_dir/data" "$source_dir/config" "$stage/"
 cp "$source_dir/RELEASE" "$source_dir/SHA256SUMS" "$stage/"
 find "$stage/data" "$stage/config" -type d -exec chmod 755 {} \;

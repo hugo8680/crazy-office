@@ -651,7 +651,11 @@ func (s *Service) Touch(a *identity.Actor, node string) ([]M, error) {
 		return nil, failure(400, "请选择办公室内的工作区域。")
 	}
 	s.mu.Lock()
-	s.presence[a.ID] = M{"id": a.ID, "name": a.Name, "department": a.Department, "title": a.Title, "nodeId": node, "updatedAt": time.Now().UnixMilli(), "online": true}
+	appearanceKey := a.ID
+	if len(a.OrganizationSeatIDs) > 0 {
+		appearanceKey = a.OrganizationSeatIDs[0]
+	}
+	s.presence[a.ID] = M{"id": a.ID, "name": a.Name, "department": a.Department, "title": a.Title, "appearanceKey": appearanceKey, "nodeId": node, "updatedAt": time.Now().UnixMilli(), "online": true}
 	s.mu.Unlock()
 	return s.Online(), nil
 }

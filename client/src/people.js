@@ -12,7 +12,7 @@ export const HUMAN_EMPLOYEES = Object.freeze([
 ].map(person => {
   const homes={owner:['general_office',0],hr_owner:['hr_admin',0],finance_owner:['finance',0],it_owner:['maintenance',0],business_owner:['business',0],purchasing_owner:['channels',0],investment_owner:['investment',0]};
   const [departmentId,slot]=homes[person.id];
-  return Object.freeze({...person,color:employeeAppearance(false).uniform,nodeId:departmentId,...departmentWorkPoint(departmentId,slot)});
+  return Object.freeze({...person,color:employeeAppearance(false,person.id).uniform,nodeId:departmentId,...departmentWorkPoint(departmentId,slot)});
 }));
 
 const SCENARIO_HUMANS = Object.freeze({ onboarding:'hr_owner', finance:'finance_owner', procurement:'purchasing_owner', ddos:'it_owner', database:'it_owner', delivery:'business_owner', investment:'investment_owner' });

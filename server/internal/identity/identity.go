@@ -35,35 +35,45 @@ func (e *Error) Error() string              { return e.Message }
 func Fail(status int, message string) error { return &Error{Status: status, Message: message} }
 
 type PublicEmployee struct {
-	ID         string   `json:"id"`
-	Username   string   `json:"username"`
-	Name       string   `json:"name"`
-	Department string   `json:"department"`
-	Title      string   `json:"title"`
-	Roles      []string `json:"roles"`
-	Active     bool     `json:"active"`
-	Status     string   `json:"status"`
-	Source     string   `json:"source,omitempty"`
-	CreatedAt  string   `json:"createdAt,omitempty"`
-	UpdatedAt  string   `json:"updatedAt,omitempty"`
+	ID                   string   `json:"id"`
+	Username             string   `json:"username"`
+	Name                 string   `json:"name"`
+	Department           string   `json:"department"`
+	Title                string   `json:"title"`
+	Roles                []string `json:"roles"`
+	Active               bool     `json:"active"`
+	Status               string   `json:"status"`
+	Source               string   `json:"source,omitempty"`
+	CreatedAt            string   `json:"createdAt,omitempty"`
+	UpdatedAt            string   `json:"updatedAt,omitempty"`
+	Departments          []string `json:"departments,omitempty"`
+	OrganizationPersonID string   `json:"organizationPersonId,omitempty"`
+	DepartmentIDs        []string `json:"departmentIds,omitempty"`
+	OrganizationSeatIDs  []string `json:"organizationSeatIds,omitempty"`
+	Placeholder          bool     `json:"placeholder,omitempty"`
 }
 type Actor struct {
 	PublicEmployee
 	Epoch int64 `json:"epoch"`
 }
 type employee struct {
-	ID           string   `json:"id"`
-	Username     string   `json:"username"`
-	Name         string   `json:"name"`
-	Department   string   `json:"department"`
-	Title        string   `json:"title"`
-	Roles        []string `json:"roles"`
-	Status       string   `json:"status"`
-	Source       string   `json:"source"`
-	PasswordHash *string  `json:"passwordHash"`
-	Epoch        int64    `json:"epoch"`
-	CreatedAt    string   `json:"createdAt"`
-	UpdatedAt    string   `json:"updatedAt"`
+	ID                   string   `json:"id"`
+	Username             string   `json:"username"`
+	Name                 string   `json:"name"`
+	Department           string   `json:"department"`
+	Title                string   `json:"title"`
+	Roles                []string `json:"roles"`
+	Status               string   `json:"status"`
+	Source               string   `json:"source"`
+	PasswordHash         *string  `json:"passwordHash"`
+	Epoch                int64    `json:"epoch"`
+	CreatedAt            string   `json:"createdAt"`
+	UpdatedAt            string   `json:"updatedAt"`
+	Departments          []string `json:"departments,omitempty"`
+	OrganizationPersonID string   `json:"organizationPersonId,omitempty"`
+	DepartmentIDs        []string `json:"departmentIds,omitempty"`
+	OrganizationSeatIDs  []string `json:"organizationSeatIds,omitempty"`
+	Placeholder          bool     `json:"placeholder,omitempty"`
 }
 type invitation struct {
 	ID         string  `json:"id"`
@@ -76,13 +86,15 @@ type invitation struct {
 	TokenHash  *string `json:"tokenHash"`
 }
 type Audit struct {
-	ID         string   `json:"id"`
-	Action     string   `json:"action"`
-	ActorID    string   `json:"actorId"`
-	EmployeeID string   `json:"employeeId"`
-	At         string   `json:"at"`
-	Roles      []string `json:"roles,omitempty"`
-	Status     string   `json:"status,omitempty"`
+	ID          string   `json:"id"`
+	Action      string   `json:"action"`
+	ActorID     string   `json:"actorId"`
+	EmployeeID  string   `json:"employeeId"`
+	At          string   `json:"at"`
+	Roles       []string `json:"roles,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	ImportID    string   `json:"importId,omitempty"`
+	Departments []string `json:"departments,omitempty"`
 }
 type state struct {
 	Version     int          `json:"version"`
@@ -221,7 +233,10 @@ func ParsePasswordHash(value string) (salt, key []byte, ok bool) {
 	return salt, key, salt != nil && key != nil
 }
 func HashPassword(password string) (string, error) {
-	if len(utf16.Encode([]rune(password))) < 12 || len([]byte(password)) > 1024 {
+	return hashPasswordWithMinimum(password, 12)
+}
+func hashPasswordWithMinimum(password string, minimum int) (string, error) {
+	if len(utf16.Encode([]rune(password))) < minimum || len([]byte(password)) > 1024 {
 		return "", Fail(400, "密码需至少12个字符，且不超过1024字节。")
 	}
 	salt := make([]byte, 16)
@@ -247,7 +262,7 @@ func PasswordMatches(password, passwordHash string) (bool, error) {
 	return e == nil && shape && subtle.ConstantTimeCompare(candidate, key) == 1, e
 }
 func public(e employee) PublicEmployee {
-	return PublicEmployee{e.ID, e.Username, e.Name, e.Department, e.Title, append([]string{}, e.Roles...), e.Status == "active", e.Status, e.Source, e.CreatedAt, e.UpdatedAt}
+	return PublicEmployee{ID: e.ID, Username: e.Username, Name: e.Name, Department: e.Department, Title: e.Title, Roles: append([]string{}, e.Roles...), Active: e.Status == "active", Status: e.Status, Source: e.Source, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, Departments: append([]string(nil), e.Departments...), OrganizationPersonID: e.OrganizationPersonID, DepartmentIDs: append([]string(nil), e.DepartmentIDs...), OrganizationSeatIDs: append([]string(nil), e.OrganizationSeatIDs...), Placeholder: e.Placeholder}
 }
 func trusted(e employee) *Actor { return &Actor{public(e), e.Epoch} }
 func clone(d state) state       { b, _ := json.Marshal(d); var v state; _ = json.Unmarshal(b, &v); return v }
@@ -353,7 +368,7 @@ func validateState(d state) error {
 	if d.Version != 1 || d.Employees == nil || len(d.Employees) > 2000 || d.Invitations == nil || len(d.Invitations) > 10000 || d.Audit == nil || len(d.Audit) > 10000 {
 		return fmt.Errorf("员工账号文件格式不正确。")
 	}
-	ids, names := map[string]bool{}, map[string]bool{}
+	ids, names, organizationIDs, organizationSeats := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	admin := false
 	for _, e := range d.Employees {
 		u, err := usernameOf(e.Username)
@@ -370,6 +385,45 @@ func validateState(d state) error {
 			if _, err := textOf(v.v, v.l, v.r); err != nil {
 				return bad()
 			}
+		}
+		if len(e.DepartmentIDs) > 24 || len(e.OrganizationSeatIDs) > 24 || len(e.Departments) > 24 || len(e.OrganizationPersonID) > 160 || (e.OrganizationPersonID != "" && organizationIDs[e.OrganizationPersonID]) {
+			return bad()
+		}
+		if e.OrganizationPersonID != "" {
+			organizationIDs[e.OrganizationPersonID] = true
+			if len(e.DepartmentIDs) != len(e.Departments) || len(e.DepartmentIDs) == 0 || len(e.OrganizationSeatIDs) == 0 {
+				return bad()
+			}
+			for _, r := range e.OrganizationPersonID {
+				if r < 33 || r > 126 {
+					return bad()
+				}
+			}
+		} else if len(e.DepartmentIDs) > 0 || len(e.OrganizationSeatIDs) > 0 {
+			return bad()
+		}
+		seenDepartmentIDs := map[string]bool{}
+		for _, id := range e.DepartmentIDs {
+			if !rosterIdentifierPattern.MatchString(id) || seenDepartmentIDs[id] {
+				return bad()
+			}
+			seenDepartmentIDs[id] = true
+		}
+		for _, id := range e.OrganizationSeatIDs {
+			if !rosterIdentifierPattern.MatchString(id) || organizationSeats[id] {
+				return bad()
+			}
+			organizationSeats[id] = true
+		}
+		seenDepartments := map[string]bool{}
+		for _, department := range e.Departments {
+			if _, err := textOf(department, "部门", true); err != nil || seenDepartments[department] {
+				return bad()
+			}
+			seenDepartments[department] = true
+		}
+		if len(e.Departments) > 0 && !seenDepartments[e.Department] {
+			return bad()
 		}
 		if e.Source == "employee" && e.Status == "active" && e.PasswordHash == nil {
 			return bad()
@@ -449,7 +503,7 @@ func administrator(d *state, id string) (*employee, error) {
 	return e, nil
 }
 func (s *Store) audit(d *state, action, actorID, employeeID string, roles []string, status string) {
-	d.Audit = append(d.Audit, Audit{uuid(), action, actorID, employeeID, timestamp(s.now()), append([]string(nil), roles...), status})
+	d.Audit = append(d.Audit, Audit{ID: uuid(), Action: action, ActorID: actorID, EmployeeID: employeeID, At: timestamp(s.now()), Roles: append([]string(nil), roles...), Status: status})
 	if len(d.Audit) > 10000 {
 		d.Audit = d.Audit[len(d.Audit)-10000:]
 	}
@@ -817,6 +871,21 @@ func (s *Store) UpdateEmployee(actorID, id string, input map[string]any) (*Publi
 				case "name":
 					person.Name = x
 				case "department":
+					if x != person.Department {
+						person.DepartmentIDs = nil
+						person.OrganizationSeatIDs = nil
+						person.OrganizationPersonID = ""
+					}
+					for n, department := range person.Departments {
+						if department == person.Department {
+							person.Departments[n] = x
+						}
+					}
+					if x == "" {
+						person.Departments = nil
+					} else {
+						person.Departments = uniqueText(person.Departments)
+					}
 					person.Department = x
 				case "title":
 					person.Title = x

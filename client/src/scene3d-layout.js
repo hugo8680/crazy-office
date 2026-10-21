@@ -2,6 +2,7 @@ import * as THREE from './vendor/three.module.js';
 
 import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
 import { employeeAppearance } from './employee-appearance.mjs';
+import { OFFICE_EXTERIOR } from './office-environment.mjs';
 
 /* Architecture, seating and camera fitting share the organization's floor plan.
  * Workplaces are configured positions, separate from authenticated employees. */
@@ -19,10 +20,10 @@ export const OFFICE3D_CENTER = Object.freeze({
 export const AGENT3D_HOMES = OFFICE_AGENT_HOMES;
 export const WORK3D_POSITIONS = OFFICE_WORK_POSITIONS;
 export const OFFICE3D_COLORS = Object.freeze({
-  background:'#f7f2e8',wall:'#e5dcc8',wallCap:'#fff7e7',foundation:'#aebc9f',
-  wood:'#bc8e59',woodTop:'#ddb37b',woodDark:'#896846',sage:'#6d9c7e',sageDark:'#3f6551',
-  ink:'#2c3937',metal:'#789281',steel:'#42685b',cream:'#eee4d1',screen:'#b1d9c5',
-  paper:'#f8f6ee',copper:'#b85a43',leaf:'#75a477',darkLeaf:'#4f825d',pot:'#dbc4a0',
+  background:'#f5f4ed',wall:'#e8e4d8',wallCap:'#faf8ef',foundation:'#aebca5',
+  wood:'#b69067',woodTop:'#e2bf8d',woodDark:'#81634d',sage:'#7d9b85',sageDark:'#365e50',
+  ink:'#293c3a',metal:'#8fa69c',steel:'#365b57',cream:'#f0e9da',screen:'#a7d1c7',
+  paper:'#faf9f1',copper:'#b85a43',leaf:'#7ca879',darkLeaf:'#477e60',pot:'#dec9ac',
 });
 
 /* All static fittings are instanced by geometry and material. This keeps a
@@ -43,20 +44,64 @@ export function createOffice3DAssets() {
 
 export function createOffice3DLayout(assets) {
   const root=new THREE.Group();root.name='office-architecture';
-  const batches=new Map(),overviewBatches=new Map(),detailBatches=new Map(),object=new THREE.Object3D();let activeBatches=batches,activeSeatId=null;const c=OFFICE3D_COLORS;
+  const batches=new Map(),overviewBatches=new Map(),detailBatches=new Map(),object=new THREE.Object3D();let activeBatches=batches,activeSeatId=null,activeBodySeatId=null,activeBodyPart=null;const c=OFFICE3D_COLORS;
+  const primarySeats=new Map(OFFICE_SEATS.filter(seat=>seat.primarySeat).map(seat=>[seat.personId,seat.id]));
+  const primarySeatId=seat=>primarySeats.get(seat.personId)||seat.id;
+  const newBatch=kind=>({geometry:assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],colors:[],owners:[],bodyOwners:[],bodyParts:[]});
   const statusLights=new Map(),nodeAnchors=new Map(),statistics={staticInstances:0,desks:0,people:0,racks:0,plants:0,rooms:OFFICE3D_ROOMS.length};
-  function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){const key=kind;if(!activeBatches.has(key))activeBatches.set(key,{geometry:assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],colors:[],owners:[]});object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);statistics.staticInstances++;}
+  function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){const key=kind;if(!activeBatches.has(key))activeBatches.set(key,newBatch(kind));object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);activeBatches.get(key).bodyOwners.push(activeBodySeatId);activeBatches.get(key).bodyParts.push(activeBodyPart);statistics.staticInstances++;}
   const box=(color,x,y,z,w,h,d,ry=0)=>part('box',color,x,y,z,w,h,d,0,ry);
   const round=(color,x,y,z,w,h,d,ry=0)=>part('round',color,x,y,z,w,h,d,0,ry);
   const slab=(color,x,y,z,w,h,d,ry=0)=>part('slab',color,x,y,z,w,h,d,0,ry);
   const cyl=(color,x,y,z,r,h)=>part('cylinder',color,x,y,z,r,h,r);
   const ball=(color,x,y,z,rx,ry=rx,rz=rx)=>part('sphere',color,x,y,z,rx,ry,rz);
-  function stem(a,b,r,color){const from=new THREE.Vector3(...a),to=new THREE.Vector3(...b),mid=from.clone().add(to).multiplyScalar(.5);object.position.copy(mid);object.scale.set(r,from.distanceTo(to),r);object.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),to.sub(from).normalize());object.updateMatrix();const key='cylinder';if(!activeBatches.has(key))activeBatches.set(key,{geometry:assets.geometries.cylinder,material:assets.material('#ffffff'),matrices:[],colors:[],owners:[]});activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);statistics.staticInstances++;}
+  function stem(a,b,r,color){const from=new THREE.Vector3(...a),to=new THREE.Vector3(...b),mid=from.clone().add(to).multiplyScalar(.5);object.position.copy(mid);object.scale.set(r,from.distanceTo(to),r);object.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),to.sub(from).normalize());object.updateMatrix();const key='cylinder';if(!activeBatches.has(key))activeBatches.set(key,newBatch(key));activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);activeBatches.get(key).bodyOwners.push(activeBodySeatId);activeBatches.get(key).bodyParts.push(activeBodyPart);statistics.staticInstances++;}
   function plant(x,z,s=1){statistics.plants++;cyl(c.pot,x,7*s,z,7*s,12*s);cyl('#b9aa91',x,13*s,z,6.3*s,1.3*s);cyl('#706c55',x,13.6*s,z,5.8*s,1*s);for(let i=0;i<6;i++){const a=i*2.399,high=(22+i*2.6)*s,dx=Math.cos(a)*(7+i%2*3)*s,dz=Math.sin(a)*(7+i%2*3)*s;stem([x,13*s,z],[x+dx,high,z+dz],.65*s,c.darkLeaf);part('sphere',i%2?c.leaf:c.darkLeaf,x+dx,high+3*s,z+dz,3.2*s,8*s,1.5*s,.3, -a,.35);}}
-  function mug(x,z,y=27){cyl('#f8f6ed',x,y+3.4,z,2.8,6.4);cyl('#9a795d',x,y+6.7,z,2.2,.25);part('torus','#f8f6ed',x+2.8,y+3.5,z,2.1,2.1,2.1,0,0,0);}
+  function mug(x,z,y=27,s=1){cyl('#f8f6ed',x,y+3.4*s,z,2.8*s,6.4*s);cyl('#9a795d',x,y+6.7*s,z,2.2*s,.25*s);part('torus','#f8f6ed',x+2.8*s,y+3.5*s,z,2.1*s,2.1*s,2.1*s,0,0,0);}
   function paper(x,z,y=27,w=11,d=13,ry=0){round(c.paper,x,y,z,w,.6,d,ry);for(let i=0;i<3;i++)box('#b9bdb2',x,y+.35,z-3+i*2.2,w*.58,.14,.55,ry);}
   function monitor(x,z,y=26,scale=1){round(c.steel,x,y+14*scale,z,32*scale,21*scale,2.8*scale);round(c.screen,x,y+14*scale,z+1.45*scale,28*scale,17*scale,.22*scale);box('#e8efea',x-3*scale,y+17*scale,z+1.59*scale,17*scale,.9*scale,.12);box('#7faba0',x-4*scale,y+13.5*scale,z+1.59*scale,14*scale,.8*scale,.12);box('#90b8ac',x-6*scale,y+10.5*scale,z+1.59*scale,10*scale,.8*scale,.12);cyl(c.metal,x,y+2.2*scale,z,1.5*scale,5*scale);round(c.metal,x,y,z+1,18*scale,.9*scale,10*scale);}
   function wall(x,z,w,d,h=14){box(c.wall,x,h/2+1,z,w,h,d);box(c.wallCap,x,h+1.5,z,w+1,1.5,d+1);box('#deddd2',x,3,z,w,4,d+.1);}
+  // A composed perimeter gives the office a real setting. It shares the same
+  // static instance buffers as the furniture and never expands the camera fit.
+  const outside=OFFICE_EXTERIOR,lawn=outside.lawn;
+  slab(lawn.color,lawn.x+lawn.w/2,-13,lawn.y+lawn.h/2,lawn.w,6,lawn.h);
+  for(const path of outside.paths){
+    slab('#d9d9ca',path.x+path.w/2,-9.25,path.y+path.h/2,path.w,1.5,path.h);
+    const along=path.w>path.h;for(let p=24;p<(along?path.w:path.h);p+=34)box('#c1c9b6',path.x+(along?p:path.w/2),-8.45,path.y+(along?path.h/2:p),along?.4:path.w-.8,.12,along?path.h-.8:.4);
+  }
+  for(const garden of outside.gardens){
+    slab('#c0cbae',garden.x+garden.w/2,-8,garden.y+garden.h/2,garden.w,5,garden.h);
+    const horizontal=garden.w>garden.h,count=Math.floor((horizontal?garden.w:garden.h)/27);
+    for(let i=0;i<count;i++){const x=garden.x+(horizontal?(i+.5)*garden.w/count:garden.w/2),z=garden.y+(horizontal?garden.h/2:(i+.5)*garden.h/count);ball(i%2?'#a7bf92':'#90af84',x,-.5,z,horizontal?16:19,9,horizontal?19:16);}
+  }
+  for(const tree of outside.trees){
+    const height=tree.r*1.85;
+    cyl('#cfceb8',tree.x,-7,tree.y,tree.r*.57,2);
+    cyl('#a48c6c',tree.x,height*.29-8,tree.y,3,height*.6);
+    stem([tree.x,height*.2,tree.y],[tree.x-8,height*.52,tree.y+5],1.7,'#a48c6c');
+    ball('#5f9273',tree.x-8,height*.6,tree.y+3,tree.r*.77,tree.r*.8,tree.r*.75);
+    ball('#8bb07f',tree.x+8,height*.75,tree.y-5,tree.r*.8,tree.r*.9,tree.r*.76);
+    ball('#b1c79a',tree.x+3,height*.92,tree.y+6,tree.r*.57,tree.r*.62,tree.r*.58);
+  }
+  const parking=outside.parking;
+  slab('#d0d5c7',parking.x+parking.w/2,-8.8,parking.y+parking.h/2,parking.w,1,parking.h);
+  for(let i=0;i<=parking.spaces;i++)box('#f7f4e8',parking.x+i*parking.w/parking.spaces,-8.2,parking.y+parking.h*.5,1.2,.1,parking.h*.75);
+  for(const index of[0,2]){
+    const x=parking.x+(index+.5)*parking.w/parking.spaces,z=parking.y+parking.h*.5;
+    round(index===0?'#7d9fa2':'#d4b398',x,3,z,35,18,61);round('#c1d5cc',x,15,z+2,31,14,32);
+    round('#516d72',x,16,z+18.3,27,10,.6);round('#536d72',x,16,z-14.3,27,10,.6);
+    for(const side of[-1,1])for(const offset of[-18,18])part('cylinder','#485a53',x+side*17,-2.7,z+offset,5.5,4,5.5,0,0,Math.PI/2);
+    box('#ede4c8',x,5,z+31,26,3,.6);
+  }
+  const bikes=outside.bikes;
+  for(let index=0;index<bikes.count;index++){
+    const x=bikes.x+index*bikes.spacing,z=bikes.y;
+    for(const dz of[-9,9]){part('torus','#51665d',x,-1.2,z+dz,7,7,7,0,Math.PI/2);part('torus','#c4cbb9',x,-1.2,z+dz,5.6,5.6,5.6,0,Math.PI/2);}
+    const color=['#af7a5b','#7e9c91','#96a8a6','#b99f70'][index];
+    for(const [a,b]of[[[x,-1.2,z-9],[x,6.8,z]],[[x,6.8,z],[x,-1.2,z+9]],[[x,-1.2,z+9],[x,-1.2,z-9]],[[x,6.8,z],[x,-1.2,z]]])stem(a,b,.6,color);
+    box('#4c6258',x,12,z,5,1.2,4);stem([x,2,z+9],[x,15,z+8],.55,color);box('#4c6258',x,15,z+8,7,.9,1);
+  }
+  statistics.exteriorTrees=outside.trees.length;statistics.exteriorGardens=outside.gardens.length;statistics.bikes=bikes.count;
   // The architecture is one static GPU batch per shared geometry. A growing
   // organization adds instances, not additional draw calls or idle animation.
   // Low independent platforms and timber circulation preserve the campus
@@ -79,8 +124,8 @@ export function createOffice3DLayout(assets) {
     slab(c.foundation,room.x+room.w/2,-5,room.z+room.d/2,room.w+10,10,room.d+10);
     slab(room.floor,room.x+room.w/2,.95,room.z+room.d/2,room.w,1.3,room.d);
     boundary(room);
-    for(let x=room.x+42;x<room.x+room.w;x+=56)box('#c2c9b8',x,1.66,room.z+room.d/2,.18,.1,room.d-3);
-    for(let z=room.z+42;z<room.z+room.d;z+=56)box('#c2c9b8',room.x+room.w/2,1.66,z,room.w-3,.1,.18);
+    for(let x=room.x+42;x<room.x+room.w;x+=70)box('#d4dccd',x,1.66,room.z+room.d/2,.16,.1,room.d-3);
+    for(let z=room.z+42;z<room.z+room.d;z+=70)box('#d4dccd',room.x+room.w/2,1.66,z,room.w-3,.1,.16);
     for(const team of room.teamZones){
       slab('#adc2b5',team.x+team.w/2,2.05,team.y+team.h/2,team.w,1,team.h);
       slab('#e0e8de',team.x+team.w/2,2.65,team.y+team.h/2,team.w-5,.3,team.h-5);
@@ -157,50 +202,66 @@ export function createOffice3DLayout(assets) {
     }
   }
   OFFICE_FITTINGS.forEach(furnishing);statistics.fittings=OFFICE_FITTINGS.length;
-  const postAppearance=employeeAppearance(false);
-  // Static seated figures use complete bent legs and reaching arms. They are
-  // configured posts and do not imply an account, online state or task result.
+  // Seated figures share body-part instance ranges for finite idle poses.
+  // Their geometry is separate from authenticated names and business state.
   function seatedPost(seat,index) {
-    const s=seat.scale,x=seat.x,z=seat.y,uniform=postAppearance.uniform;
-    const skin='#e4bb99',hair=['#51443a','#655043','#463e39','#4e414b'][index%4];
+    const primaryId=primarySeatId(seat);activeBodySeatId=primaryId;activeBodyPart='torso';
+    const s=seat.scale,x=seat.x,z=seat.y,appearance=employeeAppearance({id:primaryId,outfitId:seat.outfitId}),uniform=appearance.uniform;
+    const skin=appearance.skin,hair=appearance.hair,garment=appearance.garment;
     const body=(kind,color,dx,y,dz,w,h,d,rx=0)=>part(kind,color,x+dx*s,1.9+y*s,z+dz*s,w*s,h*s,d*s,rx);
-    body('round',uniform,0,23,-2,11.5,14,6.5);body('box','#f0eadf',0,28,-5.4,4.2,3,.4);
-    body('cylinder',skin,0,31,-2,2.1,3,2.1);body('sphere',skin,0,37,-2,5.1,6.1,4.5);
+    body('round',uniform,0,23,-2,11.5,14,6.5);
+    if(['overshirt','jacket','cardigan'].includes(garment)){
+      body('round',appearance.shirt,0,25,-5.4,4.5,8,.45);
+      for(const side of[-1,1])part('box',appearance.trim,x+side*2.7*s,1.9+27*s,z-5.7*s,1.1*s,5.8*s,.3*s,0,0,side*.3);
+    }else if(garment==='hoodie'){
+      body('round',appearance.trim,0,29.2,-1.8,8.8,4.2,7.5);body('round',appearance.shirt,0,21,-5.4,6.9,3.2,.3);
+    }else{body('round',appearance.trim,0,29,-4.4,4.5,2.4,2.5);body('box',appearance.trim,0,23,-5.5,.5,7,.3);}
+    body('cylinder',skin,0,31,-2,2.1,3,2.1);activeBodyPart='head';body('sphere',skin,0,37,-2,5.1,6.1,4.5);
     body('hair',hair,0,37.3,-2,5.4,6.3,4.8);body('round',hair,0,38.1,1.4,8.5,8,2.5);
     body('round',hair,2.4,40.7,-4.2,5.2,1.6,3.6);
     for(const side of[-1,1]){
+      activeBodyPart='head';
       body('sphere',skin,side*4.8,36.7,-2,1.15,1.7,1.1);
       body('sphere','#303b35',side*1.8,36.4,-6.08,.42,.55,.3);
       const ax=x+side*6.3*s,handZ=seat.desk.y+seat.desk.h*.3,handY=1.9+27*s;
-      stem([ax,1.9+29*s,z-2*s],[ax,1.9+24*s,z-11*s],1.8*s,uniform);
-      stem([ax,1.9+24*s,z-11*s],[ax,handY,handZ],1.5*s,uniform);
+      const sleeve=uniform;
+      activeBodyPart=side===-1?'leftUpper':'rightUpper';stem([ax,1.9+29*s,z-2*s],[ax,1.9+24*s,z-11*s],1.8*s,sleeve);
+      activeBodyPart=side===-1?'leftLower':'rightLower';stem([ax,1.9+24*s,z-11*s],[ax,handY,handZ],1.5*s,sleeve);
       ball(skin,ax,handY,handZ,1.7*s,1.5*s,1.8*s);
-      body('round','#46534c',side*3,15,-7,4.5,4.5,13);
-      body('round','#46534c',side*3,8,-12,4,11.4,4.2);
-      body('round','#35443b',side*3,2,-13.5,4.7,3,7);
+      activeBodyPart='legs';
+      body('round',appearance.trousers,side*3,15,-7,4.5,4.5,13);
+      body('round',appearance.trousers,side*3,8,-12,4,11.4,4.2);
+      body('round',appearance.shoes,side*3,2,-13.5,4.7,3,7);
     }
-    body('box','#d6c8b5',0,24,-5.6,.5,6,.3);body('round','#f5eee2',0,21,-5.7,3,4,.45);
-    statistics.people++;
+    activeBodyPart='torso';body('box','#d6c8b5',0,24,-5.6,.5,6,.3);body('round','#f5eee2',0,21,-5.7,3,4,.45);
+    statistics.people++;activeBodySeatId=null;activeBodyPart=null;
   }
   function workstation(seat,index) {
     statistics.desks++;
     const {desk:surface}=seat,s=seat.scale,x=surface.x,z=surface.y,top=25*s,w=surface.w,d=surface.h;
     round(c.woodTop,x,top,z,w,2.2*s,d);
+    // A fine edge reveal, inset keyboard mat and chair arms read at close range;
+    // each is another instance of the same shared furniture geometry.
+    round(c.wood,x,top-1.3*s,z,w-.8*s,.7*s,d-.5*s);
     box(c.wood,x,top-3*s,z-d*.25,w*.86,4*s,2*s);
     for(const dx of[-w*.42,w*.42])for(const dz of[-d*.34,d*.34])box(c.metal,x+dx,12*s,z+dz,2.8*s,23*s,2.8*s);
     monitor(x,z-d*.19,top+1.4*s,.72*s);
-    round('#d2d9cd',x,top+1.7*s,z+d*.3,22*s,.8*s,6.2*s);
+    round('#b5c8bd',x,top+1.45*s,z+d*.3,29*s,.35*s,10*s);
+    round('#e6e9df',x,top+1.7*s,z+d*.3,22*s,.8*s,6.2*s);
     for(let row=0;row<2;row++)box('#edf0e6',x,top+2.2*s,z+d*.3+(row-.5)*1.7*s,18*s,.14*s,.55*s);
     ball('#e6e9df',x+17*s,top+2.1*s,z+d*.3,2*s,.8*s,2.8*s);
     // The fabric chair remains a distinct object when a shared manager is away.
     round('#7c9a82',seat.x,15*s,seat.y,16*s,3*s,16*s);
     round('#73947c',seat.x,24*s,seat.y+6*s,15*s,18*s,3*s);
+    for(const side of[-1,1])round('#466a5d',seat.x+side*9*s,20*s,seat.y-1*s,2.1*s,2*s,10*s);
     cyl('#8f9d8e',seat.x,8*s,seat.y,1.5*s,12*s);
     for(const dx of[-8,8])box('#7e8e80',seat.x+dx*s,2*s,seat.y,3*s,2*s,16*s);
     if(seat.role!=='staff'){
       paper(x-w*.33,z+d*.15,top+1.5*s,8*s,11*s);
       box(seat.role==='chairman'?'#b18b59':'#647d6b',x-w*.31,top+3*s,z-d*.3,15*s,3*s,5*s);
-      mug(x+w*.34,z+d*.15,top+1.5*s);
+      mug(x+w*.34,z+d*.15,top+1.5*s,s);
+    }else if(index%4===0){
+      paper(x-w*.34,z+d*.15,top+1.5*s,8*s,9*s);
     }
     if(seat.occupantVisible)seatedPost(seat,index);
   }
@@ -303,19 +364,67 @@ export function createOffice3DLayout(assets) {
     for(const batch of map.values()){
       const instanced=new THREE.InstancedMesh(batch.geometry,batch.material,batch.matrices.length);
       batch.matrices.forEach((matrix,index)=>{instanced.setMatrixAt(index,matrix);instanced.setColorAt(index,new THREE.Color(batch.colors[index]));});
-      instanced.computeBoundingSphere();batch.mesh=instanced;parent.add(instanced);
+      instanced.computeBoundingSphere();instanced.userData.bodySeats=Object.freeze([...batch.bodyOwners]);instanced.userData.bodyParts=Object.freeze([...batch.bodyParts]);batch.mesh=instanced;parent.add(instanced);
     }
   }
   emit(batches,root);
   const overviewRoot=new THREE.Group();overviewRoot.name='organization-overview';root.add(overviewRoot);emit(overviewBatches,overviewRoot);
   for(const [id,map]of detailBatches){const group=new THREE.Group();group.name=`organization-detail-${id}`;group.visible=false;root.add(group);seatGroups.get(id).root=group;emit(map,group);}
-  let detailed=new Set();const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0);
+  let detailed=new Set(),away=new Set();const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
+  for(const map of[overviewBatches,...detailBatches.values()])for(const batch of map.values())batch.bodyParts.forEach((part,index)=>{
+    if(!part||part==='legs')return;const id=batch.owners[index];if(!poseParts.has(id))poseParts.set(id,[]);poseParts.get(id).push({batch,index,part,overview:map===overviewBatches,groupId:seatGroupById.get(id)});
+  });
+  const idlePartSets={look:new Set(['head']),nod:new Set(['head']),typing:new Set(['head','leftLower','rightLower']),wave:new Set(['head','leftUpper','leftLower']),stretch:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower']),settle:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower'])};
+  const poseMatrix=new THREE.Matrix4(),bodyPose=new THREE.Matrix4(),headPose=new THREE.Matrix4(),leftUpperPose=new THREE.Matrix4(),leftLowerPose=new THREE.Matrix4(),rightUpperPose=new THREE.Matrix4(),rightLowerPose=new THREE.Matrix4(),pivotMatrix=new THREE.Matrix4(),poseEuler=new THREE.Euler();
+  function pivot(matrix,x,y,z,rx=0,ry=0,rz=0){matrix.makeRotationFromEuler(poseEuler.set(rx,ry,rz));const e=matrix.elements;e[12]=x-e[0]*x-e[4]*y-e[8]*z;e[13]=y-e[1]*x-e[5]*y-e[9]*z;e[14]=z-e[2]*x-e[6]*y-e[10]*z;return matrix;}
+  function restoreIdlePose(id){const activity=idlePoses.get(id);if(!activity)return 0;let changed=0;for(const entry of activity.entries){const {batch,index,overview,groupId}=entry,hidden=away.has(batch.bodyOwners[index])||overview&&detailed.has(groupId);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}idlePoses.delete(id);return changed;}
+  function clearIdlePoses(){let changed=0;for(const id of [...idlePoses.keys()])changed+=restoreIdlePose(id);return changed;}
+  function setIdlePose(id,kind,{delay=0,duration=2400,partner=null,startedAt=null}={}){
+    const seat=seatsById.get(id),parts=idlePartSets[kind];if(!seat||!seat.primarySeat||!seat.occupantVisible||!parts||away.has(primarySeatId(seat))||!isSeatVisible(id))return false;
+    if(!idlePoses.has(id)&&idlePoses.size>=6)return false;
+    restoreIdlePose(id);const entries=(poseParts.get(id)||[]).filter(entry=>parts.has(entry.part)&&(entry.overview?!detailed.has(entry.groupId):detailed.has(entry.groupId)));if(!entries.length)return false;
+    const wait=Math.max(0,Math.min(2500,Number(delay)||0));idlePoses.set(id,{kind,delay:wait,duration:Math.max(600,Math.min(4500,Number(duration)||2400)),partner,entries,started:Number.isFinite(startedAt)?startedAt+wait:null,seat:seatGeometry(id)});return true;
+  }
+  function tickIdlePoses(now=0){
+    let changed=0;
+    for(const [id,activity]of [...idlePoses]){
+      if(away.has(primarySeatId(activity.seat))||!isSeatVisible(id)){changed+=restoreIdlePose(id);continue;}
+      activity.started??=now+activity.delay;if(now<activity.started)continue;const progress=Math.min(1,Math.max(0,(now-activity.started)/activity.duration));if(progress===1){changed+=restoreIdlePose(id);continue;}
+      const envelope=Math.sin(progress*Math.PI),cycle=progress*Math.PI*2,{seat,kind,partner}=activity,s=seat.scale,x=seat.x,z=seat.y,y=1.9;
+      let pitch=0,yaw=0,roll=0,bodyPitch=0,bodyRoll=0,shift=0,leftX=0,leftZ=0,leftElbow=0,leftWrist=0,rightX=0,rightZ=0,rightElbow=0;
+      const look=partner?Math.max(-.55,Math.min(.55,Math.atan2(-(partner.x-x),-(partner.y-z)))):Math.sin(cycle)*.38;
+      if(kind==='look')yaw=look*envelope;
+      else if(kind==='nod'){yaw=look*.5*envelope;pitch=-Math.sin(progress*Math.PI*4)*.13*envelope;}
+      else if(kind==='typing'){pitch=-.1*envelope;leftElbow=Math.sin(progress*Math.PI*16)*.035*envelope;rightElbow=Math.sin(progress*Math.PI*16+2)*.035*envelope;}
+      else if(kind==='wave'){yaw=look*envelope;leftX=.65*envelope;leftZ=-.85*envelope;leftElbow=.65*envelope;leftWrist=Math.sin(progress*Math.PI*10)*.17*envelope;}
+      else if(kind==='stretch'){bodyPitch=.035*envelope;pitch=.08*envelope;leftX=rightX=.28*envelope;leftZ=-.65*envelope;rightZ=.65*envelope;leftElbow=rightElbow=-.25*envelope;}
+      else if(kind==='settle'){bodyRoll=Math.sin(cycle)*.027*envelope;shift=Math.sin(cycle)*.5*s*envelope;yaw=-Math.sin(cycle)*.08*envelope;}
+      pivot(bodyPose,x,y+17*s,z-2*s,bodyPitch,0,bodyRoll);bodyPose.elements[12]+=shift;
+      headPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x,y+32*s,z-2*s,pitch,yaw,roll));
+      leftUpperPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x-6.3*s,y+29*s,z-2*s,leftX,0,leftZ));leftLowerPose.multiplyMatrices(leftUpperPose,pivot(pivotMatrix,x-6.3*s,y+24*s,z-11*s,leftElbow,0,leftWrist));
+      rightUpperPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x+6.3*s,y+29*s,z-2*s,rightX,0,rightZ));rightLowerPose.multiplyMatrices(rightUpperPose,pivot(pivotMatrix,x+6.3*s,y+24*s,z-11*s,rightElbow,0,0));
+      const transforms={torso:bodyPose,head:headPose,leftUpper:leftUpperPose,leftLower:leftLowerPose,rightUpper:rightUpperPose,rightLower:rightLowerPose};
+      for(const entry of activity.entries){const {batch,index,part}=entry;poseMatrix.multiplyMatrices(transforms[part],batch.matrices[index]);batch.mesh.setMatrixAt(index,poseMatrix);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}
+    }
+    return changed;
+  }
+  function setAwaySeats(ids=[]){
+    const requested=ids instanceof Set?[...ids]:Array.isArray(ids)?ids:[],next=new Set(requested.map(id=>{const seat=seatsById.get(id);return seat?primarySeatId(seat):null;}).filter(Boolean));
+    const changed=new Set([...next,...away].filter(id=>next.has(id)!==away.has(id)));if(!changed.size)return false;
+    for(const id of idlePoses.keys())if(next.has(primarySeatId(seatsById.get(id))))restoreIdlePose(id);
+    for(const map of[overviewBatches,...detailBatches.values()])for(const batch of map.values()){
+      let uploaded=false;batch.bodyOwners.forEach((key,index)=>{if(!key||!changed.has(key))return;const hidden=next.has(key)||map===overviewBatches&&detailed.has(seatGroupById.get(batch.owners[index]));batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
+      if(uploaded)batch.mesh.instanceMatrix.needsUpdate=true;
+    }
+    away=next;return true;
+  }
   function setDetailGroups(ids=[]){
     const next=new Set(ids.filter(id=>seatGroups.has(id)));if(next.size===detailed.size&&[...next].every(id=>detailed.has(id)))return false;
+    clearIdlePoses();
     const changed=new Set([...next,...detailed].filter(id=>next.has(id)!==detailed.has(id)));
     for(const info of seatGroups.values())info.root.visible=next.has(info.id);
     for(const batch of overviewBatches.values()){
-      let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;batch.mesh.setMatrixAt(index,next.has(owner)?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
+      let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;batch.mesh.setMatrixAt(index,next.has(owner)||away.has(batch.bodyOwners[index])?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
       if(uploaded)batch.mesh.instanceMatrix.needsUpdate=true;
     }
     detailed=next;return true;
@@ -324,8 +433,11 @@ export function createOffice3DLayout(assets) {
   const seatsById=new Map(OFFICE_SEATS.map(seat=>[seat.id,seat]));
   const seatGeometry=id=>{const seat=seatsById.get(id);return seat?officeSeatForView(seat,{detail:detailed.has(seatGroupById.get(id))}):null;};
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
+    get awaySeatIds(){return new Set(away);},
+    get idlePoseSeatIds(){return [...idlePoses.keys()];},
+    get hasIdlePoses(){return idlePoses.size>0;},
   };
 }

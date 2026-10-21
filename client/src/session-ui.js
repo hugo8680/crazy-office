@@ -10,13 +10,20 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   const spinner=id=>`<svg id="${id}" class="session-spinner" viewBox="0 0 24 24" aria-hidden="true" hidden><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8"/></svg>`;
   const fieldIcon=kind=>`<svg class="session-field-icon" viewBox="0 0 24 24" aria-hidden="true">${kind==='account'?'<circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1a7 7 0 0 1 14 0v1"/>':'<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>'}</svg>`;
   dialog.innerHTML=`<section class="session-card">
-    <header class="session-heading"><div class="session-heading-main"><span class="session-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><g data-session-icon="login"><path d="M15 5h10v22H15M5 16h14m-4-4 4 4-4 4"/><circle cx="22" cy="16" r=".7"/></g><g data-session-icon="profile"><rect x="4" y="4" width="24" height="24" rx="7"/><circle cx="16" cy="13" r="4"/><path d="M9 24a7 7 0 0 1 14 0"/></g><g data-session-icon="password"><circle cx="12" cy="12" r="7"/><circle cx="10" cy="10" r="1.5"/><path d="m17 17 10 10m-4-4 3-3m-7-1 3-3"/></g><g data-session-icon="invitation"><rect x="3" y="7" width="26" height="20" rx="5"/><path d="m4 10 12 9 12-9M13 5h6"/><path d="m11 23 3 3 7-7"/></g></svg></span><h1 id="session-title">登录</h1></div><button type="button" class="session-close" data-session-action="close" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <aside class="session-identity" aria-label="莱森购办公室">
+      <div class="session-brand"><img src="./brand-mark.svg" alt="莱森购" width="32" height="32"><span>LAISENGOU</span></div>
+      <div class="session-pass-art" aria-hidden="true"><svg viewBox="0 0 240 210"><path d="m28 91 91-48 94 47-92 50Z" fill="#c4d4c6"/><path d="m28 91 93 49v44l-93-48Z" fill="#9eb8a6"/><path d="m121 140 92-50v45l-92 49Z" fill="#dbe5d4"/><path d="m50 97 67-35 70 34-68 35Z" fill="#f4eee0"/><path d="m61 99 55-28 58 28-55 28Z" fill="#e4d5b4"/><path d="m76 88 27-14 31 15-27 14Z" fill="#fffdf5"/><path d="m76 88 31 15v17L76 105Z" fill="#adc6b6"/><path d="m107 103 27-14v17l-27 14Z" fill="#89aa99"/><path d="m148 101 18-9 18 9-18 10Z" fill="#668a76"/><path d="M166 101V72" stroke="#6e8e76" stroke-width="5" stroke-linecap="round"/><circle cx="158" cy="71" r="14" fill="#b9cea5"/><circle cx="173" cy="63" r="17" fill="#d0deba"/><path d="m144 130 15-8 18 9-15 8Z" fill="#dfb179"/><path d="m144 130 18 9v8l-18-9Z" fill="#bf9764"/><path d="m162 139 15-8v8l-15 8Z" fill="#edd0a0"/><path d="m51 155 68 36 73-38" fill="none" stroke="#b5c7b8" stroke-width="1.2"/></svg></div>
+      <div class="session-identity-copy"><span class="session-access-label">员工通行证</span><strong id="session-card-name">莱森购办公室</strong><span id="session-card-department">吉林云投莱森购数字科技有限公司</span></div>
+      <div class="session-pass-foot" aria-hidden="true"><span>OFFICE</span><svg viewBox="0 0 62 12"><path d="M1 0v12M5 0v12M10 0v12M13 0v12M19 0v12M23 0v12M26 0v12M32 0v12M37 0v12M40 0v12M46 0v12M51 0v12M55 0v12M60 0v12"/></svg></div>
+    </aside>
+    <div class="session-body">
+    <header class="session-heading"><div class="session-heading-main"><span class="session-mark" aria-hidden="true" hidden><svg viewBox="0 0 32 32"><g data-session-icon="login"><path d="M15 5h10v22H15M5 16h14m-4-4 4 4-4 4"/><circle cx="22" cy="16" r=".7"/></g><g data-session-icon="profile"><rect x="4" y="4" width="24" height="24" rx="7"/><circle cx="16" cy="13" r="4"/><path d="M9 24a7 7 0 0 1 14 0"/></g><g data-session-icon="password"><circle cx="12" cy="12" r="7"/><circle cx="10" cy="10" r="1.5"/><path d="m17 17 10 10m-4-4 3-3m-7-1 3-3"/></g><g data-session-icon="invitation"><rect x="3" y="7" width="26" height="20" rx="5"/><path d="m4 10 12 9 12-9M13 5h6"/><path d="m11 23 3 3 7-7"/></g></svg></span><h1 id="session-title">登录</h1></div><button type="button" class="session-close" data-session-action="close" aria-label="关闭"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
     <p class="session-message" id="session-message" aria-live="polite" hidden></p>
     <form id="session-login-form" class="session-form">
-      <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-username"><span class="session-field-label">账号</span><span class="session-input">${fieldIcon('account')}<input id="session-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" required></span></label>
-      <label for="session-password"><span class="session-field-label">密码</span><span class="session-input">${fieldIcon('password')}<input id="session-password" name="password" type="password" autocomplete="current-password" required></span></label></fieldset>
+      <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-username"><span class="session-field-label">企业邮箱</span><span class="session-input">${fieldIcon('account')}<input id="session-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" inputmode="email" placeholder="name@laisengou.com" required></span></label>
+      <label for="session-password"><span class="session-field-label">密码</span><span class="session-input">${fieldIcon('password')}<input id="session-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="session-password-toggle" data-session-action="toggle-password" aria-label="显示密码" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></span></label></fieldset>
       <p class="session-error" id="session-login-error" role="alert" hidden></p>
-      <button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">登录</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button>
+      <button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button>
     </form>
     <section id="session-profile" hidden>
       <div class="session-profile-card"><div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div class="session-person-copy"><h2 id="session-name"></h2><p id="session-account"></p></div></div>
@@ -37,13 +44,14 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <p class="session-error" id="session-invitation-error" role="alert" hidden></p>
       <button id="session-invitation-submit" class="session-primary" type="submit">${spinner('session-invitation-spinner')}<span id="session-invitation-label">设置密码</span></button>
     </form>
+    </div>
   </section>`;
   container.append(dialog);
   const q=selector=>dialog.querySelector(selector);
   const login=q('#session-login-form'),profile=q('#session-profile'),passwordForm=q('#session-password-form'),invitationForm=q('#session-invitation-form');
   const username=q('#session-username'),password=q('#session-password'),current=q('#session-current'),next=q('#session-new'),confirmation=q('#session-confirm');
   const invitationPassword=q('#session-invitation-password'),invitationConfirmation=q('#session-invitation-confirm');
-  const pendingActions=[['login','login','登录','正在登录'],['profile','signout','退出登录','正在退出'],['password','password','保存密码','正在保存'],['invitation','invitation','设置密码','正在保存']];
+  const pendingActions=[['login','login','进入办公室','正在进入'],['profile','signout','退出登录','正在退出'],['password','password','保存密码','正在保存'],['invitation','invitation','设置密码','正在保存']];
   let session=null,mode='login',pending=false,destroyed=false,generation=0,expiryTimer=null,returnFocus=null,closeTimer=null,closing=false;
   const fragment=new URLSearchParams(window.location.hash.slice(1));
   const hasToken=fragment.has('token'),tokenValues=fragment.getAll('token');
@@ -54,7 +62,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   if(hasToken||invalidInvitation)window.history.replaceState(null,'','/');
   const controllers=new Map();
   const notify=(fn,...args)=>{try{const result=fn(...args);if(result&&typeof result.catch==='function')result.catch(()=>{});}catch{}};
-  const clearPasswords=()=>{for(const field of [password,current,next,confirmation,invitationPassword,invitationConfirmation])field.value='';};
+  const clearPasswords=()=>{for(const field of [password,current,next,confirmation,invitationPassword,invitationConfirmation])field.value='';password.type='password';const toggle=q('[data-session-action="toggle-password"]');toggle?.setAttribute('aria-label','显示密码');toggle?.setAttribute('aria-pressed','false');};
   function message(selector,text=''){
     const element=q(selector);
     if(element.textContent===text&&element.hidden===!text)return;
@@ -94,13 +102,16 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       q('#session-initial').textContent=Array.from(name)[0]||'';
       q('#session-name').textContent=name;
       q('#session-account').textContent=session.username||actor.username||'';
-      q('#session-department').textContent=actor.department||'—';
+      q('#session-department').textContent=(Array.isArray(actor.departments)&&actor.departments.length?actor.departments.join('、'):actor.department)||'—';
       q('#session-position').textContent=actor.title||'—';
+      q('#session-card-name').textContent=name;
+      q('#session-card-department').textContent=actor.department||'莱森购办公室';
       q('#session-roles').textContent=(actor.roles||[]).map(role=>ROLE_NAMES[role]).filter(Boolean).join('、')||'—';
       q('#session-password-entry').hidden=actor.source==='legacy';
       const expiry=Date.parse(session.expiresAt||actor.expiresAt||'');
       if(Number.isFinite(expiry))expiryTimer=setTimeout(()=>requireLogin('登录已过期，请重新登录。'),Math.min(2147483647,Math.max(0,expiry-Date.now())));
     }else{
+      q('#session-card-name').textContent='莱森购办公室';q('#session-card-department').textContent='吉林云投莱森购数字科技有限公司';
       for(const selector of ['#session-initial','#session-name','#session-account','#session-department','#session-position','#session-roles'])q(selector).textContent='';
     }
     notify(onChange,session);
@@ -230,7 +241,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   function onClick(event){
     const button=event.target.closest('[data-session-action]');
     if(!button||pending)return;
-    switch(button.dataset.sessionAction){case 'close':close();break;case 'password':show('password');break;case 'profile':show(session?'profile':'login');break;case 'signout':void signOut();break;}
+    switch(button.dataset.sessionAction){case 'toggle-password':{const visible=password.type==='password';password.type=visible?'text':'password';button.setAttribute('aria-label',visible?'隐藏密码':'显示密码');button.setAttribute('aria-pressed',String(visible));password.focus();break;}case 'close':close();break;case 'password':show('password');break;case 'profile':show(session?'profile':'login');break;case 'signout':void signOut();break;}
   }
   function onCancel(event){event.preventDefault();if(!pending)close();}
   function onVisibility(){if(!destroyed&&!document.hidden&&session)void refresh();}

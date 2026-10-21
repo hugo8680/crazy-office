@@ -5,6 +5,23 @@ import (
 	"time"
 )
 
+func TestPresenceCarriesOnlyStableWorkplaceAppearanceKey(t *testing.T) {
+	f := newFlow(t)
+	f.employee.OrganizationSeatIDs = []string{"research_staff_002", "maintenance_manager_001"}
+	people, err := f.svc.Touch(f.employee, "maintenance")
+	if err != nil || len(people) != 1 {
+		t.Fatalf("presence failed: %v", err)
+	}
+	if people[0]["appearanceKey"] != "research_staff_002" {
+		t.Fatal("moving between departments changed the primary workplace appearance")
+	}
+	for _, key := range []string{"password", "passwordHash", "roles", "username"} {
+		if _, found := people[0][key]; found {
+			t.Fatalf("presence should not copy identity field %s", key)
+		}
+	}
+}
+
 func TestPresenceAcceptsOrganizationDepartmentsAndBulletin(t *testing.T) {
 	f := newFlow(t)
 	areas := []string{"business", "hr_admin", "finance", "legal", "channels", "research", "operations", "general_office", "ai_data", "investment", "maintenance", "public_affairs", "bulletin"}

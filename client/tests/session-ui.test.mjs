@@ -10,6 +10,15 @@ const PASSWORD='employee-password-2026',TOKEN='t'.repeat(43);
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data});
 
+test('密码可按需查看，关闭与重开时恢复掩码并清空，不保留上次明文状态',async()=>{
+  const h=harness();await h.ui.ready;
+  const field=h.element('#session-password');field.value=PASSWORD;
+  h.click('toggle-password');assert.equal(field.type,'text');
+  assert.equal(h.element('[data-session-action="toggle-password"]').getAttribute('aria-pressed'),'true');
+  h.ui.close();assert.equal(field.value,'');assert.equal(field.type,'password');
+  h.ui.open();assert.equal(field.type,'password');assert.equal(field.value,'');h.destroy();
+});
+
 test('匿名访问只读取公开会话，办公室内显示登录，不请求业务或跳转',async()=>{
   const h=harness();await h.ui.ready;
   assert.equal(h.dialog.open,true);assert.equal(h.element('#session-title').textContent,'登录');assert.equal(h.element('#session-login-form').hidden,false);
@@ -99,10 +108,10 @@ test('退出过程中再次打开或会话失效会撤销旧退出，不被过�
 
 test('登录请求有等待反馈且不可被 Esc 中断，成功立即清密后平滑退出',async()=>{
   const h=harness({reducedMotion:false});await h.ui.ready;const pending=deferred();h.setResponder(()=>pending.promise);const submit=h.login();
-  assert.equal(h.element('#session-login-label').textContent,'正在登录');assert.equal(h.element('#session-login-spinner').hidden,false);assert.equal(h.element('#session-login-submit').dataset.busy,'true');assert.equal(h.dialog.getAttribute('aria-busy'),'true');
+  assert.equal(h.element('#session-login-label').textContent,'正在进入');assert.equal(h.element('#session-login-spinner').hidden,false);assert.equal(h.element('#session-login-submit').dataset.busy,'true');assert.equal(h.dialog.getAttribute('aria-busy'),'true');
   assert.equal(h.escape(),true);assert.equal(h.dialog.open,true);assert.equal(h.dialog.dataset.closing,undefined);assert.equal([...h.timers.values()].some(timer=>timer.delay===140),false);
   pending.resolve(response({session:AUTH}));await submit;
-  assert.equal(h.events.authenticated.length,1);assert.equal(h.element('#session-password').value,'');assert.equal(h.element('#session-login-spinner').hidden,true);assert.equal(h.element('#session-login-label').textContent,'登录');assert.equal(h.dialog.dataset.closing,'true');
+  assert.equal(h.events.authenticated.length,1);assert.equal(h.element('#session-password').value,'');assert.equal(h.element('#session-login-spinner').hidden,true);assert.equal(h.element('#session-login-label').textContent,'进入办公室');assert.equal(h.dialog.dataset.closing,'true');
   h.runTimer(140);assert.equal(h.dialog.open,false);assert.equal(h.ui.session.username,'lin');h.destroy();
 });
 

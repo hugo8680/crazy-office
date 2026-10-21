@@ -98,3 +98,16 @@ OFFICE_REAL_LAB_ACCEPTANCE=1 go run ./cmd/verify-lab \
 首次迁移步骤见 [部署与回滚](deploy/README.md)。后续服务端单独发布使用 `deploy/release.sh`、`deploy/rollback.sh`；客户端静态发布由 `../client/deploy` 管理。每次通过测试后更新服务器并检查登录、接口、模型、事件流和交付，保留可回滚版本。`GET /api/livez` 用于进程存活检查，带认证的 `/api/health` 读取模型缓存及工作状态；需要验证真实供应商连接时，使用有权限的显式检查并记录结果，不以存活或缓存状态代替业务验收。
 
 本项目提供 Dockerfile 作为独立打包入口；实际生产使用原生 Go 二进制。容器运行验收与原生部署验收分别记录。
+
+### 员工名册导入
+
+员工实名及邮箱名册保存在服务器私有数据目录，不随客户端静态文件或公开代码发布。`GET /api/erp/organization` 仅向已登录员工返回实际账号的工位与部门关系；停用账号不出现在地图目录中。工位职级与业务权限分别保存，兼任岗位共用同一个登录账号。
+
+`bin/import-roster` 读取审核后的 JSON 名册，格式见 `config/employee-roster.example.json`。默认只预览；提交前停止 API 服务，备份身份库，随后使用 `--apply --offline`。初始密码由 `--initial-password-file` 指定的 0600 文件或 `OFFICE_ROSTER_INITIAL_PASSWORD` 环境变量提供，不接受明文命令行密码参数。已有账号的密码、角色、状态、ID、会话版本及邀请记录保持不变；同邮箱姓名不一致时中止导入，避免覆盖另一人的账号。
+
+```sh
+bin/import-roster --identity-file /private/data/erp/identities.json --roster /private/provisioning/employee-roster.json --dry-run
+bin/import-roster --identity-file /private/data/erp/identities.json --roster /private/provisioning/employee-roster.json --initial-password-file /private/provisioning/initial-password --apply --offline --verify-logins
+```
+
+导入一次原子保存全部账号及审计记录，重复执行不重置密码、不增加重复账号、不重复记审计。`--verify-logins` 验证本次新增账号的登录及部门、工位映射，输出汇总数字，不输出密码。导入后重启 API，再检查员工会话、组织目录和审批权限。创建账号时的指定初始口令仅用于该离线导入入口；普通邀请和修改密码仍采用原有密码规则。

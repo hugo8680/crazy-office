@@ -1,3 +1,4 @@
+import {setOrganizationOccupants} from './organization-occupants.mjs';
 import {ORGANIZATION_DEPARTMENTS} from './organization.mjs';
 import {mountScene} from './scene.js';
 import {createSceneViewController} from './scene-view.js';
@@ -40,7 +41,7 @@ const actor=()=>session?.actor||session?.user||{};
 function toast(message){clearTimeout(toastTimer);toastElement.textContent=message;toastElement.hidden=false;revealSurface(toastElement,'toast');toastTimer=setTimeout(()=>{toastElement.hidden=true;cancelSurfaceMotion(toastElement);},4500);}
 function cleanPrivateState(){
   cancelSurfaceMotions();
-  sessionEpoch++;erp?.destroy();erp=null;presence?.destroy();presence=null;session=null;snapshot={};section=null;preferredDocument=null;observer.reset();
+  sessionEpoch++;setOrganizationOccupants([]);erp?.destroy();erp=null;presence?.destroy();presence=null;session=null;snapshot={};section=null;preferredDocument=null;observer.reset();
   clearTimeout(receiptTimer);clearTimeout(toastTimer);receipt.hidden=true;receipt.innerHTML='';toastElement.hidden=true;toastElement.textContent='';scene.setPresence({enabled:true,people:[],currentUserId:null});scene.update(sceneProjection());scene.setSelectedNode(null);scene.setSelectedAgent(null);renderDock();
 }
 async function api(path,method='GET',body){
@@ -66,7 +67,7 @@ function renderDock(){
   if(signature===dockSignature)return;dockSignature=signature;
   const focused=document.activeElement?.closest?.('#action-dock button');
   const focusData=focused?{...focused.dataset}:null;
-  dock.innerHTML=`<button type="button" class="workspace-home" data-office-action="home" aria-label="办公室" title="办公室"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V9l8-5 8 5v11H4M9 20v-8h6v8"/></svg></button>
+  dock.innerHTML=`<button type="button" class="workspace-home" data-office-action="home" aria-label="办公室" title="办公室"><img src="./brand-mark.svg" width="27" height="27" alt="莱森购"></button>
     <div class="workspace-navigation">${navigation.map(([id,label,symbol])=>`<button type="button" data-office-section="${id}" class="workspace-nav-item ${section===id?'is-active':''}" ${section===id?'aria-current="page"':''}>${icon(symbol)}<span>${label}</span>${id==='desk'&&counts.approvals?`<em aria-label="${counts.approvals} 项待审批">${counts.approvals}</em>`:''}</button>`).join('')}</div>
     <div class="workspace-utilities"><button type="button" class="workspace-fullscreen" data-office-action="fullscreen" aria-label="${document.fullscreenElement?'退出全屏':'全屏'}" title="${document.fullscreenElement?'退出全屏':'全屏'}">${icon(document.fullscreenElement?'fullscreen-exit':'fullscreen')}</button><button type="button" class="workspace-account" data-office-action="account" aria-label="账户：${e(name)}" title="${e(name)}"><span class="workspace-avatar">${e(name.slice(0,1))}</span><span class="workspace-account-name">${e(name)}</span></button></div>`;
   if(focusData)for(const button of dock.querySelectorAll('button'))if(['officeAction','officeSection','officeView'].some(key=>focusData[key]&&button.dataset[key]===focusData[key])){button.focus();break;}
@@ -113,7 +114,12 @@ async function startSession(next){
   cleanPrivateState();session=next;
   erp=mountErp({request:api,session,scene,container:businessFrame,onChange:({snapshot:value})=>receiveSnapshot(value),onNavigate:({section:nextSection,opened,documentId})=>{section=opened?nextSection:null;preferredDocument=documentId||null;renderDock();},onClose:()=>{scene.setSelectedNode(null);scene.setSelectedAgent(null);}});
   presence=mountErpPresence({scene,request:api,session,onSelectEmployee:person=>{if(!requireAccount())return;if(person.id===actor().id)void openSection('desk');else void erp.openPerson(person.id);}});
-  renderDock();await erp.refresh();
+  renderDock();
+  const directoryEpoch=sessionEpoch;
+  const results=await Promise.allSettled([erp.refresh(),api('/api/erp/organization')]);
+  if(directoryEpoch!==sessionEpoch)return;
+  if(results[1].status==='fulfilled')setOrganizationOccupants(results[1].value.employees);
+  else if(results[1].reason?.status!==401)toast('通讯录暂未载入，请刷新重试。');
 }
 async function toggleFullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await lab.requestFullscreen();}catch{toast('浏览器未允许全屏。');}renderDock();}
 async function handleOfficeClick(event){

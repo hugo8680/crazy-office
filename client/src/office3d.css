@@ -5,8 +5,9 @@
 #lab[data-view="3d"] .office-scene3d-labels{position:absolute;inset:0;min-width:0;min-height:0;pointer-events:none;overflow:hidden}
 #lab[data-view="3d"] .office3d-hotspot{position:absolute;pointer-events:auto;border:0;background:transparent;padding:0;border-radius:3px;cursor:pointer;color:#424b39}
 #lab[data-view="3d"] :is(.office3d-room-label,.office3d-device-label,.office3d-person-label){position:absolute;pointer-events:none;width:max-content;max-width:210px;text-align:center;line-height:1.6;white-space:nowrap}
-#lab[data-view="3d"] .office3d-room-label strong{font:600 14px/1.6 var(--sans);color:#525746;letter-spacing:.2px}
+#lab[data-view="3d"] .office3d-room-label strong{display:block;max-width:inherit;white-space:pre-line;font:650 14px/1.35 var(--sans);color:#3d5450;letter-spacing:.15px}
 #lab[data-view="3d"] .office3d-room-label small{display:none}
+@media(min-width:2560px){#lab[data-view="3d"] .office3d-room-label strong{font-size:20px}#lab[data-view="3d"] .office3d-person-label{font-size:15px}#lab[data-view="3d"] .office3d-person-label strong{font-size:16px}}
 #lab[data-view="3d"] .office3d-room-label{border:0;background:transparent;padding:0;cursor:pointer;pointer-events:auto}
 #lab[data-view="3d"] .office3d-room-label.office3d-bulletin-label{padding:3px 9px;background:var(--office-ui-paper);border:1px solid var(--office-ui-line);border-radius:6px}
 #lab[data-view="3d"] .office3d-person-hit{width:28px;height:46px}

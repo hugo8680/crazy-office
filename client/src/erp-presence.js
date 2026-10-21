@@ -1,4 +1,4 @@
-import {employeeAppearance} from './employee-appearance.mjs';
+import {employeeAppearance,employeeAppearanceKey} from './employee-appearance.mjs';
 import {OFFICE_ROOMS,OFFICE_WORLD,OFFICE_BULLETIN_AREA,canonicalDepartmentId} from './organization.mjs';
 import {routeBetweenPoints,walkingDuration,walkingSample} from './scene-motion.js';
 
@@ -7,14 +7,13 @@ export const PRESENCE_NODE_IDS=Object.freeze([...OFFICE_ROOMS.map(room=>room.id)
 const nodes=new Set(PRESENCE_NODE_IDS);
 const presenceArea=value=>value==='bulletin'?'bulletin':canonicalDepartmentId(value);
 const clean=(value,max=100)=>typeof value==='string'?value.replace(/[\x00-\x1f\x7f]/g,'').trim().slice(0,max):'';
-const hairs=['#51453d','#5c4839','#424641','#62483c'];
-function identity(id){const hash=[...id].reduce((n,c)=>(n*31+c.charCodeAt(0))>>>0,0);return{color:employeeAppearance(false).uniform,hair:hairs[hash%hairs.length]};}
+function identity(person){const appearanceKey=employeeAppearanceKey(person),appearance=employeeAppearance({id:appearanceKey,outfitId:person.outfitId});return{appearanceKey,outfitId:appearance.outfitId,color:appearance.uniform,hair:appearance.hair};}
 
 export function normalizeOfficePresence(value={}){
   const currentUserId=clean(value.currentUserId),seen=new Set(),people=[];
   for(const source of Array.isArray(value.people)?value.people:[]){
     const id=clean(source?.id);if(!id||seen.has(id)||source?.online!==true)continue;seen.add(id);
-    people.push({id,name:clean(source.name,80)||'员工',title:clean(source.title,80),nodeId:presenceArea(source.nodeId)||canonicalDepartmentId(source.department)||'hr_admin',online:true,current:id===currentUserId,...identity(id)});
+    people.push({id,name:clean(source.name,80)||'员工',title:clean(source.title,80),nodeId:presenceArea(source.nodeId)||canonicalDepartmentId(source.department)||'hr_admin',online:true,current:id===currentUserId,...identity({...source,id})});
   }
   people.sort((a,b)=>Number(b.current)-Number(a.current)||a.id.localeCompare(b.id));
   return{enabled:value.enabled===true,currentUserId,people:people.slice(0,MAX_OFFICE_PEOPLE),onSelectEmployee:typeof value.onSelectEmployee==='function'?value.onSelectEmployee:()=>{}};

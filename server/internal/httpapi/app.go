@@ -405,6 +405,13 @@ func (a *App) erp(w http.ResponseWriter, r *http.Request, actor *identity.Actor)
 	switch {
 	case path == "/api/erp/notices" || strings.HasPrefix(path, "/api/erp/notices/"):
 		return a.notices(w, r, actor)
+	case path == "/api/erp/organization" && r.Method == "GET":
+		people, e := a.Identity.ListOrganization(actor.ID)
+		if e != nil {
+			return e
+		}
+		write(w, 200, M{"employees": people})
+		return nil
 	case path == "/api/erp/catalog" && r.Method == "GET":
 		write(w, 200, M{"workflows": erpflow.Workflows, "roles": erpflow.RoleLabels})
 		return nil

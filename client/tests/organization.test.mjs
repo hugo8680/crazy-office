@@ -6,11 +6,11 @@ test('organization has exact requested posts without inventing accounts',()=>{
   assert.equal(ORGANIZATION_DEPARTMENTS.length,12);
   assert.equal(OFFICE_ROOMS.length,12);
   assert.equal(OFFICE_SEATS.length,251);
-  assert.equal(ORGANIZATION_PEOPLE.length,250);
+  assert.equal(ORGANIZATION_PEOPLE.length,249);
   const counts={business:6,hr_admin:4,finance:5,legal:2,channels:8,research:9,operations:6,general_office:2,ai_data:206,investment:1,maintenance:1,public_affairs:1};
   for(const [id,count] of Object.entries(counts))assert.equal(departmentById(id).headcount,count,id);
   assert.equal(ORGANIZATION_TOTALS.workplaces,251);
-  assert.deepEqual(ORGANIZATION_TOTALS,{departments:12,people:250,workplaces:251,managers:11,chairmen:1,heads:5,staff:233});
+  assert.deepEqual(ORGANIZATION_TOTALS,{departments:12,people:249,workplaces:251,managers:11,chairmen:1,heads:5,staff:232});
   assert.equal(OFFICE_SEATS.filter(post=>post.role==='chairman').length,1);
   assert.equal(OFFICE_SEATS.filter(post=>post.role==='chairman')[0].departmentId,'general_office');
   for(const person of ORGANIZATION_PEOPLE){assert.equal(person.username,undefined);assert.equal(person.password,undefined);assert.equal(person.permissions,undefined);}
@@ -23,7 +23,7 @@ test('business and channels share one manager and only one visible occupant',()=
   assert.notEqual(business.id,channels.id);
   assert.equal(business.occupantVisible,true);assert.equal(channels.occupantVisible,false);
   assert.equal(channels.label,'商务部经理兼任');
-  assert.equal(OFFICE_SEATS.filter(post=>post.occupantVisible).length,250);
+  assert.equal(OFFICE_SEATS.filter(post=>post.occupantVisible).length,249);
   const manager=ORGANIZATION_PEOPLE.find(person=>person.id===business.personId);
   assert.deepEqual(manager.departmentIds,['business','channels']);
   assert.equal(manager.primarySeatId,business.id);
@@ -127,7 +127,7 @@ test('executive and sparse offices, shared lounge and AI manager bay have functi
   assert.ok(kinds('shared_lounge').includes('coffee_table'));
   assert.ok(kinds('ai_data').includes('sofa'));
   assert.equal(kinds('research').length,0,'keep the three-row development room clear');
-  assert.equal(ORGANIZATION_PEOPLE.length,250,'furnishing does not create staff');
+  assert.equal(ORGANIZATION_PEOPLE.length,249,'furnishing does not create staff');
   assert.equal(ORGANIZATION_DEPARTMENTS.length,12,'shared lounge is not a new department');
 });
 
@@ -229,7 +229,7 @@ test('readable overview desks do not intersect other visible desks, furniture, l
 
 test('company bulletin occupies the empty southeast without changing department rosters or blocking paths',()=>{
   const area=OFFICE_BULLETIN_AREA,items=[area.board,...area.benches,...area.plants];
-  assert.equal(area.id,'bulletin');assert.equal(ORGANIZATION_DEPARTMENTS.length,12);assert.equal(ORGANIZATION_PEOPLE.length,250);
+  assert.equal(area.id,'bulletin');assert.equal(ORGANIZATION_DEPARTMENTS.length,12);assert.equal(ORGANIZATION_PEOPLE.length,249);
   assert.equal(OFFICE_NODE_ANCHORS.bulletin.departmentId,null);assert.equal(canonicalDepartmentId('bulletin'),null);
   assert.ok(Object.isFrozen(area.board));
   for(const [x,y]of area.arrivalLine)assert.ok(OFFICE_WALKING_SEGMENTS.some(([a,b])=>a[1]===y&&b[1]===y&&x>=Math.min(a[0],b[0])&&x<=Math.max(a[0],b[0])),'bulletin visitors arrive on a connected hallway');
@@ -250,7 +250,7 @@ test('convenience corner fits the courtyard and leaves the shared table and all 
   const overlaps=(a,b)=>Math.abs(a.x-b.x)<(a.w+b.w)/2&&Math.abs(a.y-b.y)<(a.h+b.h)/2;
   assert.ok(area.x>courtyard.x+courtyard.w/2&&area.y>courtyard.y+courtyard.h/2);
   assert.ok(area.x+area.w<courtyard.x+courtyard.w&&area.y+area.h<courtyard.y+courtyard.h);
-  assert.equal(ORGANIZATION_DEPARTMENTS.length,12);assert.equal(ORGANIZATION_PEOPLE.length,250);
+  assert.equal(ORGANIZATION_DEPARTMENTS.length,12);assert.equal(ORGANIZATION_PEOPLE.length,249);
   assert.equal(canonicalDepartmentId(area.id),null);assert.ok(Object.isFrozen(area.counter));
   for(const item of items){
     assert.ok(item.x-item.w/2>area.x&&item.x+item.w/2<area.x+area.w&&item.y-item.h/2>area.y&&item.y+item.h/2<area.y+area.h);
@@ -262,4 +262,12 @@ test('convenience corner fits the courtyard and leaves the shared table and all 
       assert.equal(crosses,false,'convenience furnishing blocks walkway');
     }
   }
+});
+
+
+test('the maintenance manager is the same colleague as development staff 002 and occupies one primary desk',()=>{
+ const development=OFFICE_SEATS.find(post=>post.id==='research_staff_002'),maintenance=OFFICE_SEATS.find(post=>post.id==='maintenance_manager_001');
+ assert.ok(development);assert.ok(maintenance);assert.equal(development.personId,maintenance.personId);assert.equal(development.primarySeat,true);assert.equal(development.occupantVisible,true);assert.equal(maintenance.primarySeat,false);assert.equal(maintenance.occupantVisible,false);assert.equal(maintenance.label,'研发部兼任');assert.equal(departmentById('maintenance').managerPersonId,development.personId);
+ const colleague=ORGANIZATION_PEOPLE.find(person=>person.id===development.personId);assert.deepEqual(colleague.departmentIds,['research','maintenance']);assert.deepEqual(colleague.seatIds,[development.id,maintenance.id]);assert.equal(colleague.primarySeatId,development.id);assert.equal(ORGANIZATION_PEOPLE.filter(person=>person.id===development.personId).length,1);
+ assert.equal(OFFICE_SEATS.length-ORGANIZATION_PEOPLE.length,2,'business/channels and development/maintenance share two colleagues');
 });

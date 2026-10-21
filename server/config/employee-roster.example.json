@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "revision": "reviewed-company-roster-v1",
+  "employees": [
+    {
+      "personId": "employee:example-person",
+      "username": "example-person@laisengou.com",
+      "name": "示例员工",
+      "primaryDepartmentId": "research",
+      "departmentIds": ["research"],
+      "departments": ["研发部"],
+      "seatIds": ["research_staff_001"],
+      "title": "",
+      "roles": ["employee"],
+      "placeholder": false
+    }
+  ]
+}

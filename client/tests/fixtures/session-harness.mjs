@@ -31,7 +31,7 @@ export function harness({session=null,fragment='',pathname='/',responder,reduced
     login(username='lin',password=PASSWORD){element('#session-username').value=username;element('#session-password').value=password;return element('#session-login-form').listeners.get('submit')({preventDefault(){}});},
     password(current=PASSWORD,next=PASSWORD+'-new',confirm=next){element('#session-current').value=current;element('#session-new').value=next;element('#session-confirm').value=confirm;return element('#session-password-form').listeners.get('submit')({preventDefault(){}});},
     invitation(password=PASSWORD,confirmation=password){element('#session-invitation-password').value=password;element('#session-invitation-confirm').value=confirmation;return element('#session-invitation-form').listeners.get('submit')({preventDefault(){}});},
-    click(action){return dialog.listeners.get('click')({target:{closest:()=>({dataset:{sessionAction:action}})}});},
+    click(action){const node=element(`[data-session-action="${action}"]`);node.dataset.sessionAction=action;return dialog.listeners.get('click')({target:{closest:()=>node}});},
     escape(){let prevented=false;dialog.listeners.get('cancel')({preventDefault(){prevented=true;}});if(!prevented)dialog.close();return prevented;},
     runTimer(delay){const entry=[...timers.entries()].find(([,value])=>value.delay===delay);if(!entry)throw Error(`No timer for ${delay}`);timers.delete(entry[0]);entry[1].fn();},
     visible(){documentListeners.get('visibilitychange')?.();},

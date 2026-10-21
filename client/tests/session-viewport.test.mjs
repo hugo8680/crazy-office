@@ -6,7 +6,7 @@ const foundation=await readFile(new URL('../src/ui-foundation.css',import.meta.u
 const css=await readFile(new URL('../src/session-ui.css',import.meta.url),'utf8');
 const declarations=body=>Object.fromEntries(body.split(';').filter(Boolean).map(item=>{const index=item.indexOf(':');return[item.slice(0,index).trim(),item.slice(index+1).trim()];}));
 const base=declarations(css.match(/^\.session-dialog\{([^}]+)\}/m)[1]);
-const mobile=declarations(css.match(/@media\(max-width:520px\)\{\.session-dialog\{([^}]+)\}/)[1]);
+const mobile=declarations(css.match(/@media\(max-width:620px\)\{\.session-dialog\{([^}]+)\}/)[1]);
 
 // Native dialogs escape the normalized office frame. Resolve their independent
 // scale and raw viewport center from the actual CSS to assert screen geometry.
@@ -23,7 +23,7 @@ function length(value,layout,visible){
   return Function(`return (${expression});`)();
 }
 function frame(layout,visible,contentHeight=700){
-  const rules={...base,...(layout.width<=520?mobile:{})},viewport=visible||{left:0,top:0,width:layout.width,height:layout.height,scale:1};
+  const rules={...base,...(layout.width<=620?mobile:{})},viewport=visible||{left:0,top:0,width:layout.width,height:layout.height,scale:1};
   const width=length(rules.width,layout,visible),height=Math.min(contentHeight,length(rules['max-height'],layout,visible));
   const centerX=length(rules.left,layout,visible),centerY=length(rules.top,layout,visible);
   const inverse=length(rules.scale,layout,visible),screenScale=inverse*viewport.scale;
@@ -38,7 +38,7 @@ test('native account windows keep the same physical width and height at viewport
   const layout={width:1440,height:900};
   for(const visible of [{left:0,top:0,width:1440,height:900,scale:1},{left:320,top:120,width:720,height:450,scale:2},{left:450,top:200,width:480,height:300,scale:3}]){
     const bounds=frame(layout,visible);contained(bounds);
-    assert.equal(bounds.width,440);assert.equal(bounds.height,700);
+    assert.equal(bounds.width,680);assert.equal(bounds.height,700);
     assert.equal(bounds.left,(bounds.availableWidth-bounds.width)/2);assert.equal(bounds.top,(bounds.availableHeight-bounds.height)/2);
   }
 });
@@ -51,7 +51,7 @@ test('small-screen and keyboard viewports keep scrollable account windows within
 });
 
 test('missing VisualViewport retains normal centering while normalized zoom preserves input typography',()=>{
-  const desktop=frame({width:1440,height:900});contained(desktop);assert.equal(desktop.width,440);assert.equal(desktop.left,500);
+  const desktop=frame({width:1440,height:900});contained(desktop);assert.equal(desktop.width,680);assert.equal(desktop.left,380);
   const phone=frame({width:390,height:844});contained(phone);assert.equal(phone.width,366);assert.equal(phone.left,12);
   assert.doesNotMatch(base.transform||'',/scale/);assert.match(css,/\.session-form input\{[^}]*font-size:var\(--office-ui-text-input-touch\)/);assert.match(foundation,/--office-ui-text-input-touch:16px/);
 });

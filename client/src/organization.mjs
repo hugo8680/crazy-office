@@ -34,11 +34,11 @@ const specs = [
   {id:'legal',name:'法务与合规部',english:'LEGAL & COMPLIANCE',staff:1,x:705,y:80,w:155,h:150,doorSide:'bottom',floor:'#e4def2'},
   {id:'channels',name:'渠道部',english:'CHANNELS',staff:7,x:1150,y:80,w:200,h:180,columns:4,rowGap:51,doorSide:'bottom',floor:'#efceb0',manager:'business_channels_manager'},
   {id:'research',name:'研发部',english:'RESEARCH & DEVELOPMENT',staff:8,x:300,y:800,w:290,h:260,columns:3,rowGap:55,deskTop:70,doorSide:'top',floor:'#cbe7e5'},
-  {id:'operations',name:'运营部',english:'OPERATIONS',staff:5,x:610,y:800,w:220,h:260,columns:2,rowGap:55,deskTop:70,doorSide:'top',floor:'#daeac7'},
+  {id:'operations',name:'商务运营部',english:'OPERATIONS',staff:5,x:610,y:800,w:220,h:260,columns:2,rowGap:55,deskTop:70,doorSide:'top',floor:'#daeac7'},
   {id:'general_office',name:'总经办',english:'EXECUTIVE OFFICE',staff:0,chairman:1,x:40,y:40,w:250,h:210,deskTop:75,doorSide:'bottom',floor:'#f0e1be'},
   {id:'ai_data',name:'AI数据算法部',english:'AI DATA & ALGORITHMS',staff:200,heads:5,x:850,y:330,w:500,h:540,doorSide:'left',floor:'#c8e6db'},
   {id:'investment',name:'投资者关系部',english:'INVESTOR RELATIONS',staff:0,x:515,y:40,w:155,h:155,doorSide:'bottom',floor:'#d4e6ed'},
-  {id:'maintenance',name:'运维部',english:'INFRASTRUCTURE',staff:0,x:40,y:850,w:230,h:210,doorSide:'right',doorY:1010,floor:'#cfe4dd'},
+  {id:'maintenance',name:'运维部',english:'INFRASTRUCTURE',staff:0,manager:'research_staff_002',x:40,y:850,w:230,h:210,doorSide:'right',doorY:1010,floor:'#cfe4dd'},
   {id:'public_affairs',name:'公共事务关系部',english:'PUBLIC AFFAIRS',staff:0,x:325,y:80,w:155,h:150,doorSide:'bottom',floor:'#e9e4cb'},
 ];
 
@@ -84,6 +84,7 @@ for (const spec of specs) {
         deskWidth,
         ...(post.role==='manager'&&spec.manager?{personId:spec.manager}:{}),
         ...(spec.id==='channels'&&post.role==='manager'?{primarySeat:false,label:'商务部经理兼任'}:{}),
+        ...(spec.id==='maintenance'&&post.role==='manager'?{primarySeat:false,label:'研发部兼任'}:{}),
       }));
     }
   }
@@ -155,9 +156,9 @@ export const DEPARTMENT_ALIASES=freeze({
   legal:'legal','法务与合规部':'legal','法务部':'legal','法务':'legal',
   channels:'channels','渠道部':'channels',reception:'channels','客户会见厅':'channels','采购':'channels','采购部':'channels',
   research:'research','研发部':'research','研发':'research',meeting:'research','会议室':'research','技术部':'research','技术':'research',
-  operations:'operations','运营部':'operations','运营':'operations',
+  operations:'operations','商务运营部':'operations','运营部':'operations','运营':'operations',
   general_office:'general_office','总经办':'general_office','总经理办公室':'general_office','管理':'general_office',
-  ai_data:'ai_data','ai数据算法部':'ai_data','数据算法部':'ai_data',
+  ai_data:'ai_data','ai数据部':'ai_data','ai数据算法部':'ai_data','数据算法部':'ai_data',
   investment:'investment','投资者关系部':'investment','投资者关系不':'investment','投资':'investment','投资部':'investment',
   maintenance:'maintenance','运维部':'maintenance','运维':'maintenance',server:'maintenance',internet:'maintenance',firewall:'maintenance',core:'maintenance',storage:'maintenance',ups:'maintenance',access:'maintenance','网络机房':'maintenance','it':'maintenance','it部':'maintenance',
   public_affairs:'public_affairs','公共事务关系部':'public_affairs','公共事务部':'public_affairs',
