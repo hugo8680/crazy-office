@@ -1,5 +1,7 @@
 :root{--ink:#2e3e36;--muted:#788274;--line:#d7d9ce;--green:#345a48;--paper:#f5f3eb;--office-ink:#2e3e36;--office-accent:#345a48;--office-border:#d7d9ce}
 body{background:var(--paper);color:var(--ink)}#lab{background:#f2f1e8;background-image:none}#office-scene{position:absolute;inset:0 0 72px;width:100%;transform:none}#office-scene>svg{display:block;width:100%;height:100%}
+.workspace-chrome{position:absolute;left:0;top:0;width:100%;height:100%;z-index:200;transform-origin:0 0;pointer-events:none}
+.workspace-chrome>:is(.workspace-dock,.workspace-perspective,.workspace-view-menu,.workspace-receipt){pointer-events:auto}
 .workspace-dock{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:200;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);min-height:66px;padding:9px 12px;background:#fffdf6;border:1px solid #cdd3c5;border-radius:18px;color:#677364;isolation:isolate}
 .workspace-dock button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;white-space:nowrap;border-radius:10px;padding:9px 12px;transition:background .15s ease,color .15s ease;font-size:13px;line-height:1.2}.workspace-dock button:hover{background:#ecefe4;color:#345a48}.workspace-dock .icon{width:17px;height:17px;stroke-width:1.6}
 .workspace-dock .workspace-home{padding:8px;width:38px;color:#48654d}.workspace-home svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}

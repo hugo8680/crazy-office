@@ -54,11 +54,13 @@
 
   <main data-view="2d" id="lab" class="erp-office-mode" aria-label="疯狂办公室">
     <div id="office-scene"></div>
-    <div id="view-switch" class="workspace-perspective" role="group" aria-label="办公室视角"></div>
-    <div id="workspace-receipt" class="workspace-receipt" role="status" hidden></div>
-    <nav id="action-dock" class="workspace-dock" aria-label="办公导航"></nav>
-    <div id="view-menu" class="workspace-view-menu" role="group" aria-label="视图设置" hidden></div>
-    <div id="toast" class="workspace-toast" role="status" hidden></div>
+    <div id="workspace-chrome" class="workspace-chrome">
+      <div id="view-switch" class="workspace-perspective" role="group" aria-label="办公室视角"></div>
+      <div id="workspace-receipt" class="workspace-receipt" role="status" hidden></div>
+      <nav id="action-dock" class="workspace-dock" aria-label="办公导航"></nav>
+      <div id="view-menu" class="workspace-view-menu" role="group" aria-label="视图设置" hidden></div>
+      <div id="toast" class="workspace-toast" role="status" hidden></div>
+    </div>
   </main>
   <script type="module" src="./office.js"></script>
 </body>

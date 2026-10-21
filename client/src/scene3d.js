@@ -43,7 +43,13 @@ export function scene3DFramePolicy(previous=0,current=0,{reducedMotion=false,int
   const delta=previous?Math.min(100,Math.max(0,current-previous)):16;
   return {render:!previous||dirty&&!interacting||reducedMotion||delta>=(interacting?14:30),delta,continue:interacting||busy||dirty};
 }
-export function scene3DPixelRatio(width,height,deviceRatio=1){return clamp(Math.min(Number(deviceRatio)||1,1.5,Math.sqrt(3000000/Math.max(1,width*height))),.7,1.5);}
+// Keep common Retina desktops at native resolution. Large surfaces remain bounded
+// by both the framebuffer budget and the device's actual renderbuffer limits.
+export function scene3DPixelRatio(width,height,deviceRatio=1,{maxDimension=8192}={}){
+  const positive=(value,fallback)=>Number.isFinite(Number(value))&&Number(value)>0?Number(value):fallback;
+  width=positive(width,1);height=positive(height,1);maxDimension=positive(maxDimension,8192);
+  return Math.min(positive(deviceRatio,1),2,Math.sqrt(9000000/(width*height)),maxDimension/width,maxDimension/height);
+}
 export function scene3DGestureMode(event,touches=1){return touches>1?'touch':event.button===1||event.button===2||event.shiftKey?'pan':'orbit';}
 
 export function mountScene3D(container,{
@@ -55,7 +61,8 @@ export function mountScene3D(container,{
   const assets=createOffice3DAssets(),layout=createOffice3DLayout(assets),scene=new THREE.Scene();scene.background=new THREE.Color(OFFICE3D_COLORS.background);
   scene.add(layout.root);scene.add(new THREE.HemisphereLight('#fffaf0','#aebaa6',1.55));const sun=new THREE.DirectionalLight('#fff6e8',1.95);sun.position.set(-300,1000,400);scene.add(sun);
   renderer.shadowMap.enabled=false;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=.94;
-  renderer.setPixelRatio(1);
+  let maxBufferDimension=8192;
+  try{const gl=renderer.getContext?.();for(const limit of [renderer.capabilities?.maxTextureSize,gl?.getParameter(gl.MAX_RENDERBUFFER_SIZE),...(gl?.getParameter(gl.MAX_VIEWPORT_DIMS)||[])])if(Number.isFinite(limit)&&limit>0)maxBufferDimension=Math.min(maxBufferDimension,limit);}catch{/* Retain the conservative size limit if the context cannot report it. */}
   const wrapper=document.createElement('div');wrapper.className='office-scene3d';wrapper.dataset.view='3d';wrapper.tabIndex=0;wrapper.setAttribute('aria-label','办公室');
   const canvas=renderer.domElement;canvas.className='office-scene3d-canvas';canvas.setAttribute('aria-hidden','true');canvas.style.touchAction='none';
   const labels=document.createElement('div');labels.className='office-scene3d-labels';
@@ -64,7 +71,7 @@ export function mountScene3D(container,{
   const greetingFace=document.createElement('span');greetingFace.className='office3d-greeting-face';greetingFace.setAttribute('aria-hidden','true');const greetingText=document.createElement('span');greetingText.className='office3d-greeting-text';const greetingTail=document.createElement('span');greetingTail.className='office3d-greeting-tail';greetingTail.setAttribute('aria-hidden','true');greetingTail.innerHTML='<svg viewBox="0 0 22 13" fill="none" aria-hidden="true"><path class="office3d-greeting-tail-outline" d="M1 1H21L7 11.2Q4.8 12.7 5 10L5.7 1Z"/><path class="office3d-greeting-tail-seam" d="M1 1H21"/></svg>';greetingElement.append(greetingFace,greetingText,greetingTail);labels.append(greetingElement);
   const camera=new THREE.OrthographicCamera(-600,600,450,-450,1,6000),target=new THREE.Vector3(527.5,35,309);
   let azimuth=defaultAzimuth,elevation=defaultElevation,cameraFrame=office3DFrustum(),pixelRatio=1;
-  const stats={renders:0,actorUpdates:0,instanceUploads:0,drawCalls:0,triangles:0,lastRenderMs:0,frameMs:0,pixelRatio:1,staticInstances:layout.statistics.staticInstances};
+  const stats={renders:0,actorUpdates:0,instanceUploads:0,drawCalls:0,triangles:0,lastRenderMs:0,frameMs:0,pixelRatio:1,width:0,height:0,bufferWidth:0,bufferHeight:0,resizes:0,staticInstances:layout.statistics.staticInstances};
   const nodeButtons=new Map(),agentButtons=new Map(),humanButtons=new Map(),roomButtons=new Map();
   const agents=new Map(),humans=new Map(),background=[];const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),picks=[];
   const actualPeople=new Map(),employeeButtons=new Map();let presenceState={enabled:false,people:[]};
@@ -75,7 +82,7 @@ export function mountScene3D(container,{
   const routeMaterial=new THREE.MeshBasicMaterial({color:'#b95b43'});
   const linkMaterial=(status='online')=>{if(!linkMaterials.has(status))linkMaterials.set(status,new THREE.MeshBasicMaterial({color:({online:'#7a9a8a',warning:'#b88b46',offline:'#bd5c48',recovering:'#89a399'})[status]||'#7a9a8a'}));return linkMaterials.get(status);};
   let destroyed=false,contextLost=false,frame=0,lastFrame=0,width=1,height=1,scale=1,panX=0,panY=0,drag=null,suppressClickUntil=0;
-  const touches=new Map();let touchGesture=null;
+  const touches=new Map();let touchGesture=null,nativeGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
   let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null;
@@ -265,9 +272,13 @@ export function mountScene3D(container,{
     wrapper.dataset.renderCount=String(stats.renders);wrapper.dataset.drawCalls=String(stats.drawCalls);wrapper.dataset.frameMs=stats.frameMs.toFixed(2);
     if(labelsDirty||busy||labelsChanged){updateLabels();labelsDirty=false;onViewChange();}renderDirty=false;
   }
-  function resize(){if(destroyed)return;const rect=container.getBoundingClientRect();width=Math.max(1,rect.width);height=Math.max(1,rect.height);
-    pixelRatio=scene3DPixelRatio(width,height,globalThis.devicePixelRatio||1);renderer.setPixelRatio(pixelRatio);stats.pixelRatio=pixelRatio;
-    renderer.setSize(width,height,false);canvas.style.width='100%';canvas.style.height='100%';setCamera();markDirty();}
+  function resize(){if(destroyed||contextLost)return;const rect=container.getBoundingClientRect(),nextWidth=Number(rect.width),nextHeight=Number(rect.height);
+    if(!Number.isFinite(nextWidth)||!Number.isFinite(nextHeight)||nextWidth<=0||nextHeight<=0)return;
+    const nextRatio=scene3DPixelRatio(nextWidth,nextHeight,globalThis.devicePixelRatio||1,{maxDimension:maxBufferDimension});
+    if(stats.resizes&&width===nextWidth&&height===nextHeight&&Math.abs(pixelRatio-nextRatio)<1e-8)return;
+    width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
+    renderer.setDrawingBufferSize(width,height,pixelRatio);canvas.style.width='100%';canvas.style.height='100%';
+    Object.assign(stats,{pixelRatio,width,height,bufferWidth:canvas.width,bufferHeight:canvas.height,resizes:stats.resizes+1});setCamera();markDirty();}
   function renderFrame(time){
     frame=0;if(destroyed||contextLost||document.hidden)return;
     const wasBusy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;
@@ -324,14 +335,23 @@ export function mountScene3D(container,{
       if(focused)focusObject(focused.type,focused.id);else if(selectedAgent)focusObject('agent',selectedAgent);else if(selectedHuman)focusObject(actualPeople.has(selectedHuman)?'employee':'human',selectedHuman);else if(selectedNode)focusObject('node',selectedNode);
     }
   });
-  listen(canvas,'wheel',e=>{e.preventDefault();clearSelectionTimer();const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,3.2);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
-  listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearGreeting();if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;clearSelectionTimer();});
+  // Labels are HTML siblings of the canvas. Handle their bubbling wheel/pinch
+  // events here as well, so the browser never zooms the entire office page.
+  listen(wrapper,'wheel',e=>{e.preventDefault();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,3.2);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
+  listen(wrapper,'gesturestart',e=>{e.preventDefault();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};suppressClickUntil=performance.now()+200;},{passive:false});
+  listen(wrapper,'gesturechange',e=>{e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;const nextScale=Number(e.scale),rotation=Number(e.rotation);if(Number.isFinite(nextScale)&&nextScale>0)scale=clamp(nativeGesture.scale*nextScale,.72,3.2);if(Number.isFinite(rotation))azimuth=nativeGesture.azimuth-rotation*Math.PI/180;applyView();suppressClickUntil=performance.now()+200;},{passive:false});
+  listen(wrapper,'gestureend',e=>{e.preventDefault();nativeGesture=null;suppressClickUntil=performance.now()+180;},{passive:false});
+  listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearGreeting();if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;nativeGesture=null;clearSelectionTimer();});
   listen(canvas,'webglcontextlost',e=>{e.preventDefault();if(destroyed)return;clearGreeting({redraw:false});contextLost=true;cancelAnimationFrame(frame);frame=0;controller.reset();const error=new Scene3DUnavailableError('3D 图形连接已中断，请切回 2D 视图');onUnavailable(error);container.dispatchEvent?.(new CustomEvent('scene3d-unavailable',{detail:error,bubbles:true}));});
-  listen(document,'visibilitychange',()=>{if(document.hidden){clearGreeting({redraw:false});hoveredKey='';hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;schedule();}});
+  listen(document,'visibilitychange',()=>{if(document.hidden){clearGreeting({redraw:false});hoveredKey='';nativeGesture=null;hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;resize();schedule();}});
   const onPreference=event=>{reducedMotion=event.matches;if(reducedMotion)viewTween.finish();controller.setReducedMotion(reducedMotion);presenceMotion.setReducedMotion(reducedMotion);markDirty();};motionPreference?.addEventListener?.('change',onPreference);
   scene.updateMatrixWorld(true);scene.matrixWorldAutoUpdate=false;
   layout.root.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
-  const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);resize();update({animateEvents:false});
+  let densityQuery=null;
+  const onDensityChange=()=>{watchDensity();resize();};
+  function watchDensity(){densityQuery?.removeEventListener?.('change',onDensityChange);densityQuery=globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio||1}dppx)`);densityQuery?.addEventListener?.('change',onDensityChange);}
+  if(globalThis.window?.addEventListener)listen(window,'resize',resize);
+  const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);watchDensity();resize();update({animateEvents:false});
   function resetView(){clearSelectionTimer();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
   return {
     update,setTopology(visible){topologyVisible=!!visible;links.visible=topologyVisible;wrapper.dataset.topology=String(topologyVisible);markDirty();},
@@ -342,6 +362,6 @@ export function mountScene3D(container,{
     getAgentAnchor(id){const actor=agents.get(id);return actor?project(actor.point,actor.height*.55):null;},
     focusHuman(id='owner'){return focusPoint(humans.get(id)?.point);},focusAgent(id){return focusPoint(agents.get(id)?.point);},focusNode(id){return focusPoint(NODE_META[id]);},
     zoom,rotate,resetView,fit:resetView,getPerformanceStats:()=>({...stats,azimuth,elevation,scale,scheduled:!!frame,cameraMoving:viewTween.active,people:actorList().length,batches:actorBatches.size}),
-    destroy(){if(destroyed)return;clearGreeting({redraw:false});destroyed=true;clearSelectionTimer();viewTween.cancel();cancelAnimationFrame(frame);frame=0;controller.destroy();presenceMotion.destroy();actualPeople.clear();employeeButtons.clear();resizeObserver.disconnect();motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
+    destroy(){if(destroyed)return;clearGreeting({redraw:false});destroyed=true;clearSelectionTimer();viewTween.cancel();cancelAnimationFrame(frame);frame=0;controller.destroy();presenceMotion.destroy();actualPeople.clear();employeeButtons.clear();resizeObserver.disconnect();densityQuery?.removeEventListener?.('change',onDensityChange);motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
   };
 }

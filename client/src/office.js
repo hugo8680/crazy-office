@@ -4,6 +4,7 @@ import {mountErp} from './erp.js';
 import {mountErpPresence} from './erp-presence.js';
 import {mountSession} from './session-ui.js';
 import {escapeHtml as e} from './erp-ui.mjs';
+import {mountWorkspaceViewport} from './workspace-viewport.mjs';
 import {CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver} from './workspace-state.mjs';
 
 const lab=document.querySelector('#lab');
@@ -12,6 +13,7 @@ const viewMenu=document.querySelector('#view-menu');
 const viewSwitch=document.querySelector('#view-switch');
 const receipt=document.querySelector('#workspace-receipt');
 const toastElement=document.querySelector('#toast');
+const viewportChrome=mountWorkspaceViewport(document.querySelector('#workspace-chrome'));
 const observer=createDocumentObserver();
 const motionPreference=window.matchMedia?.('(prefers-reduced-motion: reduce)');
 const surfaceMotions=new Map();
@@ -149,4 +151,4 @@ await account.ready;
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelSurfaceMotions();else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
 try{const saved=localStorage.getItem('office-view-mode');if(saved==='3d')void scene.setMode('3d');}catch{}
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;viewportChrome.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
