@@ -8,6 +8,7 @@
 #lab[data-view="3d"] .office3d-room-label strong{font:600 14px/1.6 var(--sans);color:#525746;letter-spacing:.2px}
 #lab[data-view="3d"] .office3d-room-label small{display:none}
 #lab[data-view="3d"] .office3d-room-label{border:0;background:transparent;padding:0;cursor:pointer;pointer-events:auto}
+#lab[data-view="3d"] .office3d-room-label.office3d-bulletin-label{padding:3px 9px;background:var(--office-ui-paper);border:1px solid var(--office-ui-line);border-radius:6px}
 #lab[data-view="3d"] .office3d-person-hit{width:28px;height:46px}
 #lab[data-view="3d"] .office3d-node-hit{width:24px;height:24px}
 #lab[data-view="3d"] .office3d-device-label{display:none;left:50%;top:27px;bottom:auto;transform:translateX(-50%);font:10px/1.7 var(--sans);color:#606c54;background:#f4f5e9;padding:2px 6px;border:0;border-radius:2px}
@@ -42,3 +43,8 @@
 #lab[data-view="3d"] .office3d-person-hit[data-greeting="true"] .office3d-person-label{display:none}
 @keyframes office3d-greeting-in{from{opacity:0;translate:0 3px}to{opacity:1;translate:0 0}}
 @media(prefers-reduced-motion:reduce){#lab[data-view="3d"] .office3d-greeting:not([hidden]){animation:none}}
+
+#lab[data-view="3d"] .office3d-post-tooltip{position:absolute;z-index:12;pointer-events:none;max-width:260px;padding:8px 12px;border:1px solid var(--office-ui-line);border-radius:10px;background:var(--office-ui-paper);color:var(--office-ui-ink);font:var(--office-ui-text-control)/1.55 var(--office-ui-font-sans);translate:-50% -100%;white-space:nowrap}
+#lab[data-view="3d"] .office3d-post-tooltip strong{display:block;font-size:var(--office-ui-text-control);font-weight:600}
+#lab[data-view="3d"] .office3d-post-tooltip small{display:block;font-size:var(--office-ui-text-meta);color:var(--office-ui-muted)}
+#lab[data-view="3d"] .office3d-role-label{position:absolute;pointer-events:auto;cursor:pointer;padding:3px 8px;border:1px solid var(--office-ui-line);border-radius:6px;background:var(--office-ui-paper);color:var(--office-ui-ink);font:var(--office-ui-text-meta)/1.4 var(--office-ui-font-sans);white-space:nowrap}

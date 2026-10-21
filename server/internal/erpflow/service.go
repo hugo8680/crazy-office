@@ -631,11 +631,23 @@ func (s *Service) Detail(ctx context.Context, a *identity.Actor, id string) (M, 
 	}
 	return M{"document": d, "run": public(r)}, nil
 }
+
+// Presence records office locations only. Department areas do not grant roles or
+// create employees; the legacy areas remain valid for existing saved clients.
+var presenceAreas = map[string]struct{}{
+	"business": {}, "hr_admin": {}, "finance": {}, "legal": {},
+	"channels": {}, "research": {}, "operations": {}, "general_office": {},
+	"ai_data": {}, "investment": {}, "maintenance": {}, "public_affairs": {},
+	"bulletin":     {},
+	"workstations": {}, "executive": {}, "storage": {},
+	"reception": {}, "meeting": {}, "server": {},
+}
+
 func (s *Service) Touch(a *identity.Actor, node string) ([]M, error) {
 	if node == "" {
 		node = "workstations"
 	}
-	if !has([]string{"workstations", "executive", "storage", "reception", "meeting", "finance", "general_office", "investment", "server"}, node) {
+	if _, allowed := presenceAreas[node]; !allowed {
 		return nil, failure(400, "请选择办公室内的工作区域。")
 	}
 	s.mu.Lock()

@@ -3,47 +3,17 @@ import { HUMAN_EMPLOYEES } from './people.js';
 import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming, createViewTween } from './scene-motion.js';
 import {createOfficePresenceMotion} from './erp-presence.js';
 import {greetingForPerson} from './person-greeting.mjs';
-const NODE_META = {
-  investment: { x:75, y:52, label:'投资资料台', w:70, ly:29 },
-  general_office: { x:650, y:52, label:'总经办协作台', w:82, ly:-12 },
-  internet: { x: 914, y: 65, label: '互联网', w: 59, ly: 26 },
-  firewall: { x: 553, y: 213, label: '安全网关', w: 70, ly: 29 },
-  core: { x: 645, y: 314, label: '核心交换机', w: 82, ly: 24 },
-  server: { x: 719, y: 232, label: '应用服务器', w: 82, ly: 35 },
-  storage: { x: 745, y: 351, label: 'NAS 存储', w: 76, ly: 22 },
-  ups: { x: 544, y: 350, label: 'UPS 电源', w: 74, ly: 22 },
-  access: { x: 459, y: 407, label: '接入交换机', w: 82, ly: 22 },
-  workstations: { x: 268, y: 334, label: '员工终端', w: 70, ly: -37 },
-  meeting: { x: 208, y: 516, label: '会议系统', w: 70, ly: 27 },
-  executive: { x: 913, y: 250, label: '管理工作台', w: 70, ly: -37 },
-  reception: { x: 529, y: 521, label: '访客网络', w: 70, ly: 27 },
-  finance: { x: 845, y: 516, label: '财务终端', w: 70, ly: -36 },
-};
-
-const AGENT_META = {
-  hr: { name:'小禾', role:'入职登记专员', x:464, y:235, color:'#c79a82', hair:'#51453d' },
-  invest_research: { name:'沈研', role:'投资研究员', x:122, y:87, color:'#728eb4', hair:'#514333' },
-  invest_finance: { name:'顾衡', role:'财务尽调师', x:234, y:87, color:'#b7a16a', hair:'#474b45' },
-  invest_risk: { name:'何审', role:'独立风险审查', x:346, y:87, color:'#9c85a8', hair:'#493d50' },
-  zhang: { name:'小张', role:'网络工程师', x:464, y:350, color:'#7299ba', hair:'#514333' },
-  liu: { name:'小刘', role:'安全工程师', x:650, y:286, color:'#a692bb', hair:'#493d50' },
-  lead: { name:'陈工', role:'技术组长', x:650, y:373, color:'#6fa79c', hair:'#474b45' },
-  business: { name:'林悦', role:'业务组长', x:477, y:575, color:'#ce9676', hair:'#6b483d' },
-  finance: { name:'许姐', role:'财务', x:910, y:579, color:'#bdac73', hair:'#5e443d' },
-  boss: { name:'周助理', role:'管理审校', x:584, y:87, color:'#9f8298', hair:'#4d4440' },
-  ops: { name:'阿杰', role:'机房运维', x:590, y:335, color:'#8eaa76', hair:'#484b3d' },
-};
-// Sprite positions are feet on the floor, not centres inside devices.
-const WORK_POSITIONS = {
-  investment:[[122,87],[234,87],[346,87]],
-  general_office:[[670,87]],
-  internet:[[787,286],[757,390]], firewall:[[590,260],[590,286]],
-  core:[[650,345],[590,373]], server:[[700,286],[768,286]],
-  storage:[[787,373],[787,390]], ups:[[579,373],[590,345]],
-  access:[[421,411],[492,411]], workstations:[[313,300],[387,300],[464,300]],
-  meeting:[[322,479],[207,479]], executive:[[951,315],[861,315]],
-  reception:[[600,575],[477,575]], finance:[[909,579],[760,579]],
-};
+import {mountOfficeAmbient} from './office-ambient.mjs';
+import {employeeAppearance} from './employee-appearance.mjs';
+import { OFFICE_WORLD, OFFICE_ROOMS, OFFICE_NODE_ANCHORS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_DETAIL_ZOOM, officeSeatsForView } from './organization.mjs';
+import {renderOrganizationFloor, renderOrganizationPositionContents, ORGANIZATION_POSITION_META} from './scene-floor2d.mjs';
+const WORLD_CX=OFFICE_WORLD.width/2,WORLD_CY=OFFICE_WORLD.height/2;
+const INITIAL_VIEW_BOX=`0 0 ${OFFICE_WORLD.width} ${OFFICE_WORLD.height}`;
+const NODE_META=Object.freeze(Object.fromEntries(Object.entries(OFFICE_NODE_ANCHORS).map(([id,node])=>[id,{...node,w:Math.max(70,node.label.length*8+24),ly:24}])));
+const AGENT_META=Object.freeze(Object.fromEntries(Object.entries(OFFICE_AGENT_HOMES).map(([id,home])=>[id,{...home,color:employeeAppearance(true).uniform}])));
+const WORK_POSITIONS=OFFICE_WORK_POSITIONS;
+const ROOM_IDS=new Set(OFFICE_ROOMS.map(room=>room.id));
+const NETWORK_IDS=new Set(['internet','firewall','core','server','storage','ups','access']);
 
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -55,32 +25,20 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const [sx,sy,width,height] = symbolBounds[name];
     return `<use href="#${uid}-${name}" x="${sx}" y="${sy}" width="${width}" height="${height}" overflow="visible" transform="translate(${x} ${y}) scale(${scale})" ${extra}/>`;
   };
-  const person = (x, y, shirt, hair = '#3d393d', scale = 1, extra = '') => use('person', x, y, scale, `style="--shirt:${shirt};--hair:${hair}" ${extra}`);
   const seated = (x, y, shirt, hair = '#3d393d', scale = 1, lounge = false, back = false) => use('seated', x, y, scale, `class="cnl-seated" style="--shirt:${shirt};--hair:${hair};--chair-display:${lounge?'none':'block'};--typing-display:${lounge?'none':'block'};--resting-display:${lounge?'block':'none'};--front-facing:${back?'none':'block'};--back-facing:${back?'block':'none'}"`);
-  const desk = (x, y, shirt, options = {}) => { const k=options.scale || 1;return `<g class="cnl-desk">${use('desk', x, y, k, `style="--screen:${options.screen || '#a7d5db'}"`)}${seated(x + 54*k, y + 76*k, shirt, options.hair || '#3d393d', k*.84, false, true)}${options.cup ? use('cup', x + 90*k, y + 26*k, .8*k) : ''}</g>`; };
   const plant = (x, y, scale = 1) => use('plant', x, y, scale);
-  const title = (x, y, text, english, color) => `<g transform="translate(${x} ${y})"><rect x="0" y="-13" width="4" height="24" rx="2" fill="${color}"/><text x="13" y="-1" class="cnl-room-title">${esc(text)}</text><text x="13" y="12" class="cnl-room-en">${esc(english)}</text></g>`;
-  const paths = [
-    ['access', 'investment', 'M459 407H34V102H75V52'],
-    ['internet', 'firewall', 'M914 78V120H553V213'],
-    ['access', 'general_office', 'M459 407H34V107H550V88H650V52'],
-    ['firewall', 'core', 'M553 213V274H645V314'],
-    ['core', 'server', 'M645 314H675V232H719'],
-    ['core', 'storage', 'M645 314H692V351H745'],
-    ['core', 'access', 'M645 314V407H459'],
-    ['access', 'workstations', 'M459 407H424V334H268'],
-    ['access', 'meeting', 'M459 407H359V481H208V516'],
-    ['access', 'executive', 'M459 407H913V250'],
-    ['access', 'reception', 'M459 407H529V521'],
-    ['access', 'finance', 'M459 407H845V516'],
-  ];
-  const linkMarkup = paths.map(([a,b,d],i) => `<g class="cnl-link" data-a="${a}" data-b="${b}"><path class="cnl-cable-under" d="${d}"/><path class="cnl-cable" d="${d}"/><path class="cnl-packet" d="${d}" style="animation-delay:-${i * .61}s"/></g>`).join('');
-  const hotspots = Object.entries(NODE_META).map(([id, n]) => `<g class="cnl-node" data-node="${id}" data-status="online" tabindex="0" role="button" aria-label="查看${n.label}" transform="translate(${n.x} ${n.y})"><circle class="cnl-fault-halo" r="25"/><circle class="cnl-hit-ring" r="23"/><circle class="cnl-hit-area" r="25"/><g class="cnl-node-label" transform="translate(${-n.w / 2} ${n.ly})"><rect width="${n.w}" height="19" rx="7"/><circle class="cnl-status-dot" cx="9" cy="9.5" r="3"/><text x="17" y="12.6">${n.label}</text></g><g class="cnl-alert-mark" transform="translate(16 -23)"><circle r="8"/><text y="3.5" text-anchor="middle">!</text></g></g>`).join('');
+  const paths = [...NETWORK_IDS].filter(id=>id!=='core').map(id=>{
+    const a=NODE_META.core,b=NODE_META[id];return ['core',id,`M${a.x} ${a.y}H${b.x}V${b.y}`];
+  });
+  const linkMarkup=paths.map(([a,b,d])=>`<g class="cnl-link" data-a="${a}" data-b="${b}"><path class="cnl-cable-under" d="${d}"/><path class="cnl-cable" d="${d}"/></g>`).join('');
+  const hotspots=Object.entries(NODE_META).filter(([id])=>!ROOM_IDS.has(id)&&id!=='bulletin').map(([id,n])=>`<g class="cnl-node" data-node="${id}" data-status="online" tabindex="${NETWORK_IDS.has(id)?0:-1}" role="button" aria-label="查看${esc(n.label)}" transform="translate(${n.x} ${n.y})"${NETWORK_IDS.has(id)?'':' style="display:none" aria-hidden="true"'}><circle class="cnl-fault-halo" r="25"/><circle class="cnl-hit-ring" r="23"/><circle class="cnl-hit-area" r="25"/><g class="cnl-node-label" transform="translate(${-n.w/2} ${n.ly})"><rect width="${n.w}" height="19" rx="7"/><circle class="cnl-status-dot" cx="9" cy="9.5" r="3"/><text x="17" y="12.6">${esc(n.label)}</text></g><g class="cnl-alert-mark" transform="translate(16 -23)"><circle r="8"/><text y="3.5" text-anchor="middle">!</text></g></g>`).join('');
 
-  container.innerHTML = `<svg class="cnl-office-scene" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 650" role="group" aria-label="办公室" preserveAspectRatio="xMidYMid meet">
+  container.innerHTML = `<svg class="cnl-office-scene" xmlns="http://www.w3.org/2000/svg" viewBox="${INITIAL_VIEW_BOX}" role="group" aria-label="办公室" tabindex="0" aria-keyshortcuts="Home" preserveAspectRatio="xMidYMid meet">
   <defs>
     <pattern id="${uid}-grid" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="#48564e" stroke-opacity=".035" stroke-width="1"/></pattern>
+    <pattern id="${uid}-wood" width="18" height="52" patternUnits="userSpaceOnUse"><rect width="18" height="52" fill="#e6d8b9"/><path d="M18 0V52M0 26H18" fill="none" stroke="#cfbf9f" stroke-width=".65"/></pattern>
     <pattern id="${uid}-floor" width="68" height="28" patternUnits="userSpaceOnUse"><path d="M0 28H68M34 0V28M0 0V14M68 14V28" stroke="#a79b81" stroke-opacity=".12" fill="none" stroke-width=".7"/></pattern>
+    <linearGradient id="${uid}-roomlight" x2="1" y2="1"><stop stop-color="#ffffff" stop-opacity=".32"/><stop offset=".7" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
     <linearGradient id="${uid}-floorlight" x2="0" y2="1"><stop stop-color="#fffef9"/><stop offset="1" stop-color="#eceee2"/></linearGradient>
     <linearGradient id="${uid}-glass" x2="0" y2="1"><stop stop-color="#cceae8"/><stop offset="1" stop-color="#e8f5ec"/></linearGradient>
     <linearGradient id="${uid}-screen" x2="1" y2="1"><stop stop-color="#306e70"/><stop offset="1" stop-color="#183c48"/></linearGradient>
@@ -103,21 +61,21 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       <g class="cnl-person-leg-right"><path d="M5-17L12-12L12-3" fill="none" stroke="#475b69" stroke-width="7" stroke-linecap="round"/><path d="M9-1H16" stroke="#2d414b" stroke-width="5" stroke-linecap="round"/><path d="M9 1H16" stroke="#a7babd" stroke-width="1" stroke-linecap="round"/></g>
       <g class="cnl-person-torso"><path d="M-10-36Q0-40 10-36L12-19Q1-12-12-19Z" fill="var(--shirt,#73aaa4)" stroke="#476164" stroke-width=".8"/><path d="M-3-36L0-29L3-36" fill="#f7f4e9" opacity=".85"/><path d="M0-28V-18" stroke="#fff" opacity=".25" stroke-width="1"/></g>
       <g class="cnl-person-arm-left" style="transform-origin:-10px -34px;display:var(--typing-display,block)"><path d="M-10-34L-13-36L-11-43" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M-11-43L-6-44" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
-      <g class="cnl-person-arm-right" style="transform-origin:10px -34px;display:var(--typing-display,block)"><path d="M10-34L13-36L11-43" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M11-43L6-44" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
+      <g class="cnl-person-arm-right" style="transform-origin:10px -34px;display:var(--position-arm,var(--typing-display,block))"><path d="M10-34L13-36L11-43" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M11-43L6-44" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
       <g class="cnl-seated-resting-arms" style="display:var(--resting-display,none)"><path d="M-10-34L-14-23L-6-20M10-34L14-23L6-20" fill="none" stroke="var(--shirt,#73aaa4)" stroke-width="6" stroke-linecap="round"/><path d="M-6-20H-2M6-20H2" stroke="#efc7a8" stroke-width="4.5" stroke-linecap="round"/></g>
-      <g class="cnl-person-head" style="display:var(--front-facing,block)"><rect x="-3" y="-40" width="6" height="6" rx="2" fill="#e5b38d"/><ellipse cy="-48" rx="10" ry="10.6" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><path d="M-10-47Q-13-59 0-59Q13-59 10-46L7-52Q1-49-4-54L-8-50Z" fill="var(--hair,#3d393d)"/><circle cx="-3.8" cy="-48" r=".9" fill="#3f4548"/><circle cx="3.8" cy="-48" r=".9" fill="#3f4548"/><path d="M-2.5-43Q0-42 2.5-43" fill="none" stroke="#a86f60" stroke-width=".9" stroke-linecap="round"/><ellipse cx="-7" cy="-44" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-44" rx="2" ry="1" fill="#e9a994" opacity=".6"/></g>
+      <g class="cnl-person-head" style="display:var(--front-facing,block)"><rect x="-3" y="-40" width="6" height="6" rx="2" fill="#e5b38d"/><ellipse cy="-48" rx="10" ry="10.6" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><path d="M-10-47Q-13-59 0-59Q13-59 10-46L7-52Q1-49-4-54L-8-50Z" fill="var(--hair,#3d393d)"/><g style="display:var(--position-neutral,block)"><circle cx="-3.8" cy="-48" r=".9" fill="#3f4548"/><circle cx="3.8" cy="-48" r=".9" fill="#3f4548"/><path d="M-2.5-43Q0-42 2.5-43" fill="none" stroke="#a86f60" stroke-width=".9" stroke-linecap="round"/></g><g style="display:var(--position-happy,none)" fill="none" stroke-linecap="round"><path d="M-6-48Q-4-51-2-48M2-48Q4-51 6-48" stroke="#4f4841" stroke-width="1.25"/><path d="M-3.5-43Q0-38 3.5-43Z" fill="#b76f5b" stroke="#a86f60" stroke-width=".7"/><path d="M-2-42.7H2" stroke="#fff6e9" stroke-width="1"/></g><ellipse cx="-7" cy="-44" rx="2" ry="1" fill="#e9a994" opacity=".6"/><ellipse cx="7" cy="-44" rx="2" ry="1" fill="#e9a994" opacity=".6"/></g>
       <g class="cnl-person-head cnl-person-head-back" style="display:var(--back-facing,none)"><rect x="-3" y="-40" width="6" height="6" rx="2" fill="#e5b38d"/><ellipse cy="-48" rx="10" ry="10.6" fill="#f2ccad" stroke="#927b67" stroke-width=".7"/><ellipse cx="-9.5" cy="-46" rx="2" ry="2.7" fill="#e8bd9c"/><ellipse cx="9.5" cy="-46" rx="2" ry="2.7" fill="#e8bd9c"/><path d="M-9-45Q-13-59 0-59Q13-59 9-45L6-39Q0-36-6-39Z" fill="var(--hair,#3d393d)"/><path d="M-6-54Q0-58 6-53M-5-42Q0-40 5-42" fill="none" stroke="#b3a394" opacity=".28" stroke-width="1" stroke-linecap="round"/></g>
     </symbol>
     <symbol id="${uid}-desk" viewBox="-3 -3 114 65"><ellipse cx="52" cy="54" rx="53" ry="9" fill="#4d5b59" opacity=".07"/><path d="M5 40V54M98 40V54" stroke="#7d8b83" stroke-width="5"/><path d="M0 5L7 0H104L108 6V44Q108 49 102 49H6Q0 49 0 43Z" fill="#bcbea7" stroke="#53655b" stroke-width="1.2"/><rect x="0" y="0" width="108" height="43" rx="6" fill="#f9f3dc" stroke="#53655b" stroke-width="1.2"/><rect x="28" y="3" width="48" height="28" rx="3" fill="#3f555d" stroke="#36494e" stroke-width="1.1"/><rect x="31" y="6" width="42" height="21" rx="1" fill="var(--screen,#a7d5db)"/><path class="cnl-screen-sheen" d="M44 6H57L45 27H32Z" fill="#fff" opacity=".12"/><path d="M35 11H53M35 15H47M35 19H57" stroke="#fff" opacity=".66" stroke-width="1.5"/><path d="M62 10L69 17L62 24" fill="none" stroke="#fff" opacity=".45" stroke-width="2"/><path d="M52 31V34M44 35H60" stroke="#576566" stroke-width="2.5" stroke-linecap="round"/><rect x="34" y="36" width="36" height="5" rx="1.5" fill="#c6cfc4" stroke="#677b71" stroke-width=".7"/><path d="M39 38.5H64" stroke="#84958b" stroke-width=".7" stroke-dasharray="2 1"/><ellipse cx="78" cy="38" rx="3" ry="4" fill="#dce2d4" stroke="#7f8b80" stroke-width=".7"/><rect x="10" y="24" width="13" height="14" rx="1" fill="#f1d6ab" transform="rotate(-8 10 24)"/><path d="M12 29H20M12 32H19" stroke="#bdad8b" stroke-width=".8"/></symbol>
     <symbol id="${uid}-server" viewBox="-3 -5 58 110"><ellipse cx="26" cy="99" rx="28" ry="6" fill="#344b46" opacity=".1"/><path d="M0 3L8-2H50L45 5Z" fill="#829497" stroke="#354b51" stroke-width="1.2"/><path d="M45 5L50-2V87L45 95Z" fill="#344d55" stroke="#354b51" stroke-width="1.2"/><rect x="0" y="4" width="45" height="92" rx="3" fill="#496169" stroke="#354b51" stroke-width="1.3"/><rect x="4" y="9" width="37" height="80" rx="2" fill="#263e48"/><g fill="#3f555e" stroke="#1d3540" stroke-width=".6"><rect x="7" y="13" width="31" height="13" rx="1.5"/><rect x="7" y="30" width="31" height="13" rx="1.5"/><rect x="7" y="47" width="31" height="13" rx="1.5"/><rect x="7" y="64" width="31" height="13" rx="1.5"/></g><g stroke="#89aaa9" stroke-width="1.1"><path d="M11 18H26M11 21H26M11 35H26M11 38H26M11 52H26M11 55H26M11 69H26M11 72H26"/></g><g class="cnl-server-led" fill="#b6e79c"><circle cx="33" cy="19" r="1.6"/><circle cx="33" cy="36" r="1.6"/><circle cx="33" cy="53" r="1.6"/><circle cx="33" cy="70" r="1.6"/></g><rect x="9" y="82" width="27" height="3" rx="1.5" fill="#738e90"/><path d="M8 96V101M37 96V101" stroke="#465b5d" stroke-width="4" stroke-linecap="round"/></symbol>
     <symbol id="${uid}-switch" viewBox="-40 -14 80 35"><path d="M-35-7L-28-13H35L39-7V11L33 16H-35Z" fill="#91b1a9" stroke="#3f5c5b" stroke-width="1.2"/><rect x="-35" y="-7" width="70" height="20" rx="3" fill="#e0e9d9" stroke="#3f5c5b" stroke-width="1.2"/><g fill="#526c67"><rect x="-27" y="-1" width="6" height="5" rx=".7"/><rect x="-17" y="-1" width="6" height="5" rx=".7"/><rect x="-7" y="-1" width="6" height="5" rx=".7"/><rect x="3" y="-1" width="6" height="5" rx=".7"/><rect x="13" y="-1" width="6" height="5" rx=".7"/></g><circle cx="27" cy="1" r="2.2" fill="#81b774"/><path d="M-26 7H17" stroke="#96a991" stroke-width="1" stroke-dasharray="2 3"/></symbol>
     <symbol id="${uid}-cup" viewBox="-6 -8 16 19"><ellipse cy="8" rx="7" ry="2" fill="#717f72" opacity=".12"/><path d="M5-2Q13-3 10 4Q8 7 4 4" fill="none" stroke="#687f73" stroke-width="1.5"/><path d="M-5-4H6L5 7Q0 10-4 7Z" fill="#fff8e9" stroke="#687f73" stroke-width="1"/><ellipse cx=".5" cy="-4" rx="5.5" ry="2" fill="#9c7e60" stroke="#687f73" stroke-width="1"/><path d="M0-8Q3-11 1-14" fill="none" stroke="#87968b" stroke-width=".7" opacity=".6"/></symbol>
-    <symbol id="${uid}-sofa" viewBox="-4 -4 99 50"><ellipse cx="45" cy="41" rx="47" ry="6" fill="#54695e" opacity=".1"/><rect x="3" y="0" width="84" height="34" rx="9" fill="#8aa9a6" stroke="#516f69" stroke-width="1.2"/><rect x="7" y="5" width="76" height="24" rx="6" fill="#b2c8b6" stroke="#6d9387" stroke-width="1"/><rect x="10" y="17" width="33" height="16" rx="4" fill="#ccdac2" stroke="#769687" stroke-width="1"/><rect x="46" y="17" width="33" height="16" rx="4" fill="#ccdac2" stroke="#769687" stroke-width="1"/><rect x="0" y="15" width="11" height="23" rx="4" fill="#a0bba9" stroke="#516f69" stroke-width="1.1"/><rect x="79" y="15" width="11" height="23" rx="4" fill="#a0bba9" stroke="#516f69" stroke-width="1.1"/><path d="M9 38V43M79 38V43" stroke="#6f7d6b" stroke-width="3"/></symbol>
+    <symbol id="${uid}-sofa" viewBox="-4 -4 99 50"><ellipse cx="45" cy="41" rx="47" ry="6" fill="#54695e" opacity=".1"/><rect x="3" y="0" width="84" height="34" rx="9" fill="#79a894" stroke="#516f69" stroke-width="1.2"/><rect x="7" y="5" width="76" height="24" rx="6" fill="#b5d2b0" stroke="#6d9387" stroke-width="1"/><rect x="10" y="17" width="33" height="16" rx="4" fill="#d4e2bc" stroke="#769687" stroke-width="1"/><rect x="46" y="17" width="33" height="16" rx="4" fill="#d4e2bc" stroke="#769687" stroke-width="1"/><rect x="0" y="15" width="11" height="23" rx="4" fill="#94bba4" stroke="#516f69" stroke-width="1.1"/><rect x="79" y="15" width="11" height="23" rx="4" fill="#94bba4" stroke="#516f69" stroke-width="1.1"/><path d="M9 38V43M79 38V43" stroke="#6f7d6b" stroke-width="3"/></symbol>
     <symbol id="${uid}-chair" viewBox="-14 -12 28 35"><rect x="-11" y="-8" width="22" height="24" rx="7" fill="#b6b3cc" stroke="#7a7f96" stroke-width="1.1"/><rect x="-8" y="1" width="16" height="11" rx="4" fill="#d3cee1"/><path d="M-8 16V20M8 16V20" stroke="#7a7f96" stroke-width="2.2"/></symbol>
   </defs>
   <style>
-    .cnl-office-scene{width:100%;height:100%;display:block;overflow:visible;font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;user-select:none;touch-action:none;cursor:grab}.cnl-office-scene.is-panning{cursor:grabbing}
-    .cnl-office-scene text{pointer-events:none}.cnl-room-title{font-size:14px;font-weight:750;fill:#34473f;letter-spacing:.5px}.cnl-room-en{font-size:7.5px;font-weight:600;fill:#8a9486;letter-spacing:1.1px}.cnl-small{font-size:8px;fill:#7c8b80;letter-spacing:.6px}.cnl-tiny{font-size:6px;fill:#60776f}
+    .cnl-office-scene{width:100%;height:100%;display:block;overflow:visible;font-family:var(--office-ui-font-sans,"PingFang SC","Microsoft YaHei",sans-serif);user-select:none;touch-action:none;cursor:grab}.cnl-office-scene.is-panning{cursor:grabbing}
+    .cnl-office-scene text{pointer-events:none;font-family:var(--office-ui-font-sans,"PingFang SC","Microsoft YaHei",sans-serif)}.cnl-room-title{font-size:14px;font-weight:750;fill:#34473f;letter-spacing:.5px}.cnl-room-en{font-size:7.5px;font-weight:600;fill:#8a9486;letter-spacing:1.1px}.cnl-small{font-size:8px;fill:#7c8b80;letter-spacing:.6px}.cnl-tiny{font-size:6px;fill:#60776f}
     .cnl-cable-under{fill:none;stroke:#fcfcf4;stroke-width:7;stroke-linecap:round;stroke-linejoin:round;opacity:.86}.cnl-cable{fill:none;stroke:#77b9b6;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.7}.cnl-packet{fill:none;stroke:#e5fff4;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:4 130;animation:cnl-datastream 6s linear infinite}.cnl-power-wire{fill:none;stroke:#d0b164;stroke-width:1.7;stroke-dasharray:4 4;stroke-linecap:round;opacity:.75}
     .cnl-links{transition:opacity .25s}.cnl-topology-off .cnl-links{opacity:0}.cnl-link.is-offline .cnl-cable{stroke:#e78b80;stroke-dasharray:4 5;opacity:.85}.cnl-link.is-offline .cnl-packet{display:none}.cnl-link.is-warning .cnl-cable{stroke:#d6ad57}.cnl-link.is-recovering .cnl-cable{stroke:#67a58b}.cnl-link.is-recovering .cnl-packet{stroke:#c7ec9c;animation-duration:2.7s}
     .cnl-node{cursor:pointer;outline:none;--status:#71a78a}.cnl-hit-area{fill:transparent;stroke:none}.cnl-hit-ring{fill:transparent;stroke:#83bca3;stroke-width:1.8;opacity:0;transition:opacity .2s}.cnl-node:hover .cnl-hit-ring,.cnl-node:focus-visible .cnl-hit-ring,.cnl-node.is-selected .cnl-hit-ring{opacity:1}.cnl-node.is-selected .cnl-hit-ring{stroke:#3c7966;stroke-width:2.2;stroke-dasharray:3 3;animation:cnl-rotate 16s linear infinite}.cnl-node-label rect{fill:#fffef7;stroke:#abbba7;stroke-width:.65;opacity:.96}.cnl-node-label text{font-size:8.2px;fill:#52685d;font-weight:650}.cnl-status-dot{fill:var(--status);stroke:white;stroke-width:.8}.cnl-fault-halo{fill:var(--status);opacity:0;stroke:var(--status);stroke-width:1}.cnl-alert-mark{display:none}.cnl-alert-mark circle{fill:#e68c78;stroke:#fffaf0;stroke-width:1.5}.cnl-alert-mark text{fill:white;font-size:10px;font-weight:800}.cnl-node[data-status="warning"]{--status:#d4a450}.cnl-node[data-status="offline"]{--status:#df8076}.cnl-node[data-status="recovering"]{--status:#68a994}.cnl-node[data-status="offline"] .cnl-fault-halo,.cnl-node[data-status="warning"] .cnl-fault-halo{animation:cnl-faultpulse 1.8s ease-in-out infinite}.cnl-node[data-status="offline"] .cnl-alert-mark,.cnl-node[data-status="warning"] .cnl-alert-mark{display:block}.cnl-node[data-status="offline"] .cnl-node-label rect{stroke:#d68b7b;fill:#fff3e9}.cnl-node[data-status="recovering"] .cnl-hit-ring{opacity:.8;stroke:#66a38e;stroke-dasharray:3 3;animation:cnl-rotate 6s linear infinite}.cnl-device[data-status="offline"]{filter:saturate(.35)}.cnl-device[data-status="offline"] .cnl-server-led{fill:#dd8576}.cnl-device[data-status="warning"] .cnl-server-led{fill:#dfb461}.cnl-device[data-status="recovering"] .cnl-server-led{animation:cnl-ledblink .6s alternate infinite}
@@ -132,138 +90,30 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-office-scene .cnl-room-title{fill:#294c47;font-weight:800;letter-spacing:.3px}.cnl-office-scene .cnl-room-en{font-size:6.8px;fill:#81968c;letter-spacing:1.05px}.cnl-office-scene .cnl-node-label rect{fill:#fffef9;stroke:#abc1b3;stroke-width:.75}.cnl-office-scene .cnl-node-label text{fill:#3f6459;font-size:7.6px;letter-spacing:.15px}.cnl-office-scene .cnl-cable-under{stroke:#fffef9;stroke-width:6;opacity:.95}.cnl-office-scene .cnl-cable{stroke:#68b7aa;stroke-width:1.7;opacity:.65}.cnl-office-scene .cnl-packet{stroke:#e7fff7;stroke-width:2.3;stroke-dasharray:7 138;filter:drop-shadow(0 0 2px #63c9b1)}
     .cnl-agent .cnl-ai-aura{fill:#71d8c0;stroke:#399f8b;stroke-width:.75;opacity:.10}.cnl-agent .cnl-agent-ground{fill:#def9ed;stroke:#55ac94;stroke-width:1;opacity:.9}.cnl-agent-ground-grid{fill:none;stroke:#8bcab4;stroke-width:.5;opacity:.7}.cnl-agent .cnl-agent-card{fill:#f5fff9;stroke:#7abca5;stroke-width:.8;stroke-dasharray:none}.cnl-agent .cnl-agent-card-stripe{stroke:#2d9f83;stroke-width:2;stroke-linecap:round}.cnl-agent .cnl-agent-name{fill:#244f46;font-size:7px;font-weight:800}.cnl-agent .cnl-agent-type{fill:#2c917a;font-size:4.8px;letter-spacing:.25px}.cnl-agent .cnl-agent-state{fill:#587d6d;font-size:5.7px}.cnl-agent .cnl-config-dot{stroke:#6ba78d;fill:#effcf4;stroke-width:.7}.cnl-agent.is-configured .cnl-config-dot{fill:#329a7d;stroke:#329a7d}.cnl-agent-headset{fill:none;stroke:#368c81;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}.cnl-agent-headset rect{fill:#d9fbef;stroke:#367e74;stroke-width:.7}.cnl-agent-headset circle{fill:#48b399;stroke:none}.cnl-ai-badge rect{fill:#d5fff1;stroke:#329f84;stroke-width:.6}.cnl-ai-badge path{fill:none;stroke:#2e8c76;stroke-width:.65;stroke-linecap:round}.cnl-ai-badge circle{fill:#2e8c76}.cnl-agent .cnl-pose-seated{display:none}.cnl-agent.is-seated:not(.is-walking):not(.is-delivering) .cnl-pose-standing{display:none}.cnl-agent.is-seated:not(.is-walking):not(.is-delivering) .cnl-pose-seated{display:block}.cnl-agent.is-working .cnl-ai-aura{fill:#9cf0d1;opacity:.24;stroke:#2a9f80}.cnl-agent.is-working .cnl-agent-card{stroke:#3b9e82}.cnl-agent.is-unassigned{opacity:.64}
     .cnl-human .cnl-human-halo-static{fill:#edbd74;stroke:#ba955a;stroke-width:.6;opacity:.12}.cnl-human-ground{fill:#fff4db;stroke:#c8a264;stroke-width:.9}.cnl-human-identity>circle:first-child{fill:#fff5df;stroke:#b98b4c;stroke-width:.8}.cnl-human-identity>circle:nth-child(2){fill:#ab7b3e}.cnl-human-identity path{fill:none;stroke:#ab7b3e;stroke-width:1;stroke-linecap:round}.cnl-human .cnl-human-card{fill:#fff9ec;stroke:#c5a66f;stroke-width:.8}.cnl-human-card-stripe{fill:none;stroke:#bb8b47;stroke-width:2;stroke-linecap:round}.cnl-human .cnl-human-name{fill:#6f542c;font-size:7px}.cnl-human .cnl-human-type{fill:#a1783b;font-size:4.8px}.cnl-human .cnl-human-state{fill:#92764d;font-size:5.5px}.cnl-carry-document{filter:drop-shadow(1px 2px 1px #245a4940)}.cnl-agent .cnl-carry-document{fill:#f4fff9;stroke:#3d9c80}
+    .cnl-ambient-props{pointer-events:none}.cnl-ambient-cup,.cnl-ambient-tablet{opacity:0}.cnl-agent[data-ambient="sip"] .cnl-ambient-cup,.cnl-human[data-ambient="sip"] .cnl-ambient-cup,.cnl-presence[data-ambient="sip"] .cnl-ambient-cup,.cnl-agent[data-ambient="typing"] .cnl-ambient-tablet{animation:cnl-ambient-prop 2.4s ease-in-out both}
+    :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="sip"] .cnl-person-arm-right{animation:cnl-ambient-sip 2.4s ease-in-out both;transform-origin:10px 6px}
+    :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="look"] .cnl-person-head{animation:cnl-ambient-look 2.4s ease-in-out both;transform-origin:0 -9px}
+    :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="nod"] .cnl-person-head{animation:cnl-ambient-nod 2.4s ease-in-out both;transform-origin:0 -9px}
+    :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="wave"] .cnl-person-arm-right{animation:cnl-ambient-wave 2.4s ease-in-out both;transform-origin:10px 6px}
+    :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="wave"] .cnl-person-face-neutral{display:none}:is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="wave"] .cnl-person-face-happy{display:block}
+    .cnl-agent[data-ambient="typing"] .cnl-person-arm-left{animation:cnl-ambient-type-left 2.4s ease-in-out both;transform-origin:-10px 6px}.cnl-agent[data-ambient="typing"] .cnl-person-arm-right{animation:cnl-ambient-type-right 2.4s ease-in-out both;transform-origin:10px 6px}
+    @keyframes cnl-ambient-prop{0%,100%{opacity:0}20%,80%{opacity:1}}@keyframes cnl-ambient-sip{0%,100%{transform:rotate(0deg)}24%,72%{transform:rotate(-105deg)}42%,58%{transform:rotate(-112deg)}}@keyframes cnl-ambient-look{0%,100%{transform:rotate(0deg)}25%,68%{transform:rotate(calc(var(--ambient-direction,1)*8deg)) translateX(1.4px)}}@keyframes cnl-ambient-nod{0%,100%{transform:rotate(0deg) translateY(0)}25%,57%{transform:rotate(7deg) translateY(1px)}40%,75%{transform:rotate(-3deg) translateY(0)}}@keyframes cnl-ambient-wave{0%,100%{transform:rotate(0deg)}20%,62%{transform:rotate(-130deg)}34%,48%{transform:rotate(-106deg)}41%,55%{transform:rotate(-144deg)}}@keyframes cnl-ambient-type-left{0%,100%{transform:rotate(0deg)}20%,80%{transform:rotate(-47deg)}35%,62%{transform:rotate(-57deg)}}@keyframes cnl-ambient-type-right{0%,100%{transform:rotate(0deg)}20%,80%{transform:rotate(47deg)}46%,72%{transform:rotate(57deg)}}
     @media(prefers-reduced-motion:reduce){.cnl-office-scene *{animation:none!important;transition:none!important}}
     .cnl-presence{cursor:pointer;outline:none}.cnl-presence-name{font-size:7px;fill:#4a5149;font-weight:650;paint-order:stroke;stroke:#faf8ef;stroke-width:2.6;stroke-linejoin:round}.cnl-presence[data-current="true"] .cnl-presence-name{fill:#8b4835;font-weight:800}.cnl-presence:hover .cnl-presence-name,.cnl-presence:focus-visible .cnl-presence-name{text-decoration:underline}.cnl-presence-body{transform-origin:0 -12px}
     .cnl-person-face-happy{display:none}.cnl-presence[data-greeting="human"] .cnl-person-face-neutral{display:none}.cnl-presence[data-greeting="human"] .cnl-person-face-happy{display:block}
-    .cnl-greeting-layer{pointer-events:none}.cnl-greeting-surface{fill:var(--dialog-paper,#fffdf6);stroke:var(--dialog-line,#d3ddcd);stroke-width:.85;stroke-linejoin:round}.cnl-greeting-bubble[data-kind="human"] .cnl-greeting-surface{stroke:#dfcdbd}.cnl-greeting-bubble text{font-size:10.5px;fill:var(--dialog-ink,#29483d);font-weight:650;letter-spacing:.1px}.cnl-greeting-detail{fill:var(--dialog-accent,#3c7160);opacity:.7}.cnl-greeting-bubble[data-kind="human"] .cnl-greeting-detail{fill:#a46f55}.cnl-greeting-layer[data-visible="true"] .cnl-greeting-bubble{animation:cnl-greeting-enter .16s ease-out both}.cnl-greeting-icon{stroke-linecap:round;stroke-linejoin:round;fill:none}
+    .cnl-greeting-layer{pointer-events:none}.cnl-greeting-surface{fill:var(--dialog-paper,#fffdf6);stroke:var(--dialog-line,#d3ddcd);stroke-width:.85;stroke-linejoin:round}.cnl-greeting-bubble[data-kind="human"] .cnl-greeting-surface{stroke:#dfcdbd}.cnl-greeting-bubble text{font-size:13px;fill:var(--dialog-ink,#29483d);font-weight:650;letter-spacing:.1px}.cnl-greeting-detail{fill:var(--dialog-accent,#3c7160);opacity:.7}.cnl-greeting-bubble[data-kind="human"] .cnl-greeting-detail{fill:#a46f55}.cnl-greeting-layer[data-visible="true"] .cnl-greeting-bubble{animation:cnl-greeting-enter .16s ease-out both}.cnl-greeting-icon{stroke-linecap:round;stroke-linejoin:round;fill:none}
+    .cnl-department-tooltip-surface{fill:var(--dialog-paper,#fffdf6);stroke:var(--dialog-line,#d3ddcd);stroke-width:1}.cnl-department-tooltip-title{font-size:14px;fill:var(--dialog-ink,#29483d);font-weight:700}.cnl-department-tooltip-total{font-size:14px;fill:var(--dialog-ink,#29483d);font-weight:650}.cnl-department-tooltip-roles{font-size:12px;fill:var(--dialog-muted,#687565);font-weight:500}
     @keyframes cnl-greeting-enter{from{opacity:0;translate:0 3px}to{opacity:1;translate:0 0}}
+    .cnl-node-layer .cnl-node-label{opacity:0}.cnl-node-layer .cnl-node:is(:hover,:focus-visible,.is-selected,[data-status="offline"],[data-status="warning"]) .cnl-node-label{opacity:1}
+    .cnl-department-title{fill:var(--dialog-ink,#29483d);font-weight:750;letter-spacing:.3px}.cnl-department-count{font-size:13px;fill:#647a6b;font-weight:550}.cnl-node:is(:hover,:focus-visible,.is-selected) .cnl-department-title{fill:#24795e}.cnl-node:is(:focus-visible,.is-selected) .cnl-department-room>rect:first-of-type{stroke:#659b7e;stroke-width:3}.cnl-team-zone{cursor:pointer;outline:none}.cnl-team-zone:is(:hover,:focus-visible)>rect{stroke:#6c9a82;stroke-width:1.8}.cnl-team-title{font-size:15px;fill:#355f4d;font-weight:700}.cnl-team-count{font-size:11px;fill:#6a8272}.cnl-position{cursor:pointer;outline:none}.cnl-position-rank text{font-size:9px;fill:#6b755e;font-weight:650}.cnl-position-caption{display:none;pointer-events:none}.cnl-position-caption rect{fill:var(--dialog-paper,#fffdf6);stroke:var(--dialog-line,#d3ddcd);stroke-width:.7}.cnl-position-caption text{font-size:10px;fill:var(--dialog-ink,#29483d);font-weight:600}.cnl-position:is(:hover,:focus-visible,[data-selected="true"]) .cnl-position-caption{display:block}.cnl-position-wave{display:none;pointer-events:none}.cnl-position[data-greeting="human"]{--position-neutral:none;--position-happy:block;--position-arm:none}.cnl-position[data-greeting="human"] .cnl-position-wave{display:block}.cnl-common-area-title{font-size:20px;fill:#6b806d;font-weight:650}.cnl-office-company{font-size:13px;fill:#566e5f;font-weight:650}.cnl-office-total{font-size:12px;fill:#6b806d;font-weight:550}
   </style>
 
   <g class="cnl-world">
-    <rect x="0" y="0" width="1060" height="650" rx="20" fill="url(#${uid}-floorlight)"/>
-    <rect x="0" y="0" width="1060" height="650" fill="url(#${uid}-grid)"/>
-    <g opacity=".55" stroke="#c9d4c2" stroke-width="1" fill="none"><path d="M24 66h16m-8-8v16M1017 68h16m-8-8v16M24 629h16m-8-8v16M1017 629h16m-8-8v16"/><circle cx="278" cy="66" r="2"/><circle cx="831" cy="52" r="2"/></g>
-
-    <!-- Visible route from the investment annex to the main building's left door. -->
-    <path d="M550 99V107H82M82 99V107H32V411H60" fill="none" stroke="#a8b9a7" stroke-width="26" stroke-linejoin="round"/><path d="M550 99V107H82M82 99V107H32V411H60" fill="none" stroke="#f8f3df" stroke-width="23" stroke-linejoin="round"/>
-    <!-- Internet remains outside the office boundary. -->
-    <g class="cnl-device" data-device="internet" transform="translate(914 62)">
-      <ellipse cy="19" rx="49" ry="6" fill="#bacac0" opacity=".2"/>
-      <path d="M-34 13C-54 10-52-13-34-16C-30-37 1-39 10-22C33-29 48-12 43 1C55 15 32 23 17 19H-31Z" fill="#fffef7" stroke="#90aca0" stroke-width="1.4"/>
-      <path d="M-14-1Q0-14 14-1M-8 5Q0-2 8 5" fill="none" stroke="#6f9e94" stroke-width="2" stroke-linecap="round"/><circle cy="10" r="2" fill="#6f9e94"/>
-    </g>
-    <text x="968" y="58" class="cnl-small">外部网络</text><text x="968" y="71" class="cnl-tiny">WAN · INTERNET</text>
-
-    <!-- A shallow dollhouse frame, tiled floors, and open doors. -->
-    <g filter="url(#${uid}-shadow)">
-      <path d="M43 124L55 108H1005L1017 124V610L1004 624H55L43 612Z" fill="#9ea99a" stroke="#566d5d" stroke-width="1.5"/>
-      <path d="M43 122H1017V608H43Z" fill="#f8f3df" stroke="#6b7f69" stroke-width="1.4"/>
-      <path d="M43 608H1017V621H43Z" fill="#c5c9af" stroke="#6b7f69" stroke-width="1.2"/>
-      <rect x="53" y="130" width="954" height="474" fill="url(#${uid}-floor)"/>
-      <rect x="57" y="137" width="427" height="249" rx="5" fill="#e8eddb"/>
-      <rect x="500" y="137" width="302" height="249" rx="5" fill="#dfebe7"/>
-      <rect x="817" y="137" width="189" height="249" rx="5" fill="#f2e4cc"/>
-      <rect x="57" y="443" width="294" height="160" rx="5" fill="#e5e3ee"/>
-      <rect x="368" y="443" width="310" height="160" rx="5" fill="#f3e3d0"/>
-      <rect x="695" y="443" width="311" height="160" rx="5" fill="#e3eada"/>
-      <rect x="57" y="137" width="427" height="249" rx="5" fill="url(#${uid}-floor)"/>
-      <rect x="817" y="137" width="189" height="249" rx="5" fill="url(#${uid}-floor)"/>
-      <rect x="368" y="443" width="310" height="160" rx="5" fill="url(#${uid}-floor)"/>
-      <g fill="#eff3e5" stroke="#82937f" stroke-width="1.1">
-        <path d="M44 115H1016V133H44Z"/>
-        <path d="M43 131H56V606H43Z"/>
-        <path d="M1005 132H1017V609H1005Z"/>
-        <path d="M484 134H497V380H484Z"/>
-        <path d="M803 134H816V380H803Z"/>
-        <path d="M56 430H168V443H56ZM246 430H351V443H246Z"/>
-        <path d="M367 430H490V443H367ZM565 430H677V443H565Z"/>
-        <path d="M695 430H809V443H695ZM880 430H1005V443H880Z"/>
-        <path d="M351 443H365V605H351ZM678 443H692V605H678Z"/>
-      </g>
-      <g class="cnl-window" fill="url(#${uid}-glass)" stroke="#9ab7ab" stroke-width=".8"><rect x="91" y="116" width="144" height="13" rx="2"/><rect x="267" y="116" width="144" height="13" rx="2"/><rect x="843" y="116" width="132" height="13" rx="2"/></g>
-      <g stroke="#9ab7ab" stroke-width=".8"><path d="M163 117V128M339 117V128M909 117V128"/></g>
-      <g stroke="#9bad95" stroke-width="1" stroke-dasharray="3 3" fill="none" opacity=".6"><path d="M169 431V442H245M491 431V442H564M810 431V442H879"/></g>
-      <g fill="#e5dfc8"><rect x="168" y="430" width="78" height="13"/><rect x="490" y="430" width="75" height="13"/><rect x="809" y="430" width="71" height="13"/></g>
-      <g stroke="#a2b29b" stroke-width=".8" fill="none"><path d="M169 430V396Q207 396 207 430M491 430V395Q528 395 528 430M810 430V395Q845 395 845 430" opacity=".5"/></g>
-    </g>
-
-    <!-- Main entrance: opening in the left wall aligns with the outside walkway. -->
-    <rect x="42" y="394" width="15" height="31" fill="#f8f3df"/><path d="M43 393H56M43 425H56" stroke="#82937f" stroke-width="1.2"/><path d="M44 395H65V416" fill="none" stroke="#b5bda5" stroke-width=".8" opacity=".7"/>
-    <!-- The actual topology lives on the office floor, below the furniture. -->
-    <g class="cnl-links">${linkMarkup}<path class="cnl-power-wire" d="M544 350V375H780V351H745M645 375V314M719 375V232"/><g transform="translate(594 378)"><path d="M3-5L-2 1H3L0 7L8-1H3L7-5Z" fill="#bd9d52"/><text x="14" y="3" class="cnl-tiny" fill="#ac9257">供电</text></g></g>
-
-    <!-- Open workspace: six complete workstations, six coworkers. -->
-    ${title(77, 165, '开放办公区', 'TEAM WORKSPACE · 48 CLIENTS', '#8fa885')}
-    <g transform="translate(83 184)"><rect width="119" height="17" rx="5" fill="#f9edda" stroke="#d0ae88" stroke-width=".8"/><text x="59.5" y="11.5" text-anchor="middle" class="cnl-tiny" fill="#a57c52">人事登记工位</text></g>
-    <g opacity=".58"><rect x="85" y="196" width="347" height="180" rx="12" fill="#dce4cf"/><path d="M95 285H423" stroke="#c9d5bc" stroke-width="1" stroke-dasharray="4 5"/></g>
-    ${desk(90, 207, '#d29878', {cup:true,screen:'#b2d9d2'})}
-    ${desk(214, 207, '#91a9cd', {hair:'#6b4a37',screen:'#bad6df'})}
-    ${desk(338, 207, '#7fa18c', {screen:'#bdd3b4'})}
-    ${desk(90, 310, '#ae9aba', {hair:'#795544',screen:'#c4c2de'})}
-    <g class="cnl-device" data-device="workstations">${desk(214, 310, '#e0b16f', {screen:'#bddfd3',cup:true})}</g>
-    ${desk(338, 310, '#80a4b0', {hair:'#463d46',screen:'#a7d2dd'})}
-    ${plant(68, 366, .74)}${plant(455, 185, .82)}
-    <g transform="translate(405 153)"><rect width="50" height="24" rx="3" fill="#f9f7e9" stroke="#a5b49a" stroke-width="1"/><path d="M6 18L14 11L22 14L31 7L44 4" fill="none" stroke="#9eb28b" stroke-width="1.6"/><circle cx="44" cy="4" r="2" fill="#9eb28b"/></g>
-    <g class="cnl-device" data-device="access">${use('switch',459,404,.68)}<path d="M461 394V385M457 386H466" stroke="#6c8a78" stroke-width="1.4" stroke-linecap="round"/></g>
-
-    <!-- Server room: edge firewall, racks, aggregation, NAS and UPS. -->
-    ${title(519, 165, '网络机房', 'NETWORK OPERATIONS', '#7fa7a0')}
-    <g transform="translate(514 181)"><rect width="72" height="61" rx="5" fill="#d3e1dc" stroke="#a4b9ad" stroke-width=".9"/><path d="M5 8H67M5 53H67" stroke="#b6c9bf" stroke-width="1"/></g>
-    <g class="cnl-device" data-device="firewall" transform="translate(553 209)"><path d="M-27-12L-20-17H26L30-12V15H-27Z" fill="#a9bfb4" stroke="#46655d" stroke-width="1.2"/><rect x="-27" y="-12" width="54" height="27" rx="3" fill="#f1ead1" stroke="#46655d" stroke-width="1.2"/><path d="M-16-5H-8V2H-16ZM-6-5H2V2H-6ZM4-5H12V2H4ZM-16 4H-8V9H-16ZM-6 4H2V9H-6ZM4 4H12V9H4Z" fill="#c4a681"/><circle cx="20" cy="3" r="2.2" fill="#84ac78"/><path d="M-23-14V-29M22-14V-29" stroke="#627e70" stroke-width="2.5" stroke-linecap="round"/></g>
-    <g transform="translate(603 198)"><rect width="43" height="49" rx="4" fill="#edf2e4" stroke="#a0b6a5" stroke-width="1"/><rect x="6" y="7" width="31" height="19" rx="2" fill="url(#${uid}-screen)"/><path d="M10 20L15 15L20 18L25 11L32 15" fill="none" stroke="#a6d4b4" stroke-width="1.2"/><text x="8" y="38" class="cnl-tiny">NOC · 24/7</text><circle cx="33" cy="37" r="2" fill="#9ec98d"/></g>
-    <g class="cnl-device" data-device="server">${use('server',690,186,.94)}${use('server',745,186,.94)}</g>
-    <g class="cnl-device" data-device="core">${use('switch',645,310,.95)}</g>
-    <g class="cnl-device" data-device="storage" transform="translate(745 343)"><path d="M-27-11L-22-16H25L30-10V13L25 18H-27Z" fill="#94aeb0" stroke="#466068" stroke-width="1.1"/><rect x="-27" y="-10" width="52" height="27" rx="3" fill="#c8d7d2" stroke="#466068" stroke-width="1.1"/><g fill="#627c7b"><rect x="-20" y="-5" width="8" height="18" rx="1.4"/><rect x="-9" y="-5" width="8" height="18" rx="1.4"/><rect x="2" y="-5" width="8" height="18" rx="1.4"/></g><g fill="#b3d69b"><circle cx="-16" cy="8" r="1"/><circle cx="-5" cy="8" r="1"/><circle cx="6" cy="8" r="1"/></g><circle cx="18" cy="3" r="2" fill="#88ac82"/></g>
-    <g class="cnl-device" data-device="ups" transform="translate(544 344)"><path d="M-19-27L-12-32H20L23-26V15L18 20H-19Z" fill="#8d9b94" stroke="#4e655d" stroke-width="1.2"/><rect x="-19" y="-26" width="37" height="47" rx="3" fill="#f5e9c8" stroke="#4e655d" stroke-width="1.2"/><rect x="-12" y="-19" width="22" height="10" rx="2" fill="#5d7568"/><path d="M-8-14H5" stroke="#b6d29d" stroke-width="1.4"/><path d="M1-4L-6 5H0L-3 13L7 2H1L5-4Z" fill="#b69b5d"/><path d="M-13 17H12" stroke="#b4b79d" stroke-dasharray="1 2" stroke-width="2"/></g>
-    <g transform="translate(601 351)"><circle r="10" fill="#e9eee2" stroke="#a4b8a8" stroke-width="1"/><path d="M-4 1V-4Q0-10 4-4V2Q8 7 0 8Q-8 7-4 1Z" fill="#b8cfb1"/><circle cy="4" r="3" fill="#95ae8d"/></g>
-    <g transform="translate(756 153)" stroke="#9db6aa" stroke-width="1"><rect width="31" height="15" rx="2" fill="#eaf0e3"/><path d="M4 4H27M4 7H27M4 10H27"/></g>
-
-    <!-- Executive office: a lived-in room, not an isolated computer icon. -->
-    ${title(833, 165, '业务管理室', 'BUSINESS OPERATIONS', '#c5a579')}
-    <rect x="840" y="206" width="144" height="111" rx="8" fill="#e8d8b9" opacity=".6"/>
-    <g class="cnl-device" data-device="executive">${use('desk',857,226,1.03,'style="--screen:#b8d3d6"')}${use('cup',947,252,.8)}</g>
-    <g transform="translate(840 327)">${use('sofa',0,0,.75)}<rect x="79" y="6" width="43" height="31" rx="7" fill="#ead1ab" stroke="#9b967e" stroke-width="1"/>${use('cup',98,18,.65)}</g>
-    ${plant(980, 185, .77)}${plant(984, 366, .83)}
-    <g transform="translate(842 180)"><rect width="33" height="20" rx="2" fill="#f8f4e5" stroke="#baa684" stroke-width="1"/><path d="M6 15L14 6L21 12L27 9" fill="none" stroke="#c3ae7d" stroke-width="1.4"/></g>
-
-    <!-- Meeting room, complete with people and presentation screen. -->
-    ${title(77, 466, '会议室', 'MEETING ROOM · A', '#aaa2bf')}
-    <g transform="translate(75 493)"><path d="M0 0H29V39H0Z" fill="#e9e9ef" stroke="#9093a5" stroke-width="1"/><rect x="3" y="4" width="23" height="29" rx="1" fill="#c6d0df"/><path d="M7 27V20H11V27M15 27V13H19V27M23 27V8" fill="none" stroke="#879caf" stroke-width="2"/><path d="M14 39V46M6 47H23" stroke="#8e94a1" stroke-width="2"/></g>
-    ${seated(148,516,'#a69fc3','#654c44',.68)}${seated(211,516,'#7eabb3','#3f454c',.68)}${seated(274,516,'#d8ac82','#775c42',.68)}
-    <g transform="translate(112 503)"><ellipse cx="99" cy="54" rx="99" ry="9" fill="#778375" opacity=".1"/><path d="M17 34V52M177 34V52" stroke="#9e9d9e" stroke-width="5"/><rect y="4" width="192" height="48" rx="19" fill="#b5b4c3" stroke="#7a8590" stroke-width="1.1"/><rect width="192" height="46" rx="19" fill="#f1eee6" stroke="#7a8590" stroke-width="1.2"/><path d="M92 3V42" stroke="#d7d5d0" stroke-width=".8"/><g fill="#c3d7d6" stroke="#728d8e" stroke-width=".8"><rect x="23" y="10" width="26" height="17" rx="2"/><rect x="145" y="10" width="26" height="17" rx="2"/></g><path d="M20 29H52M142 29H174" stroke="#70868a" stroke-width="2" stroke-linecap="round"/>${use('cup',69,19,.65)}${use('cup',119,18,.65)}</g>
-    ${seated(155,580,'#8faa91','#453b3d',.72,false,true)}${seated(264,580,'#c39591','#6f4a36',.72,false,true)}
-    <g class="cnl-device" data-device="meeting" transform="translate(208 516)"><ellipse rx="13" ry="7" fill="#e0e3df" stroke="#82948c" stroke-width=".9"/><rect x="-7" y="-5" width="14" height="6" rx="3" fill="#b4c8be"/><circle r="1.5" fill="#78a78d"/></g>
-    ${plant(325,579,.7)}
-
-    <!-- Customer lounge with active guest Wi-Fi. -->
-    ${title(386, 466, '客户会见厅', 'CUSTOMER LOUNGE', '#cea985')}
-    <rect x="418" y="491" width="217" height="92" rx="26" fill="#e8d5bd" opacity=".55"/>
-    ${use('sofa',392,493,.84)}${use('sofa',564,493,.84)}
-    ${seated(431,545,'#749b96','#5e4a3f',.69,true)}${seated(601,545,'#b49a80','#463e3e',.69,true)}
-    <g transform="translate(486 512)"><ellipse cx="43" cy="31" rx="47" ry="7" fill="#8d8b70" opacity=".1"/><path d="M10 18V35M73 18V35" stroke="#a89e80" stroke-width="4"/><rect y="3" width="86" height="26" rx="12" fill="#d7c1a0" stroke="#9b9780" stroke-width="1"/><rect width="86" height="25" rx="12" fill="#fbf1da" stroke="#9b9780" stroke-width="1"/>${use('cup',16,9,.65)}${use('cup',69,10,.65)}<rect x="30" y="8" width="22" height="12" rx="1" fill="#d5d5b4" transform="rotate(-7 30 8)"/></g>
-    <g class="cnl-device" data-device="reception" transform="translate(529 520)"><rect x="-11" y="-5" width="22" height="10" rx="4" fill="#f1f2e5" stroke="#7e9b8e" stroke-width="1"/><path d="M-5-9Q0-14 5-9M-3-6Q0-9 3-6" fill="none" stroke="#85aa96" stroke-width="1.3" stroke-linecap="round"/><circle cy="1" r="1.4" fill="#8ab18b"/></g>
-    ${plant(390,586,.82)}${plant(665,590,.7)}
-    <g transform="translate(483 579)"><rect width="83" height="12" rx="4" fill="#f9ecda" stroke="#c6b79b" stroke-width=".8"/><text x="41.5" y="8.5" text-anchor="middle" class="cnl-tiny">GUEST Wi-Fi</text></g>
-
-    <!-- Finance team: locked drawers, files, accounts and two real desks. -->
-    ${title(713, 466, '财务办公室', 'FINANCE & OPERATIONS', '#9aaf89')}
-    <g transform="translate(711 491)"><rect width="36" height="69" rx="3" fill="#d4dac1" stroke="#8b9e83" stroke-width="1"/><rect x="4" y="5" width="28" height="17" rx="1.5" fill="#edf0de" stroke="#a9b49a" stroke-width=".8"/><rect x="4" y="26" width="28" height="17" rx="1.5" fill="#edf0de" stroke="#a9b49a" stroke-width=".8"/><rect x="4" y="47" width="28" height="17" rx="1.5" fill="#edf0de" stroke="#a9b49a" stroke-width=".8"/><path d="M14 12H22M14 33H22M14 54H22" stroke="#8a9d80" stroke-width="1.5" stroke-linecap="round"/></g>
-    <g class="cnl-device" data-device="finance">${desk(795,491,'#8fa78a',{screen:'#b3d7be',hair:'#5a443b',cup:true})}</g>
-    <g transform="translate(926 492)"><rect width="55" height="34" rx="4" fill="#d9dfca" stroke="#93a28a" stroke-width="1"/><rect x="3" y="3" width="49" height="13" rx="2" fill="#f2f0df" stroke="#b6bea5" stroke-width=".8"/><path d="M10 9H44" stroke="#a3af97" stroke-width="1"/><rect x="14" y="21" width="27" height="8" rx="1" fill="#f9f6e7"/><path d="M19 24H37" stroke="#b2b79d" stroke-width=".7"/></g>
-    <g transform="translate(935 546)"><rect width="39" height="34" rx="3" fill="#c4ccb5" stroke="#8e9e85" stroke-width="1"/><path d="M0 9H39M13 10V34M26 10V34" stroke="#91a18a" stroke-width="1"/><g fill="#efdcaa"><path d="M4-7H9V7H4ZM12-10H17V7H12Z"/></g><g fill="#abc3b5"><path d="M20-7H25V7H20ZM28-9H33V7H28Z"/></g></g>
-    ${plant(987,584,.72)}
-
-    <!-- Small office-life details: coat hooks, floor directions, and room numbers. -->
-    <g fill="#b7bda7" opacity=".7"><path d="M72 407l5-4v3h10v2H77v3Z"/><path d="M965 407l-5-4v3h-10v2h10v3Z"/></g>
-    <text x="98" y="410" class="cnl-small" fill="#a4af9b">NETWORK FLOOR / 01</text>
-    <g transform="translate(58 584)"><rect width="57" height="18" rx="4" fill="#e2e7d6" stroke="#acb99f" stroke-width=".7"/><circle cx="9" cy="9" r="2.4" fill="#8eaf89"/><text x="16" y="12" class="cnl-tiny">LAISEN LAB</text></g>
-
-    <!-- Investment is an attached office, linked to the same working network. -->
-    <g class="cnl-investment-room" filter="url(#${uid}-soft)"><path d="M55 13L62 6H499L505 13V98H55Z" fill="#b6c8c9" stroke="#718f8b" stroke-width="1.1"/><rect x="55" y="10" width="450" height="91" rx="8" fill="#e7eef0" stroke="#9ab2af" stroke-width="1.1"/><path d="M56 35H504" stroke="#c0d1cf" stroke-width=".8"/>${title(224,25,'投资者关系部','INVESTOR RELATIONS','#7799a7')}${use('desk',90,43,.60, 'style="--screen:#b9d0e1"')}${use('desk',202,43,.60,'style="--screen:#cbd4b5"')}${use('desk',314,43,.60,'style="--screen:#cabeda"')}${use('desk',426,43,.55,'style="--screen:#e1c29e"')}<path d="M55 101H68M96 101H505" stroke="#8da99b" stroke-width="2"/><rect x="69" y="98" width="26" height="6" fill="#f8f3df"/><path d="M69 99V82H86" fill="none" stroke="#a7b7a2" stroke-width=".8"/></g>
-    <g class="cnl-general-office-room" filter="url(#${uid}-soft)"><path d="M527 13L534 6H799L805 13V98H527Z" fill="#c5baa3" stroke="#a29377" stroke-width="1.1"/><rect x="527" y="10" width="278" height="91" rx="8" fill="#f0e9da" stroke="#b6aa90" stroke-width="1.1"/><path d="M528 35H804" stroke="#d8cdb8" stroke-width=".8"/>${title(668,25,'总经办','EXECUTIVE OFFICE','#b48e58')}<g class="cnl-device" data-device="general_office">${use('desk',552,43,.60,'style="--screen:#a4d5ca"')}${use('desk',723,43,.60,'style="--screen:#d5bc94"')}<g transform="translate(657 46)"><rect x="-7" y="-5" width="15" height="11" rx="2" fill="#fffbec" stroke="#ae9470" stroke-width=".7"/><path d="M-3-2H4M-3 0H4M-3 2H2" stroke="#b6a078" stroke-width=".7"/></g></g><path d="M527 101H536M564 101H805" stroke="#a99b7c" stroke-width="2"/><rect x="537" y="98" width="26" height="6" fill="#f8f3df"/><path d="M537 99V82H554" fill="none" stroke="#b5a68a" stroke-width=".8"/>${plant(788,81,.40)}</g>
+    ${renderOrganizationFloor({uid,use,seated,plant})}
+    <g class="cnl-links">${linkMarkup}</g>
     <g class="cnl-node-layer">${hotspots}</g>
     <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g><g class="cnl-presence-layer"></g>
-    <g class="cnl-human-approval" transform="translate(909 294)" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g><g class="cnl-greeting-layer" aria-hidden="true" style="display:none"></g>
+    <g class="cnl-human-approval" transform="translate(${HUMAN_EMPLOYEES[0].x} ${HUMAN_EMPLOYEES[0].y-21})" tabindex="0" role="button" aria-label="你，真实员工，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你 · 真实员工</text></g></g><g class="cnl-agent-layer"></g><g class="cnl-greeting-layer" aria-hidden="true" style="display:none"></g>
   </g>
   </svg>`;
 
@@ -271,7 +121,11 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   // Inline the moving characters so limb transforms can follow the actual walk cycle.
   // Fixed desk occupants keep lightweight reusable symbols.
   const avatarArtwork={person:svg.querySelector(`#${uid}-person`).innerHTML,seated:svg.querySelector(`#${uid}-seated`).innerHTML};
+  const ambientProps='<g class="cnl-ambient-props" aria-hidden="true"><g class="cnl-ambient-cup" transform="translate(12 -28)"><path d="M2-3Q9-3 7 1Q6 3 3 1" fill="none" stroke="#8c7051" stroke-width=".8"/><rect x="-3" y="-4" width="7" height="7" rx="2" fill="#f3ddad" stroke="#8c7051" stroke-width=".7"/><path d="M-1-5Q-3-8-1-10" fill="none" stroke="#c4ad84" stroke-width=".6"/></g><g class="cnl-ambient-tablet" transform="translate(0 -15)"><rect x="-8" y="-6" width="16" height="12" rx="2" fill="#435f61" stroke="#335151" stroke-width=".8"/><rect x="-6.2" y="-4.2" width="12.4" height="7.5" rx=".8" fill="#b5e0ce"/><path d="M-4-2H3M-4 .2H0" stroke="#eef9e9" stroke-width=".7"/><circle cy="4.5" r=".7" fill="#bdd6ca"/></g></g>';
   const avatar=(shirt,hair,{sitting=false,scale=.56}={})=>`<g class="${sitting?'cnl-pose-seated cnl-seated':'cnl-pose-standing'}" transform="translate(0 ${sitting?0:-22}) scale(${scale})" style="--shirt:${esc(shirt)};--hair:${esc(hair)};--front-facing:${sitting?'none':'block'};--back-facing:${sitting?'block':'none'}">${avatarArtwork[sitting?'seated':'person']}</g>`;
+  const teamElements=new Map([...svg.querySelectorAll('[data-team]')].map(el=>[el.dataset.team,el]));
+  const displayedPositions=new Map();
+  const positionElements=new Map([...svg.querySelectorAll('[data-position]')].map(el=>[el.dataset.position,el]));
   const nodeElements = new Map([...svg.querySelectorAll('[data-node]')].map(el => [el.dataset.node, el]));
   const deviceElements = new Map([...svg.querySelectorAll('[data-device]')].map(el => [el.dataset.device, el]));
   const links = [...svg.querySelectorAll('.cnl-link')];
@@ -281,6 +135,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   const handoffLayer = svg.querySelector('.cnl-handoff-layer');
   const humanLayer = svg.querySelector('.cnl-human-layer');
   const humanElements = new Map();
+  const humanSignatures=new Map();
   const humanPositions = new Map(HUMAN_EMPLOYEES.map(h => [h.id,{x:h.x,y:h.y}]));
   const presenceLayer=svg.querySelector('.cnl-presence-layer');
   const greetingLayer=svg.querySelector('.cnl-greeting-layer');
@@ -297,10 +152,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let reducedMotion=motionPreference?.matches || false;
   let motionFrame = 0;
   let motionEpoch = 0;
-  let activeRunId;
+  let activeRunId,runIsActive=false;
   let hasUpdated = false;
   let selectedHuman = null;
-  let scale = 1;
+  let scale = 1,cameraZoomLimit=4.5,focusedDepartmentId=null,focusedTeamId=null;
   let panX = 0;
   let panY = 0;
   let selected = null;
@@ -311,12 +166,12 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let suppressClickUntil = 0;
   let viewFrame = 0;
   let motionUntil = 0;
-  let destroyed = false;
-  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null,lastViewBox='0 0 1060 650';
-  let greetingElement=null,greetingAnimation=null;
+  let destroyed = false,ambient=null;
+  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null,lastViewBox=INITIAL_VIEW_BOX;
+  let greetingElement=null,greetingAnimation=null,departmentHint=null,hintScaleBase=1,hintBounds={half:64,top:-88,bottom:-37};
   const feedbackAnimations=new WeakMap();
-  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);if(wheelAnchor){panX=wheelAnchor.world.x-530-wheelAnchor.offsetX/scale;panY=wheelAnchor.world.y-325-wheelAnchor.offsetY/scale;}applyView();}});
-  function animateView(patch,anchor=null){wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-530-panX)*scale,offsetY:(anchor.world.y-325-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
+  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);if(wheelAnchor){panX=wheelAnchor.world.x-WORLD_CX-wheelAnchor.offsetX/scale;panY=wheelAnchor.world.y-WORLD_CY-wheelAnchor.offsetY/scale;}applyView();}});
+  function animateView(patch,anchor=null){wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-WORLD_CX-panX)*scale,offsetY:(anchor.world.y-WORLD_CY-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
   function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
   function stopCamera(){wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
@@ -324,35 +179,53 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function clearGreeting(){
     stopGreetingWave();
     if(greetingElement){delete greetingElement.dataset.greeting;greetingElement.removeAttribute?.('aria-describedby');}
-    greetingElement=null;greetingLayer.style.display='none';greetingLayer.dataset.visible='false';greetingLayer.setAttribute('aria-hidden','true');greetingLayer.innerHTML='';
+    departmentHint?.element.removeAttribute?.('aria-describedby');departmentHint=null;
+    greetingElement=null;greetingLayer.style.display='none';greetingLayer.dataset.visible='false';greetingLayer.setAttribute('aria-hidden','true');greetingLayer.innerHTML='';ambient?.refresh();
   }
   function greetingPerson(target){
-    const element=target?.closest?.('[data-agent], [data-human]');
+    const element=target?.closest?.('[data-agent], [data-human], [data-position]');
     if(!element)return null;
+    if(element.dataset.position&&positionElements.get(element.dataset.position)===element)return element.dataset.visible!=='false'&&ORGANIZATION_POSITION_META[element.dataset.position]?.occupantVisible?element:null;
     if(element.dataset.agent&&agentElements.get(element.dataset.agent)===element)return element;
     // Only actual signed-in people greet in ERP, never hidden lab representatives.
     const id=element.dataset.human;
     return presenceState.enabled&&presenceElements.get(id)===element&&presenceMotion.entries.has(id)?element:null;
   }
+  function cacheHintScale(){const matrix=svg.getScreenCTM(),unit=matrix?Math.hypot(matrix.a,matrix.b):0,native=Number(globalThis.visualViewport?.scale)||1;if(unit>0)hintScaleBase=scale/(unit*native);}
   function syncGreetingPoint(){
-    if(!greetingElement)return;
-    const point=greetingElement.dataset.agent?agentPositions.get(greetingElement.dataset.agent):humanPositions.get(greetingElement.dataset.human);
-    if(point)greetingLayer.setAttribute('transform',`translate(${point.x} ${point.y})`);else clearGreeting();
+    if(!greetingElement&&!departmentHint)return;
+    const point=departmentHint?.point||(greetingElement.dataset.position?displayedPositions.get(greetingElement.dataset.position):greetingElement.dataset.agent?agentPositions.get(greetingElement.dataset.agent):humanPositions.get(greetingElement.dataset.human));
+    if(!point){clearGreeting();return;}
+    const factor=hintScaleBase/scale;greetingLayer.setAttribute('transform',`translate(${point.x} ${point.y}) scale(${factor})`);
+    const left=WORLD_CX+panX-OFFICE_WORLD.width/scale/2,right=left+OFFICE_WORLD.width/scale,top=WORLD_CY+panY-OFFICE_WORLD.height/scale/2,bottom=top+OFFICE_WORLD.height/scale;
+    const dx=Math.max(left+(hintBounds.half+8)*factor,Math.min(right-(hintBounds.half+8)*factor,point.x))-point.x;
+    const dy=Math.max(top+(-hintBounds.top+8)*factor,Math.min(bottom-(hintBounds.bottom+8)*factor,point.y))-point.y;
+    const hint=greetingLayer.querySelector(departmentHint?'.cnl-department-tooltip':'.cnl-greeting-bubble');hint?.setAttribute('transform',`translate(${dx/factor} ${dy/factor})`);
   }
+  function showDepartmentHint(element,room){
+    if(destroyed||document.hidden||drag){clearGreeting();return;}if(departmentHint?.element===element)return;
+    clearGreeting();cacheHintScale();hintBounds={half:116,top:-82,bottom:0};departmentHint={element,point:{x:room.x+room.w/2,y:room.y+Math.min(room.h*.52,112)}};
+    const roles=[['chairman','董事长'],['manager','经理'],['head','部长'],['staff','员工']].filter(([key])=>room.roleCounts[key]).map(([key,label])=>`${label} ${room.roleCounts[key]}`).join(' · ');
+    element.setAttribute('aria-describedby',`${uid}-greeting`);greetingLayer.innerHTML=`<g class="cnl-department-tooltip" id="${uid}-greeting" role="tooltip"><rect class="cnl-department-tooltip-surface" x="-116" y="-82" width="232" height="82" rx="12"/><text class="cnl-department-tooltip-title" x="-101" y="-58">${esc(room.title)}</text><text class="cnl-department-tooltip-total" x="-101" y="-35">${room.headcount} 人</text><text class="cnl-department-tooltip-roles" x="-101" y="-15">${esc(roles)}</text></g>`;
+    greetingLayer.style.display='';greetingLayer.dataset.visible='true';greetingLayer.setAttribute('aria-hidden','false');syncGreetingPoint();ambient?.refresh();
+  }
+  function showObjectHint(event){const person=greetingPerson(event.target);if(person){showGreeting(person);return;}const element=event.target?.closest?.('[data-node]'),room=OFFICE_ROOMS.find(room=>room.id===element?.dataset.node);if(room)showDepartmentHint(element,room);else clearGreeting();}
+
   function showGreeting(element){
     if(destroyed||document.hidden||drag){clearGreeting();return;}
     if(element===greetingElement)return;
     clearGreeting();if(!element)return;
-    const greeting=greetingForPerson({virtual:!!element.dataset.agent}),robot=greeting.kind==='robot',half=robot?56:51;
+    const greeting=greetingForPerson({virtual:!!element.dataset.agent}),robot=greeting.kind==='robot',half=robot?64:59;cacheHintScale();hintBounds={half,top:-88,bottom:-37};
     const icon=robot?'<rect x=".65" y=".65" width="30.7" height="30.7" rx="11" fill="#eef2e6" stroke="#d3ddcd" stroke-width="1.1"/><path d="M16 8V4.5m-12 11v5m24-5v5" stroke="#709480" stroke-width="1.5" stroke-linecap="round"/><circle cx="16" cy="4" r="1.55" fill="#ba8267"/><rect x="6" y="8" width="20" height="18" rx="6" fill="#fffdf6" stroke="#5f8875" stroke-width="1.2"/><path d="M9.8 15.4q1.7-2.8 3.4 0m5.6 0q1.7-2.8 3.4 0" stroke="#3c7160" stroke-width="1.6" stroke-linecap="round"/><path d="M11.8 20q4.2 4.4 8.4 0" fill="#e4edde" stroke="#3c7160" stroke-width="1.15" stroke-linecap="round"/><path d="M9 18.2h1.5m11 0H23" stroke="#bb9277" stroke-width="1.25" stroke-linecap="round"/>':'<rect x=".65" y=".65" width="30.7" height="30.7" rx="11" fill="#f6eadf" stroke="#dfcdbd" stroke-width="1.1"/><circle cx="16" cy="16" r="10.6" fill="#f0cfab"/><path d="M9.7 14q1.7-2.2 3.5 0m5.6 0q1.7-2.2 3.5 0" stroke="#71513f" stroke-width="1.55" stroke-linecap="round"/><path d="M11 18.6q5 5.8 10 0" fill="#fffdf6" stroke="#9b6651" stroke-width="1.15" stroke-linecap="round"/><circle cx="9.2" cy="17.5" r="1.45" fill="#d2947e" opacity=".6"/><circle cx="22.8" cy="17.5" r="1.45" fill="#d2947e" opacity=".6"/><path d="m25.2 5.8.8-1.6.8 1.6 1.6.8-1.6.8-.8 1.6-.8-1.6-1.6-.8Z" fill="#ba896c"/>';
-    greetingElement=element;element.dataset.greeting=greeting.kind;element.setAttribute('aria-describedby',`${uid}-greeting`);
+    greetingElement=element;ambient?.refresh();element.dataset.greeting=greeting.kind;element.setAttribute('aria-describedby',`${uid}-greeting`);
     greetingLayer.innerHTML=`<g class="cnl-greeting-bubble" data-kind="${greeting.kind}" id="${uid}-greeting" role="tooltip"><path class="cnl-greeting-surface" d="M${-half+17}-88H${half-17}Q${half}-88 ${half}-71V-63Q${half}-46 ${half-17}-46H7L-5-37Q-8.5-34.4-8-39L-7-46H${-half+17}Q${-half}-46 ${-half}-63V-71Q${-half}-88 ${-half+17}-88Z"/><g class="cnl-greeting-icon cnl-greeting-icon-${greeting.kind}" transform="translate(${-half+8} -80) scale(.83)">${icon}</g><g class="cnl-greeting-detail" transform="translate(${-half+44} -76)"><circle r=".9"/><circle cx="4.5" r=".9"/><circle cx="9" r=".9"/></g><text x="${-half+44}" y="-59.5">${esc(greeting.text)}</text></g>`;
     greetingLayer.style.display='';greetingLayer.dataset.visible='true';greetingLayer.setAttribute('aria-hidden','false');syncGreetingPoint();
-    const id=element.dataset.human,entry=presenceMotion.entries.get(id),arm=element.querySelector('.cnl-person-arm-right');
+    const id=element.dataset.human,entry=presenceMotion.entries.get(id),arm=element.querySelector(element.dataset.position?'.cnl-position-wave':'.cnl-person-arm-right');
     if(!robot&&!reducedMotion&&!entry?.motion&&!deliveryQueue.locked(id)&&arm?.animate){
-      greetingAnimation=arm.animate([{transform:'rotate(0deg)',offset:0},{transform:'rotate(-130deg)',offset:.27},{transform:'rotate(-108deg)',offset:.4},{transform:'rotate(-143deg)',offset:.53},{transform:'rotate(-110deg)',offset:.66},{transform:'rotate(-134deg)',offset:.78},{transform:'rotate(0deg)',offset:1}],{duration:920,easing:'ease-in-out',iterations:1});
+      greetingAnimation=arm.animate(element.dataset.position?[{transform:'rotate(0deg)',offset:0},{transform:'rotate(-14deg)',offset:.2},{transform:'rotate(12deg)',offset:.4},{transform:'rotate(-12deg)',offset:.6},{transform:'rotate(10deg)',offset:.8},{transform:'rotate(0deg)',offset:1}]:[{transform:'rotate(0deg)',offset:0},{transform:'rotate(-130deg)',offset:.27},{transform:'rotate(-108deg)',offset:.4},{transform:'rotate(-143deg)',offset:.53},{transform:'rotate(-110deg)',offset:.66},{transform:'rotate(-134deg)',offset:.78},{transform:'rotate(0deg)',offset:1}],{duration:920,easing:'ease-in-out',iterations:1});
     }
   }
+  for(const [id,element]of positionElements){const select=event=>{event.stopPropagation();if(destroyed||element.dataset.visible==='false'||performance.now()<suppressClickUntil)return;for(const [otherId,other]of positionElements){other.dataset.selected=String(otherId===id);other.setAttribute('aria-pressed',String(otherId===id));}showGreeting(element);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>setPresencePoint(entry)});
   function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample}=entry;el.setAttribute('transform',`translate(${point.x} ${point.y})`);humanPositions.set(entry.person.id,{...point});el.dataset.walking=String(!!entry.motion);el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
     if(el===greetingElement){if(entry.motion||deliveryQueue.locked(entry.person.id))stopGreetingWave();syncGreetingPoint();}
@@ -360,7 +233,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     for(const [selector,sign]of[['.cnl-person-leg-left',1],['.cnl-person-leg-right',-1],['.cnl-person-arm-left',-.65],['.cnl-person-arm-right',.65]]){const limb=el.querySelector(selector);if(limb)limb.style.transform=`rotate(${(sample?.stride||0)*sign}deg)`;}
   }
   function ensurePresenceFrame(){if(!presenceFrame&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
-  function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();}
+  function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();if(!presenceMotion.busy)ambient?.refresh();}
   function presenceVisibility(){if(document.hidden){clearGreeting();resetInput();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
   document.addEventListener?.('visibilitychange',presenceVisibility);
   function syncLegacyHumanVisibility(){
@@ -373,9 +246,9 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     syncLegacyHumanVisibility();
     for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
       const p=entry.person;el.dataset.current=String(p.current);el.setAttribute('aria-label',`${p.name}，真实员工${p.title?'，'+p.title:''}，${p.current?'你，':''}在线，查看个人与待办`);el.setAttribute('aria-pressed',String(selectedHuman===id));
-      const signature=JSON.stringify([p.name,p.title,p.current,p.color,p.hair]);if(el.dataset.signature!==signature){if(el===greetingElement)stopGreetingWave();el.dataset.signature=signature;el.innerHTML=`<title>${esc(p.name)}${p.title?' · '+esc(p.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(p.color,p.hair,{scale:.66})}<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(p.name.slice(0,9))}${p.name.length>9?'…':''}${p.current?' · 你':''}</text>`;}setPresencePoint(entry);
+      const signature=JSON.stringify([p.name,p.title,p.current,p.color,p.hair]);if(el.dataset.signature!==signature){if(el===greetingElement)stopGreetingWave();el.dataset.signature=signature;el.innerHTML=`<title>${esc(p.name)}${p.title?' · '+esc(p.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(p.color,p.hair,{scale:.66})}${ambientProps}<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(p.name.slice(0,9))}${p.name.length>9?'…':''}${p.current?' · 你':''}</text>`;}setPresencePoint(entry);
     }
-    ensurePresenceFrame();scheduleViewChange();
+    ensurePresenceFrame();ambient?.refresh();scheduleViewChange();
   }
 
   const scheduleViewChange = (duration = 0) => {
@@ -410,6 +283,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     if (id && selected) setSelectedNode(null);
   }
 
+  for(const room of OFFICE_ROOMS)for(const team of room.teamZones){const element=teamElements.get(team.id);if(!element)continue;const select=event=>{event.stopPropagation();if(destroyed||performance.now()<suppressClickUntil)return;clearGreeting();focusedDepartmentId=room.id;focusedTeamId=team.id;focusRegion(team);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
   nodeElements.forEach((el, id) => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -441,7 +315,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   function renderHumans(humans=[]) {
     for(const meta of HUMAN_EMPLOYEES) {
-      const human={...meta,...humans.find(h=>h.id===meta.id)};
+      const human={...meta,...humans.find(h=>h.id===meta.id),color:employeeAppearance(false).uniform};
       let el=humanElements.get(meta.id);
       if(!el) {
         el=document.createElementNS('http://www.w3.org/2000/svg','g');
@@ -457,9 +331,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       el.dataset.status=human.status||'idle';
       const phrase=human.status==='awaiting_approval'?'请你审阅方案':human.status==='waiting'?'已派工 · 等待成果':human.status==='delivery'?'成果待查阅':human.status==='files_available'?'证据已保留 · 可查阅':human.id==='owner'?'暂无待批事项':'待提供资料';
       el.setAttribute('aria-label',`${human.name}，真实员工，${human.role}，${phrase}`);
-      const sitting=['owner','investment_owner'].includes(meta.id);
+      const sitting=meta.seated===true;
       el.classList.toggle('is-seated',sitting);
-      el.innerHTML=`<title>${esc(human.name)} · 真实员工 · ${esc(human.role)}；${esc(phrase)}</title><ellipse class="cnl-human-halo-static" cy="-10" rx="22" ry="24"/><ellipse class="cnl-human-ground" cy="1" rx="21" ry="5"/><g class="cnl-human-person">${avatar(human.color,human.hair,{sitting})}</g><g class="cnl-human-identity" transform="translate(10 -17)"><circle r="5.5"/><circle cy="-1.5" r="1.5"/><path d="M-2.7 2Q0-1 2.7 2"/></g><rect x="-39" y="-38" width="78" height="72" fill="transparent"/><g class="cnl-person-card" transform="translate(0 12)"><text class="cnl-agent-caption" text-anchor="middle">${esc(String(human.name).slice(0,8))}</text></g>`;
+      const signature=JSON.stringify([human.name,human.role,human.color,human.hair,phrase,sitting]);if(humanSignatures.get(meta.id)===signature)continue;humanSignatures.set(meta.id,signature);
+      el.innerHTML=`<title>${esc(human.name)} · 真实员工 · ${esc(human.role)}；${esc(phrase)}</title><ellipse class="cnl-human-halo-static" cy="-10" rx="22" ry="24"/><ellipse class="cnl-human-ground" cy="1" rx="21" ry="5"/><g class="cnl-human-person">${avatar(human.color,human.hair,{sitting})}${ambientProps}</g><g class="cnl-human-identity" transform="translate(10 -17)"><circle r="5.5"/><circle cy="-1.5" r="1.5"/><path d="M-2.7 2Q0-1 2.7 2"/></g><rect x="-39" y="-38" width="78" height="72" fill="transparent"/><g class="cnl-person-card" transform="translate(0 12)"><text class="cnl-agent-caption" text-anchor="middle">${esc(String(human.name).slice(0,8))}</text></g>`;
 
     }
   }
@@ -471,7 +346,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     el.dataset.x=point.x.toFixed(2);el.dataset.y=point.y.toFixed(2);
     if(point.facing) el.style.setProperty('--facing',String(point.facing));
     if(el===greetingElement)syncGreetingPoint();
-    const home=AGENT_META[id];el.classList.toggle('is-seated',!!home&&(id.startsWith('invest_')||id==='boss')&&Math.hypot(point.x-home.x,point.y-home.y)<2);
+    const home=AGENT_META[id];el.classList.toggle('is-seated',!!home&&home.seated&&Math.hypot(point.x-home.x,point.y-home.y)<2);
   }
 
   function motionPhrase(id) {
@@ -488,7 +363,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const perNode={};
     Object.entries(AGENT_META).forEach(([id,meta])=>{
       const data=agents.find(agent=>agent.id===id)||{};
-      const agent={...meta,...data,id};agentState.set(id,agent);
+      const agent={...meta,...data,id,color:employeeAppearance(true).uniform};agentState.set(id,agent);
       const working=agent.selected!==false && !!NODE_META[agent.nodeId] && agent.status==='working';
       let point=[meta.x,meta.y];
       if(working) { if(id==='boss'&&agent.nodeId==='general_office')point=[meta.x,meta.y];else {const offset=perNode[agent.nodeId]||0;perNode[agent.nodeId]=offset+1;const positions=WORK_POSITIONS[agent.nodeId];point=positions[offset%positions.length];} }
@@ -508,7 +383,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       const signature=JSON.stringify([agent.name,agent.role,agent.color,agent.hair,agent.configured,agent.selected,phrase,working]);
       if(signature!==agentSignatures.get(id)) {
         agentSignatures.set(id,signature);
-        el.innerHTML=`<title>${esc(agent.name)} · ${esc(agent.role)}</title><rect class="cnl-agent-hit" x="-40" y="-40" width="80" height="75" rx="8"/><path class="cnl-ai-aura" d="M0-40L20-29V-7L0 5L-20-7V-29Z"/><path class="cnl-agent-ground" d="M-21-1L-10-5H10L21-1L10 4H-10Z"/><path class="cnl-agent-ground-grid" d="M-14-1H14M-7-4L-1 3M3-4L9 3"/><g class="cnl-facing" style="transform:scaleX(var(--facing,1));transform-origin:0 -12px"><g class="cnl-walk-sprite">${avatar(agent.color,meta.hair)}${avatar(agent.color,meta.hair,{sitting:true})}<g class="cnl-agent-headset"><path d="M-6.6-28Q-8-36 0-36Q8-36 6.6-28"/><rect x="-7.8" y="-30" width="3" height="5" rx="1.2"/><rect x="5" y="-30" width="3" height="5" rx="1.2"/><path d="M6.8-25Q6.5-21 3-22"/><circle cx="2.7" cy="-22" r="1"/></g><g class="cnl-carry-document" transform="translate(12 -12)"><rect x="-4" y="-5" width="9" height="11" rx="1"/><path d="M-2-2H3M-2 0H3M-2 2H2" fill="none" stroke="#38a395" stroke-width=".6"/></g></g></g><g class="cnl-ai-badge" transform="translate(-4 -16)"><rect width="8" height="5.5" rx="1.2"/><path d="M2 1.6H6M2 3.6H4.5"/><circle cx="6" cy="3.6" r=".5"/></g><g class="cnl-role-tool" transform="translate(17 -17)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g><g class="cnl-person-card" transform="translate(0 12)"><text class="cnl-agent-caption" text-anchor="middle">${esc(String(agent.name).slice(0,8))}</text></g>`;
+        el.innerHTML=`<title>${esc(agent.name)} · ${esc(agent.role)}</title><rect class="cnl-agent-hit" x="-40" y="-40" width="80" height="75" rx="8"/><path class="cnl-ai-aura" d="M0-40L20-29V-7L0 5L-20-7V-29Z"/><path class="cnl-agent-ground" d="M-21-1L-10-5H10L21-1L10 4H-10Z"/><path class="cnl-agent-ground-grid" d="M-14-1H14M-7-4L-1 3M3-4L9 3"/><g class="cnl-facing" style="transform:scaleX(var(--facing,1));transform-origin:0 -12px"><g class="cnl-walk-sprite">${avatar(agent.color,meta.hair)}${avatar(agent.color,meta.hair,{sitting:true})}<g class="cnl-agent-headset"><path d="M-6.6-28Q-8-36 0-36Q8-36 6.6-28"/><rect x="-7.8" y="-30" width="3" height="5" rx="1.2"/><rect x="5" y="-30" width="3" height="5" rx="1.2"/><path d="M6.8-25Q6.5-21 3-22"/><circle cx="2.7" cy="-22" r="1"/></g><g class="cnl-carry-document" transform="translate(12 -12)"><rect x="-4" y="-5" width="9" height="11" rx="1"/><path d="M-2-2H3M-2 0H3M-2 2H2" fill="none" stroke="#38a395" stroke-width=".6"/></g></g></g>${ambientProps}<g class="cnl-ai-badge" transform="translate(-4 -16)"><rect width="8" height="5.5" rx="1.2"/><path d="M2 1.6H6M2 3.6H4.5"/><circle cx="6" cy="3.6" r=".5"/></g><g class="cnl-role-tool" transform="translate(17 -17)"><circle class="cnl-tool-ring" r="7"/><path class="cnl-tool" d="M-3 3L2-2M0-3Q4-4 4-1L2 1L0-1Z"/></g><g class="cnl-person-card" transform="translate(0 12)"><text class="cnl-agent-caption" text-anchor="middle">${esc(String(agent.name).slice(0,8))}</text></g>`;
 
       }
       motionPhrase(id);
@@ -541,7 +416,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       }
       if(sample.arrived) { motions.delete(id);clearWalkPose(el);motion.onArrive?.(); }
     }
-    onViewChange();ensureMotionFrame();
+    onViewChange();ensureMotionFrame();if(!motions.size)ambient?.refresh();
   }
 
   function walkTo(id,target,{kind='walking',event,onArrive}={}) {
@@ -553,7 +428,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const epoch=motionEpoch;
     if(reducedMotion||length<1) { setAgentPoint(id,target);queueMicrotask(()=>{if(!destroyed&&epoch===motionEpoch)onArrive?.();});return; }
     const duration=walkingDuration(route);
-    motions.set(id,{route,started:performance.now(),duration,onArrive,kind,event});motionPhrase(id);ensureMotionFrame();
+    motions.set(id,{route,started:performance.now(),duration,onArrive,kind,event});motionPhrase(id);ensureMotionFrame();ambient?.refresh();
   }
 
   function resumeWork(id) {
@@ -574,7 +449,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function deliveryFeedback(event,point) {
     const group=document.createElementNS('http://www.w3.org/2000/svg','g');
     group.classList.add('cnl-delivery-feedback');group.dataset.deliveryId=deliveryKey(event);group.dataset.motionPhase='delivered';
-    const x=Math.max(62,Math.min(843,point.x-100)),y=Math.max(3,point.y-81);
+    const x=Math.max(62,Math.min(OFFICE_WORLD.width-150,point.x-100)),y=Math.max(3,point.y-81);
     group.setAttribute('transform',`translate(${x} ${y})`);
     group.innerHTML='<circle cx="100" cy="50" r="7" fill="#f7f7ef"/><path d="M97 50l2 2 4-4" fill="none" stroke="#487568" stroke-width="1.4"/>';
     handoffLayer.append(group);return group;
@@ -619,7 +494,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     syncMotionCounts();
   }
 
-  function syncMotionCounts() { svg.dataset.deliveryPending=String(deliveryQueue.pendingCount);svg.dataset.deliveryActive=String(deliveryQueue.activeCount); }
+  function syncMotionCounts() { svg.dataset.deliveryPending=String(deliveryQueue.pendingCount);svg.dataset.deliveryActive=String(deliveryQueue.activeCount);ambient?.refresh(); }
 
   function resetMotions() {
     motionEpoch++;
@@ -629,7 +504,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   const onMotionPreferenceChange=event=>{
-    reducedMotion=event.matches;if(reducedMotion)stopGreetingWave();presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
+    reducedMotion=event.matches;ambient?.refresh();if(reducedMotion)stopGreetingWave();presenceMotion.setReducedMotion(reducedMotion);if(!reducedMotion||destroyed)return;
     viewTween.finish();wheelAnchor=null;cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;
     cancelAnimationFrame(motionFrame);motionFrame=0;
     for(const [id,motion] of [...motions]) {motions.delete(id);setAgentPoint(id,motion.route.at(-1));clearWalkPose(agentElements.get(id));motion.onArrive?.();}
@@ -637,7 +512,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   };
 
   function update(state={}) {
-    const runId=state.runId??null;
+    const runId=state.runId??null;runIsActive=!!runId&&['running','working','queued','pending','awaiting_approval','paused'].includes(state.runStatus||state.status);ambient?.refresh();
     const {runChanged,animate,reset,halted}=motionUpdatePolicy({hasUpdated,previousRunId:activeRunId,runId,animateEvents:state.animateEvents,runStatus:state.runStatus||state.status});
     if(reset) resetMotions();
     activeRunId=runId;
@@ -645,7 +520,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const approvalTarget=HUMAN_EMPLOYEES.find(h=>h.id===state.approvalHumanId)||HUMAN_EMPLOYEES.find(h=>h.id==='owner');approvalHumanId=approvalTarget.id;
     humanApproval.setAttribute('transform',`translate(${approvalTarget.x} ${approvalTarget.y-21})`);humanApproval.setAttribute('aria-label',`${approvalTarget.name}，真实员工，需要审批`);humanApproval.querySelector('[data-approval-human-name]').textContent=`${approvalTarget.name} · 真实员工`;
     humanApproval.classList.toggle('is-requesting',!!state.humanApproval);humanApproval.setAttribute('aria-hidden',String(!state.humanApproval));
-    nodeElements.forEach((el,id)=>{const status=nodes[id]?.status||(typeof nodes[id]==='string'?nodes[id]:'online');el.dataset.status=status;el.setAttribute('aria-label',`查看${NODE_META[id].label}，${({online:'运行正常',warning:'存在异常',offline:'已离线',recovering:'正在恢复'})[status]||status}`);if(deviceElements.get(id))deviceElements.get(id).dataset.status=status;});
+    nodeElements.forEach((el,id)=>{const status=nodes[id]?.status||(typeof nodes[id]==='string'?nodes[id]:'online');el.dataset.status=status;el.setAttribute('aria-label',id==='bulletin'?NODE_META[id].label:ROOM_IDS.has(id)?`${NODE_META[id].label}，${OFFICE_ROOMS.find(room=>room.id===id).headcount} 人`:`查看${NODE_META[id].label}，${({online:'运行正常',warning:'存在异常',offline:'已离线',recovering:'正在恢复'})[status]||status}`);if(deviceElements.get(id))deviceElements.get(id).dataset.status=status;});
     links.forEach(link=>{const statuses=[nodes[link.dataset.a]?.status||nodes[link.dataset.a],nodes[link.dataset.b]?.status||nodes[link.dataset.b]];['offline','warning','recovering'].forEach(status=>link.classList.toggle(`is-${status}`,statuses.includes(status)));});
     const agents=Array.isArray(state.agents)?state.agents:Object.values(state.agents||{});
     renderHumans(state.humans||[]);syncLegacyHumanVisibility();renderAgents(agents,{snap:!animate&&(runChanged||!hasUpdated)});
@@ -654,14 +529,28 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     if(halted)agentElements.forEach(el=>{el.dataset.motionPhase=state.runStatus||state.status;});
     if(state.selectedNode!==undefined&&state.selectedNode!==selected)setSelectedNode(state.selectedNode);
     if(state.selectedAgent!==undefined&&state.selectedAgent!==selectedAgent)setSelectedAgent(state.selectedAgent);
-    hasUpdated=true;scheduleViewChange(700);
+    hasUpdated=true;ambient?.refresh();scheduleViewChange(700);
   }
 
+  function focusRegion(region){cameraZoomLimit=6.5;const nextScale=Math.min(cameraZoomLimit,Math.min(OFFICE_WORLD.width/(region.w+90),OFFICE_WORLD.height/(region.h+110)));animateView({scale:nextScale,panX:region.x+region.w/2-WORLD_CX,panY:region.y+region.h/2-WORLD_CY+32/nextScale});}
+
+  function syncLevelOfDetail(){
+    const center={x:WORLD_CX+panX,y:WORLD_CY+panY};
+    const detailRoom=OFFICE_ROOMS.find(room=>center.x>=room.x&&center.x<=room.x+room.w&&center.y>=room.y&&center.y<=room.y+room.h);
+    const detailTeam=detailRoom?.teamZones.find(team=>center.x>=team.x&&center.x<=team.x+team.w&&center.y>=team.y&&center.y<=team.y+team.h);
+    const seats=officeSeatsForView({zoom:scale,focusedDepartmentId,focusedTeamId,detailDepartmentId:detailRoom?.id,detailTeamId:detailTeam?.id}),visible=new Set(seats.map(seat=>seat.id));
+    for(const [id,element]of positionElements){const show=visible.has(id);if(element.dataset.visible!==String(show)){element.dataset.visible=String(show);element.style.display=show?'':'none';element.setAttribute('aria-hidden',String(!show));element.setAttribute('tabindex',show?'0':'-1');if(!show){if(element===greetingElement)clearGreeting();element.innerHTML='';delete element.dataset.geometry;displayedPositions.delete(id);}}}
+    for(const seat of seats){const element=positionElements.get(seat.id);if(!element)continue;displayedPositions.set(seat.id,seat);const key=JSON.stringify([seat.x,seat.y,seat.scale,seat.desk]);if(element.dataset.geometry!==key){if(element===greetingElement)clearGreeting();element.dataset.geometry=key;element.innerHTML=renderOrganizationPositionContents(seat,{use,seated});}}
+    svg.dataset.visiblePosts=String(seats.length);svg.dataset.focusDepartment=focusedDepartmentId||'';svg.dataset.focusTeam=focusedTeamId||'';
+  }
+  function releaseDetailScope(nextScale){if(nextScale<OFFICE_DETAIL_ZOOM){focusedDepartmentId=null;focusedTeamId=null;cameraZoomLimit=4.5;}}
+  function resetOfficeView(){focusedDepartmentId=null;focusedTeamId=null;cameraZoomLimit=4.5;clearGreeting();animateView({scale:1,panX:0,panY:0});syncLevelOfDetail();}
+
   function applyView() {
-    const width = 1060 / scale;
-    const height = 650 / scale;
-    const next=`${530 + panX - width / 2} ${325 + panY - height / 2} ${width} ${height}`;
-    if(next===lastViewBox)return;lastViewBox=next;svg.setAttribute('viewBox',next);
+    const width = OFFICE_WORLD.width / scale;
+    const height = OFFICE_WORLD.height / scale;
+    const next=`${WORLD_CX + panX - width / 2} ${WORLD_CY + panY - height / 2} ${width} ${height}`;
+    if(next===lastViewBox)return;lastViewBox=next;svg.setAttribute('viewBox',next);syncLevelOfDetail();syncGreetingPoint();
     scheduleViewChange();
   }
 
@@ -679,11 +568,11 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   function scaleAt(nextScale,clientX,clientY,before=null) {
-    const at=worldPoint(clientX,clientY),next=Math.max(.72,Math.min(2.25,nextScale));before??=at;
+    const at=worldPoint(clientX,clientY),next=Math.max(.72,Math.min(cameraZoomLimit,nextScale));before??=at;releaseDetailScope(next);
     // The viewBox keeps its aspect ratio. Preserve the pointer's world anchor
     // algebraically, avoiding a write -> getScreenCTM layout flush -> write.
-    panX=before.x-530-(at.x-530-panX)*scale/next;
-    panY=before.y-325-(at.y-325-panY)*scale/next;
+    panX=before.x-WORLD_CX-(at.x-WORLD_CX-panX)*scale/next;
+    panY=before.y-WORLD_CY-(at.y-WORLD_CY-panY)*scale/next;
     scale=next;applyView();
     return scale;
   }
@@ -700,10 +589,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
       if(touches.size>1){e.preventDefault();stopCamera();nativeGesture=null;touchGesture=sampleTouches();drag=null;svg.classList.add('is-panning');for(const id of touches.keys())svg.setPointerCapture?.(id);suppressClickUntil=performance.now()+200;return;}
     }
-    const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-employee], .cnl-human-approval');if(object){objectFeedback(object,true);return;}
+    const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-team], [data-employee], .cnl-human-approval');if(object){if(!ROOM_IDS.has(object.dataset.node)&&!object.dataset.position)objectFeedback(object,true);return;}
     if (e.button !== 0) return;
-    stopCamera();
-    drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false };
+    svg.focus?.({preventScroll:true});stopCamera();
+    drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false };ambient?.refresh();
   };
   const onPointerMove = e => {
     if(destroyed)return;
@@ -713,7 +602,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     }
     if (!drag || drag.id !== e.pointerId) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
-    if (!drag.moved) { drag.moved = true; svg.setPointerCapture(e.pointerId); svg.classList.add('is-panning'); }
+    if (!drag.moved) { focusedDepartmentId=null;focusedTeamId=null;drag.moved = true; svg.setPointerCapture(e.pointerId); svg.classList.add('is-panning'); }
     const from = worldPoint(drag.lastX, drag.lastY), to = worldPoint(e.clientX, e.clientY);
     panX += from.x - to.x;
     panY += from.y - to.y;
@@ -730,29 +619,33 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       suppressClickUntil = performance.now() + 200;
       if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
     }
-    svg.classList.remove('is-panning'); drag = null;
+    svg.classList.remove('is-panning'); drag = null;ambient?.refresh();
   };
   const onBlankClick = e => {
     if (performance.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); }
   };
+  const onMapDoubleClick=e=>{if(destroyed||performance.now()<suppressClickUntil||e.target?.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-team]'))return;e.preventDefault();e.stopPropagation();resetOfficeView();};
+  const onMapKey=e=>{if(e.key==='Home'){e.preventDefault();resetOfficeView();}};
   const onWheel = e => {
     if(destroyed)return;
     e.preventDefault();
     if(nativeGesture||touches.size>1)return;
     const rect=svg.getBoundingClientRect(),amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?(svg.clientHeight||rect.height):1);
     if(!Number.isFinite(amount)||!amount)return;
-    const next=Math.max(.72,Math.min(2.25,viewTween.target.scale*Math.exp(-Math.max(-120,Math.min(120,amount))*.0009))),world=worldPoint(e.clientX,e.clientY);
-    animateView({scale:next,panX:world.x-530-(world.x-530-panX)*scale/next,panY:world.y-325-(world.y-325-panY)*scale/next},{x:e.clientX,y:e.clientY,world});
+    const next=Math.max(.72,Math.min(cameraZoomLimit,viewTween.target.scale*Math.exp(-Math.max(-120,Math.min(120,amount))*.0009))),world=worldPoint(e.clientX,e.clientY);
+    releaseDetailScope(next);animateView({scale:next,panX:world.x-WORLD_CX-(world.x-WORLD_CX-panX)*scale/next,panY:world.y-WORLD_CY-(world.y-WORLD_CY-panY)*scale/next},{x:e.clientX,y:e.clientY,world});
   };
   const onGestureStart=e=>{if(destroyed)return;e.preventDefault();clearGreeting();stopCamera();const point=gesturePoint(e);nativeGesture=touches.size>1?null:{scale,anchor:worldPoint(point.x,point.y)};suppressClickUntil=performance.now()+200;};
   const onGestureChange=e=>{if(destroyed)return;e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture||!Number.isFinite(e.scale)||e.scale<=0)return;const point=gesturePoint(e);scaleAt(nativeGesture.scale*e.scale,point.x,point.y,nativeGesture.anchor);suppressClickUntil=performance.now()+200;};
-  const onGestureEnd=e=>{if(destroyed)return;e.preventDefault();nativeGesture=null;suppressClickUntil=performance.now()+200;};
+  const onGestureEnd=e=>{if(destroyed)return;e.preventDefault();nativeGesture=null;suppressClickUntil=performance.now()+200;ambient?.refresh();};
   listenInput(svg,'pointerdown',onPointerDown);
-  const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object&&!object.dataset.agent&&!object.dataset.human)objectFeedback(object);}showGreeting(greetingPerson(e.target));};
-  const onObjectOut=e=>{if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
+  listenInput(svg,'dblclick',onMapDoubleClick);
+  listenInput(svg,'keydown',onMapKey);
+  const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object&&!ROOM_IDS.has(object.dataset.node)&&!object.dataset.agent&&!object.dataset.human&&!object.dataset.position)objectFeedback(object);}showObjectHint(e);};
+  const onObjectOut=e=>{if(departmentHint){if(e.relatedTarget?.closest?.('[data-node]')!==departmentHint.element)clearGreeting();}else if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
   const onObjectLeave=()=>{hoveredObject=null;clearGreeting();};
-  const onPersonFocus=e=>showGreeting(greetingPerson(e.target));
-  const onPersonBlur=e=>{if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
+  const onPersonFocus=e=>showObjectHint(e);
+  const onPersonBlur=onObjectOut;
   svg.addEventListener('pointerover',onObjectHover);
   svg.addEventListener('pointerout',onObjectOut);
   svg.addEventListener('pointerleave',onObjectLeave);
@@ -768,12 +661,26 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   listenInput(svg,'gesturechange',onGestureChange,{passive:false});
   listenInput(svg,'gestureend',onGestureEnd,{passive:false});
   listenInput(globalThis.window,'blur',resetInput);
-  const resizeObserver = new ResizeObserver(() => scheduleViewChange());
+  const resizeObserver = new ResizeObserver(() => {if(greetingElement||departmentHint){cacheHintScale();syncGreetingPoint();}scheduleViewChange();});
   resizeObserver.observe(container);
   motionPreference?.addEventListener?.('change',onMotionPreferenceChange);
+  syncLevelOfDetail();
   renderHumans([]);
   renderAgents([],{snap:true});
   clearGreeting();
+  const ambientElement=person=>person.kind==='virtual'?agentElements.get(person.id):(presenceElements.get(person.id)||humanElements.get(person.id));
+  ambient=mountOfficeAmbient({document,mediaQuery:{get matches(){return reducedMotion;}},
+    getPeople:()=>{
+      const people=[];
+      for(const [id,el]of agentElements){const point=agentPositions.get(id),state=agentState.get(id);if(point&&!motions.has(id)&&!deliveryQueue.locked(id)&&!['working','waiting','queued','blocked','error'].includes(state?.status)&&state?.selected!==false)people.push({id,kind:'virtual',...point,seated:el.classList.contains('is-seated')});}
+      if(presenceState.enabled){for(const [id,entry]of presenceMotion.entries)if(!entry.motion&&!deliveryQueue.locked(id))people.push({id,kind:'human',...entry.point,seated:false});}
+      else for(const meta of HUMAN_EMPLOYEES){const el=humanElements.get(meta.id);if(el&&!['waiting','awaiting_approval'].includes(el.dataset.status)&&!deliveryQueue.locked(meta.id))people.push({id:meta.id,kind:'human',...humanPositions.get(meta.id),seated:meta.seated===true});}
+      return people;
+    },
+    isBlocked:()=>destroyed||document.hidden||runIsActive||!!greetingElement||!!departmentHint||!!drag||!!touchGesture||!!nativeGesture||motions.size>0||presenceMotion.busy||deliveryQueue.activeCount>0||deliveryQueue.pendingCount>0,
+    onStart:activity=>{for(const participant of activity.participants){const el=ambientElement(participant);if(el){el.dataset.ambient=participant.pose;el.style.setProperty('--ambient-direction',String(activity.participants.find(other=>other.id!==participant.id)?.x<participant.x?-1:1));}}},
+    onEnd:activity=>{for(const participant of activity.participants){const el=ambientElement(participant);if(el)delete el.dataset.ambient;}},
+  });
 
   return {
     update,
@@ -783,23 +690,24 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     setSelectedHuman,
     setPresence,getPresenceState:()=>presenceMotion.snapshot(),
     getHumanAnchor(id='owner') { const el=humanElements.get(id);return el?projectPoint({x:0,y:-15},el):null; },
-    focusHuman(id='owner') { const point=humanPositions.get(id);if(!point)return false;animateView({panX:point.x-530,panY:point.y-325+52/scale});return true; },
+    focusHuman(id='owner') { const point=humanPositions.get(id);if(!point)return false;focusedDepartmentId=null;focusedTeamId=null;animateView({panX:point.x-WORLD_CX,panY:point.y-WORLD_CY+52/scale});return true; },
     getNodeAnchor(id) { const n = NODE_META[id]; return n ? projectPoint(n) : null; },
     getAgentAnchor(id) { const el = agentElements.get(id); return el ? projectPoint({ x:0, y:-13 }, el) : null; },
     focusAgent(id) {
       const point = agentPositions.get(id);
-      if (!point) return false;
-      animateView({panX:point.x-530,panY:point.y-325+52/scale});return true;
+      if (!point) return false;focusedDepartmentId=null;focusedTeamId=null;
+      animateView({panX:point.x-WORLD_CX,panY:point.y-WORLD_CY+52/scale});return true;
     },
     focusNode(id) {
-      const point = NODE_META[id];
-      if (!point) return false;
-      animateView({panX:point.x-530,panY:point.y-325+52/scale});return true;
+      const point=NODE_META[id];if(!point)return false;
+      const room=OFFICE_ROOMS.find(room=>room.id===id);
+      if(room){focusedDepartmentId=room.id;focusedTeamId=null;focusRegion(room);}
+      else {focusedDepartmentId=null;focusedTeamId=null;animateView({panX:point.x-WORLD_CX,panY:point.y-WORLD_CY+52/scale});}return true;
     },
-    zoom(delta = .15) { return animateView({scale:Math.max(.72,Math.min(2.25,viewTween.target.scale+delta))}).scale; },
-    resetView() { animateView({scale:1,panX:0,panY:0}); },
+    zoom(delta = .15) {const next=Math.max(.72,Math.min(cameraZoomLimit,viewTween.target.scale+delta));releaseDetailScope(next);return animateView({scale:next}).scale;},
+    resetView:resetOfficeView,
     destroy() {
-      destroyed = true;
+      destroyed = true;ambient?.destroy();ambient=null;
       resetInput();for(const dispose of inputDisposers)dispose();inputDisposers.length=0;
       stopCamera();clearGreeting();svg.removeEventListener('pointerover',onObjectHover);svg.removeEventListener('pointerout',onObjectOut);svg.removeEventListener('pointerleave',onObjectLeave);svg.removeEventListener('focusin',onPersonFocus);svg.removeEventListener('focusout',onPersonBlur);
       resizeObserver.disconnect();

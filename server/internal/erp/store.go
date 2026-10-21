@@ -360,7 +360,8 @@ func Open(dataDir string) (s *Store, err error) {
 	}
 	q.exec("UPDATE tasks SET status='submitted',submitted_at=COALESCE(submitted_at,completed_at),completed_at=NULL WHERE status='completed' AND accepted_by IS NULL")
 	q.exec("INSERT OR IGNORE INTO agent_results SELECT 'LEGACY-' || id,id,approval_round,agent_run_id,proposal_json,evidence_json,updated_at FROM documents WHERE agent_run_id IS NOT NULL AND proposal_json IS NOT NULL")
-	q.exec("PRAGMA user_version=4")
+	q.exec(noticeSchema)
+	q.exec("PRAGMA user_version=5")
 	check(tx.Commit())
 	return s, nil
 }

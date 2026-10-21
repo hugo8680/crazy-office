@@ -3,17 +3,25 @@ import assert from 'node:assert/strict';
 import * as THREE from '../src/vendor/three.module.js';
 import { NODE_META } from '../src/scene.js';
 import { HUMAN_EMPLOYEES } from '../src/people.js';
-import { OFFICE3D_ROOMS, AGENT3D_HOMES, OFFICE3D_COLORS, createOffice3DAssets, createOffice3DLayout } from '../src/scene3d-layout.js';
+import { OFFICE3D_ROOMS, OFFICE3D_BOUNDS, OFFICE3D_CENTER, AGENT3D_HOMES, OFFICE3D_COLORS, createOffice3DAssets, createOffice3DLayout } from '../src/scene3d-layout.js';
 import { actorIdentity, createOffice3DActor, facingForHeading } from '../src/scene3d-actors.js';
 import { office3DFrustum, Scene3DUnavailableError, OFFICE3D_LINKS, scene3DFramePolicy, OFFICE3D_CAMERA_OFFSET, scene3DPixelRatio, scene3DGestureMode, mountScene3D } from '../src/scene3d.js';
+import { OFFICE_ROOMS, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_SEATS, OFFICE_OVERVIEW_SEATS, OFFICE_FITTINGS, OFFICE_LANDSCAPE, OFFICE_WORK_POSITIONS } from '../src/organization.mjs';
 import { createScene3DMotion, desired3DPositions } from '../src/scene3d-motion.js';
 
-test('3D adds eight furnished rooms and preserves every selectable 2D endpoint',()=>{
-  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets);assert.equal(layout.statistics.rooms,8);assert.equal(OFFICE3D_ROOMS.find(r=>r.id==='investment').title,'投资者关系部');assert.ok(OFFICE3D_ROOMS.find(r=>r.id==='general_office').x>OFFICE3D_ROOMS.find(r=>r.id==='investment').x);assert.deepEqual([...layout.statusLights.keys()].sort(),Object.keys(NODE_META).sort());assert.ok(layout.statistics.desks>=14);assert.equal(layout.statistics.racks,2);assert.ok(layout.statistics.plants>=10);assert.ok(layout.statistics.staticInstances>1500);assert.ok(layout.root.children.filter(child=>child.isInstancedMesh).length<150,'static fittings share instance batches');for(const instance of layout.root.children.filter(child=>child.isInstancedMesh)){assert.equal(instance.instanceColor?.count,instance.count);const matrix=new THREE.Matrix4();for(let i=0;i<instance.count;i++){instance.getMatrixAt(i,matrix);assert.ok(matrix.elements.every(Number.isFinite));}}}finally{assets.dispose();}
+test('3D furnishes all twelve departments with 251 workplaces and 250 unique occupants in bounded GPU batches',()=>{
+  const assets=createOffice3DAssets();try{
+    const layout=createOffice3DLayout(assets);assert.equal(layout.statistics.rooms,12);assert.deepEqual(OFFICE3D_ROOMS.map(room=>room.id),OFFICE_ROOMS.map(room=>room.id));
+    assert.equal(OFFICE3D_ROOMS.find(room=>room.id==='investment').title,'投资者关系部');
+    assert.deepEqual([...layout.statusLights.keys()].sort(),Object.keys(NODE_META).filter(id=>id!=='bulletin').sort());
+    assert.equal(layout.statistics.desks,251);assert.equal(layout.statistics.workplaces,251);assert.equal(layout.statistics.people,250);assert.equal(layout.statistics.racks,2);assert.equal(layout.statistics.plants,OFFICE_FITTINGS.filter(item=>item.kind==='plant').length+OFFICE_BULLETIN_AREA.plants.length);assert.equal(layout.statistics.bulletinBoards,1);assert.ok(layout.nodeAnchors.has('bulletin'));assert.equal(layout.statusLights.has('bulletin'),false);assert.equal(layout.statistics.fittings,OFFICE_FITTINGS.length);assert.equal(layout.statistics.landscape,OFFICE_LANDSCAPE.length);
+    assert.ok(layout.statistics.staticInstances>10000&&layout.statistics.staticInstances<18000);assert.ok(layout.root.children.filter(child=>child.isInstancedMesh).length<=7,'additional staff only add instances to shared static geometry');
+    for(const instance of layout.root.children.filter(child=>child.isInstancedMesh)){assert.equal(instance.instanceColor?.count,instance.count);const matrix=new THREE.Matrix4();for(let i=0;i<instance.count;i++){instance.getMatrixAt(i,matrix);assert.ok(matrix.elements.every(Number.isFinite));}}
+  }finally{assets.dispose();}
 });
 
 test('room floors and identities use opaque materials without shadows or light effects',()=>{
-  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets),virtual=createOffice3DActor(assets,{id:'zhang',hair:'#514333'},{virtual:true}),human=createOffice3DActor(assets,HUMAN_EMPLOYEES[0]);for(const root of[layout.root,virtual.root,human.root])root.traverse(mesh=>{assert.equal(mesh.castShadow,false);assert.equal(mesh.receiveShadow,false);if(mesh.material){assert.equal(mesh.material.transparent,false);assert.equal(mesh.material.opacity,1);assert.ok(!mesh.material.emissive||mesh.material.emissive.getHex()===0);}});assert.equal(virtual.identity.badge,'chip');assert.equal(human.identity.badge,'lanyard');assert.notEqual(virtual.identity.uniform,human.identity.uniform);assert.equal(actorIdentity({color:'#bb9988'},{virtual:false}).uniform,'#bb9988');assert.equal(OFFICE3D_COLORS.copper,'#b85a43');}finally{assets.dispose();}
+  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets),virtual=createOffice3DActor(assets,{id:'zhang',hair:'#514333'},{virtual:true}),human=createOffice3DActor(assets,HUMAN_EMPLOYEES[0]);for(const root of[layout.root,virtual.root,human.root])root.traverse(mesh=>{assert.equal(mesh.castShadow,false);assert.equal(mesh.receiveShadow,false);if(mesh.material){assert.equal(mesh.material.transparent,false);assert.equal(mesh.material.opacity,1);assert.ok(!mesh.material.emissive||mesh.material.emissive.getHex()===0);}});assert.equal(virtual.identity.badge,'chip');assert.equal(human.identity.badge,'lanyard');assert.notEqual(virtual.identity.uniform,human.identity.uniform);assert.equal(actorIdentity({color:'#bb9988'},{virtual:false}).uniform,'#c68b60');assert.equal(actorIdentity({color:'#c68b60'},{virtual:true}).uniform,'#347f9c');assert.equal(OFFICE3D_COLORS.copper,'#b85a43');}finally{assets.dispose();}
 });
 
 test('seated staff bend at the knee, keep feet near the floor and reach the keyboard',()=>{
@@ -26,9 +34,14 @@ test('orthographic fitting covers desktop, tablet and narrow viewports without i
   for(const [a,b]of OFFICE3D_LINKS){assert.ok(NODE_META[a]);assert.ok(NODE_META[b]);}
 });
 
-test('management reviewer visits a free position without occupying the assistant or owner seat',()=>{
-  const positions=desired3DPositions([{id:'invest_risk',status:'working',nodeId:'general_office'},{id:'boss',status:'working',nodeId:'general_office'}]);assert.deepEqual(positions.get('invest_risk'),{x:670,y:87});assert.deepEqual(positions.get('boss'),{x:584,y:87});assert.equal(new Set([positions.get('invest_risk').x,positions.get('boss').x,HUMAN_EMPLOYEES[0].x]).size,3);assert.deepEqual(desired3DPositions([{id:'zhang',status:'working',nodeId:'server'}],{halted:true}).get('zhang'),{x:464,y:350});
+test('management reviewer visits a shared-plan arrival slot without occupying the assistant or chairman post',()=>{
+  const positions=desired3DPositions([{id:'invest_risk',status:'working',nodeId:'general_office'},{id:'boss',status:'working',nodeId:'general_office'}]);
+  const [x,y]=OFFICE_WORK_POSITIONS.general_office[0];assert.deepEqual(positions.get('invest_risk'),{x,y});assert.deepEqual(positions.get('boss'),{x:AGENT3D_HOMES.boss.x,y:AGENT3D_HOMES.boss.y});
+  assert.equal(new Set([positions.get('invest_risk').x,positions.get('boss').x,HUMAN_EMPLOYEES[0].x]).size,3);
+  for(const seat of OFFICE_SEATS.filter(seat=>seat.departmentId==='general_office'))assert.notDeepEqual(positions.get('invest_risk'),{x:seat.x,y:seat.y});
+  assert.deepEqual(desired3DPositions([{id:'zhang',status:'working',nodeId:'server'}],{halted:true}).get('zhang'),{x:AGENT3D_HOMES.zhang.x,y:AGENT3D_HOMES.zhang.y});
 });
+
 function motionFixture(){let time=0;const delivered=[];const makeActor=meta=>({point:{x:meta.x,y:meta.y},root:{rotation:{y:0}},pose:{},setPose(patch){Object.assign(this.pose,patch);},setPosition(point){this.point={x:point.x,y:point.y};},facePoint(){}});const agents=new Map(Object.entries(AGENT3D_HOMES).map(([id,meta])=>[id,makeActor(meta)])),humans=new Map(HUMAN_EMPLOYEES.map(h=>[h.id,makeActor(h)]));const motion=createScene3DMotion({agents,humans,now:()=>time,onDelivery:event=>delivered.push(event.id)});return{motion,agents,humans,delivered,tick(ms){time+=ms;motion.tick(time);},drain(){for(let i=0;i<800&&(motion.activeCount||motion.pendingCount||motion.walks.size);i++){time+=100;motion.tick(time);}assert.equal(motion.activeCount,0);assert.equal(motion.pendingCount,0);}};}
 
 test('opening a historical snapshot does not reenact handoffs; fresh receipts happen exactly once',()=>{
@@ -37,7 +50,7 @@ test('opening a historical snapshot does not reenact handoffs; fresh receipts ha
 });
 
 test('cross-employee handoffs serialize their participants and never approve a human workflow',()=>{
-  const f=motionFixture(),events=[{id:'a',type:'handoff',agentId:'zhang',targetAgentId:'liu'},{id:'b',type:'handoff',agentId:'liu',targetAgentId:'zhang'},{id:'approval',type:'handoff',agentId:'boss',targetHumanId:'owner',deliveryKind:'approval_request'}];f.motion.update({runId:'live',animateEvents:true,logs:events,humanApproval:true});assert.equal(f.motion.activeCount,2);assert.equal(f.motion.pendingCount,1);assert.ok(f.motion.queue.locked('owner'));f.drain();assert.equal(f.delivered.length,3);assert.equal(new Set(f.delivered).size,3);assert.ok(f.delivered.includes('approval'));assert.equal(f.humans.get('owner').pose.seated,true);assert.ok(!('approved'in f.humans.get('owner').pose));f.motion.destroy();
+  const f=motionFixture(),events=[{id:'a',type:'handoff',agentId:'zhang',targetAgentId:'liu'},{id:'b',type:'handoff',agentId:'liu',targetAgentId:'zhang'},{id:'approval',type:'handoff',agentId:'boss',targetHumanId:'owner',deliveryKind:'approval_request'}];f.motion.update({runId:'live',animateEvents:true,logs:events,humanApproval:true});assert.equal(f.motion.activeCount,2);assert.equal(f.motion.pendingCount,1);assert.ok(f.motion.queue.locked('owner'));f.drain();assert.equal(f.delivered.length,3);assert.equal(new Set(f.delivered).size,3);assert.ok(f.delivered.includes('approval'));assert.equal(f.humans.get('owner').pose.seated,false);assert.ok(!('approved'in f.humans.get('owner').pose));f.motion.destroy();
 });
 
 test('switching or cancelling a run clears obsolete movement and transfer callbacks',()=>{
@@ -45,7 +58,7 @@ test('switching or cancelling a run clears obsolete movement and transfer callba
 });
 
 test('runtime reduced motion settles current walks while retaining actual receipt ordering',()=>{
-  const f=motionFixture(),event={id:'actual',type:'handoff',sourceHumanId:'it_owner',targetAgentId:'zhang',agentId:'zhang'};f.motion.update({runId:'motion',animateEvents:true,logs:[event]});f.tick(500);assert.ok(f.motion.walks.size);f.motion.setReducedMotion(true);assert.equal(f.motion.walks.size,0);assert.equal(f.motion.activeCount,1);f.tick(1);assert.deepEqual(f.delivered,['actual']);f.tick(1600);assert.equal(f.motion.activeCount,0);assert.deepEqual(f.delivered,['actual']);f.motion.destroy();
+  const f=motionFixture(),event={id:'actual',type:'handoff',sourceHumanId:'hr_owner',targetAgentId:'zhang',agentId:'zhang'};f.motion.update({runId:'motion',animateEvents:true,logs:[event]});f.tick(50);assert.ok(f.motion.walks.size);f.motion.setReducedMotion(true);assert.equal(f.motion.walks.size,0);assert.equal(f.motion.activeCount,1);f.tick(1);assert.deepEqual(f.delivered,['actual']);f.tick(1600);assert.equal(f.motion.activeCount,0);assert.deepEqual(f.delivered,['actual']);f.motion.destroy();
 });
 
 
@@ -69,8 +82,8 @@ test('camera fitting and the reference-facing view use the same orthonormal dire
   const direction=new THREE.Vector3(...OFFICE3D_CAMERA_OFFSET).normalize();
   for(const aspect of[.45,1,1.7,2.8]){
     const f=office3DFrustum(aspect);assert.ok(direction.distanceTo(f.direction)<1e-8);assert.ok(f.right.x>0&&f.up.x>0,'reference office rises gently towards the right');
-    for(const x of[20,1035])for(const y of[0,100])for(const z of[-7,625]){
-      const corner=new THREE.Vector3(x-527.5,y-35,z-309);assert.ok(Math.abs(corner.dot(f.right))<=f.width/2);assert.ok(Math.abs(corner.dot(f.up))<=f.height/2);
+    for(const x of[OFFICE3D_BOUNDS.min.x,OFFICE3D_BOUNDS.max.x])for(const y of[OFFICE3D_BOUNDS.min.y,OFFICE3D_BOUNDS.max.y])for(const z of[OFFICE3D_BOUNDS.min.z,OFFICE3D_BOUNDS.max.z]){
+      const corner=new THREE.Vector3(x-OFFICE3D_CENTER.x,y-OFFICE3D_CENTER.y,z-OFFICE3D_CENTER.z);assert.ok(Math.abs(corner.dot(f.right))<=f.width/2);assert.ok(Math.abs(corner.dot(f.up))<=f.height/2);
     }
   }
 });
@@ -84,7 +97,7 @@ test('keyboard hands stay on desktop height for both detailed figure scales',()=
 test('orbit fits the complete building at every bearing and tilt without excess framing',()=>{
   for(const aspect of[.45,1,1.6,2.3,3.2])for(const azimuth of[-Math.PI,-Math.PI/2,0,.7,Math.PI])for(const elevation of[.42,.76,1.28]){
     const f=office3DFrustum(aspect,{azimuth,elevation});let maxX=0,maxY=0;
-    for(const x of[20,1035])for(const y of[-12,100])for(const z of[-7,625]){const point=new THREE.Vector3(x-527.5,y-35,z-309);maxX=Math.max(maxX,Math.abs(point.dot(f.right)-f.centerX));maxY=Math.max(maxY,Math.abs(point.dot(f.up)-f.centerY));}
+    for(const x of[OFFICE3D_BOUNDS.min.x,OFFICE3D_BOUNDS.max.x])for(const y of[OFFICE3D_BOUNDS.min.y,OFFICE3D_BOUNDS.max.y])for(const z of[OFFICE3D_BOUNDS.min.z,OFFICE3D_BOUNDS.max.z]){const point=new THREE.Vector3(x-OFFICE3D_CENTER.x,y-OFFICE3D_CENTER.y,z-OFFICE3D_CENTER.z);maxX=Math.max(maxX,Math.abs(point.dot(f.right)-f.centerX));maxY=Math.max(maxY,Math.abs(point.dot(f.up)-f.centerY));}
     assert.ok(maxX<=f.width/2&&maxY<=f.height/2);assert.ok(Math.max(maxX*2/f.width,maxY*2/f.height)>.96,'one fitted axis uses over 96% of the frame');
   }
 });
@@ -119,8 +132,8 @@ function mountedSceneFixture(callbacks={},options={}){
   const doc=new Element();doc.hidden=false;doc.createElement=tag=>new Element(tag);globalThis.document=doc;globalThis.ResizeObserver=class{constructor(fn){this.fn=fn;}observe(){resizers.add(this.fn);}disconnect(){resizers.delete(this.fn);}};
   globalThis.requestAnimationFrame=fn=>{const id=++sequence;pending.set(id,fn);return id;};globalThis.cancelAnimationFrame=id=>pending.delete(id);globalThis.setTimeout=(fn,delay)=>{const id=++sequence;timers.set(id,{fn,due:clock+delay});return id;};globalThis.clearTimeout=id=>timers.delete(id);globalThis.devicePixelRatio=options.deviceRatio??1;globalThis.matchMedia=selector=>{if(selector.includes('prefers-reduced-motion'))return preference;if(!media.has(selector))media.set(selector,query(true));return media.get(selector);};
   const canvas=new Element('canvas'),allocations=[],operations=[],renderer={domElement:canvas,shadowMap:{},capabilities:{maxTextureSize:options.maxBufferDimension||16384},info:{render:{calls:0,triangles:0}},setDrawingBufferSize(width,height,ratio){allocations.push({width,height,ratio});operations.push('resize');canvas.painted=false;canvas.width=Math.floor(width*ratio);canvas.height=Math.floor(height*ratio);},render(scene){operations.push('render');canvas.painted=true;let calls=0;const visit=(item,visible=true)=>{visible=visible&&item.visible;if(!visible)return;if(item.isMesh&&item.material?.visible!==false)calls++;for(const child of item.children)visit(child,visible);};visit(scene);this.info.render.calls=calls;},dispose(){},forceContextLoss(){}};
-  const container=new Element(),api=mountScene3D(container,{...callbacks,rendererFactory:()=>renderer});
-  return{api,canvas,pending,timers,container,wrapper:container.children[0],preference,media,allocations,operations,document:doc,client(x,y){return {clientX:surface.left+x/surface.scale,clientY:surface.top+y/surface.scale};},viewport(scale,left=surface.left,top=surface.top){surface={scale,left,top};for(const fn of resizers)fn();},resize(width,height){size={width,height};for(const fn of resizers)fn();},density(ratio){const previous=media.get(`(resolution: ${globalThis.devicePixelRatio}dppx)`);globalThis.devicePixelRatio=ratio;previous?.listeners.get('change')?.({matches:false});},greeting(){const find=el=>el.className==='office3d-greeting'?el:el.children.map(find).find(Boolean);return find(container);},button(type,id){const visit=el=>el.tagName==='button'&&el.dataset[type]===id?el:el.children.map(visit).find(Boolean);return visit(container);},frame(){const callbacks=[...pending.values()];pending.clear();clock+=34;callbacks.forEach(fn=>fn(clock));for(const [id,timer]of [...timers])if(timer.due<=clock){timers.delete(id);timer.fn();}},drain(){for(let i=0;i<1000&&(pending.size||timers.size);i++)this.frame();assert.equal(pending.size,0,'presentation animations stop after reaching their endpoint');assert.equal(timers.size,0);},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
+  const container=new Element(),api=mountScene3D(container,{...callbacks,rendererFactory:()=>renderer,ambientEnabled:options.ambientEnabled??false});
+  return{api,canvas,pending,timers,container,wrapper:container.children[0],preference,media,allocations,operations,document:doc,client(x,y){return {clientX:surface.left+x/surface.scale,clientY:surface.top+y/surface.scale};},viewport(scale,left=surface.left,top=surface.top){surface={scale,left,top};for(const fn of resizers)fn();},resize(width,height){size={width,height};for(const fn of resizers)fn();},density(ratio){const previous=media.get(`(resolution: ${globalThis.devicePixelRatio}dppx)`);globalThis.devicePixelRatio=ratio;previous?.listeners.get('change')?.({matches:false});},greeting(){const find=el=>el.className==='office3d-greeting'?el:el.children.map(find).find(Boolean);return find(container);},postTooltip(){const find=el=>el.className==='office3d-post-tooltip'?el:el.children.map(find).find(Boolean);return find(container);},room(id){const find=el=>el.className==='office3d-room-label'&&el.dataset.node===id?el:el.children.map(find).find(Boolean);return find(container);},area(id){const find=el=>el.dataset.area===id?el:el.children.map(find).find(Boolean);return find(container);},button(type,id){const visit=el=>el.tagName==='button'&&el.dataset[type]===id?el:el.children.map(visit).find(Boolean);return visit(container);},frame(){const callbacks=[...pending.values()];pending.clear();clock+=34;callbacks.forEach(fn=>fn(clock));for(const [id,timer]of [...timers])if(timer.due<=clock){timers.delete(id);timer.fn();}},drain(){for(let i=0;i<1000&&(pending.size||timers.size);i++)this.frame();assert.equal(pending.size,0,'presentation animations stop after reaching their endpoint');assert.equal(timers.size,0);},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
 }
 
 test('resize observers preserve the painted frame and coalesce allocation into the replacement draw',()=>{
@@ -183,7 +196,7 @@ test('Safari gesture events cannot double-apply a two-pointer pinch',()=>{
 });
 
 test('the mounted office stops rendering at rest and returns to idle after pointer rotation',()=>{
-  const f=mountedSceneFixture();try{f.frame();assert.equal(f.pending.size,0);const initial=f.api.getPerformanceStats();assert.equal(initial.renders,1);assert.ok(initial.drawCalls<100,JSON.stringify(initial));
+  const f=mountedSceneFixture();try{f.frame();assert.equal(f.pending.size,0);const initial=f.api.getPerformanceStats();assert.equal(initial.renders,1);assert.ok(initial.drawCalls<110,JSON.stringify(initial));
     const before=f.api.getNodeAnchor('server');f.canvas.emit('pointerdown',{clientX:900,clientY:400});f.canvas.emit('pointermove',{clientX:1010,clientY:440});f.frame();const after=f.api.getNodeAnchor('server');assert.ok(Math.abs(before.x-after.x)>20);assert.notEqual(f.api.getPerformanceStats().azimuth,initial.azimuth);f.canvas.emit('pointerup',{clientX:1010,clientY:440});f.frame();assert.equal(f.pending.size,0);
     const settled=f.api.getPerformanceStats();assert.equal(settled.actorUpdates,initial.actorUpdates,'rotating the camera does not animate or upload static colleagues');assert.equal(settled.instanceUploads,initial.instanceUploads);
     f.api.resetView();assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.drain();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)<.001);
@@ -274,4 +287,118 @@ test('smiling and a finite wave never change a person task, walk or handoff stat
   const reduced=createOffice3DActor(assets,{id:'reduced-greeting'});reduced.setGreeting(true,{animated:false});reduced.animate(0,{reducedMotion:true});assert.equal(reduced.greetingActive,true);assert.equal(reduced.waving,false);assert.equal(reduced.isAnimating,false);
   const robot=createOffice3DActor(assets,{id:'robot-greeting'},{virtual:true});robot.setGreeting(true);robot.animate(0);assert.equal(robot.waving,false);assert.equal(robot.isAnimating,false);assert.equal(robot.root.getObjectByName('smiling-mouth').visible,true);
  }finally{assets.dispose();}
+});
+
+
+test('all organizational workplaces share one static hit batch and leave the idle renderer asleep',()=>{
+  const f=mountedSceneFixture();try{f.frame();const before=f.api.getPerformanceStats();assert.equal(before.organizationPeople,250);assert.equal(before.workplaces,251);assert.equal(before.people,18,'only virtual staff and functional representatives use articulated rigs');assert.equal(f.pending.size,0);
+    assert.ok(before.drawCalls<90,`organization draw calls ${before.drawCalls}`);f.api.rotate(.5);f.drain();const after=f.api.getPerformanceStats();assert.equal(after.actorUpdates,before.actorUpdates);assert.equal(after.instanceUploads,before.instanceUploads);assert.equal(after.drawCalls,before.drawCalls);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+test('chairman workplace hover and selection use the same instance coordinates under native zoom',()=>{
+  const seat=OFFICE_SEATS.find(post=>post.role==='chairman');
+  for(const visualScale of[1,2,3]){const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)},{visualScale,offsetLeft:73,offsetTop:43});try{
+    f.frame();const at=f.api.getPostAnchor(seat.id),point=f.client(at.x,at.y),tooltip=f.postTooltip();assert.ok(at.visible);
+    f.canvas.emit('pointermove',point);assert.equal(tooltip.hidden,false);assert.equal(tooltip.dataset.post,seat.id);assert.equal(tooltip.children[0].textContent,'董事长');assert.equal(tooltip.children[1].textContent,'总经办');assert.equal(f.pending.size,0,'post hover has no model calls or background animation');
+    f.canvas.emit('pointerdown',point);assert.equal(tooltip.hidden,true);f.canvas.emit('pointerup',point);f.drain();assert.deepEqual(selected,['general_office']);f.canvas.emit('pointerleave');assert.equal(tooltip.hidden,true);
+  }finally{f.restore();}}
+});
+
+test('shared business manager has one person and an explicitly labelled second workplace',()=>{
+  const shared=OFFICE_SEATS.find(seat=>seat.departmentId==='channels'&&seat.role==='manager'),chairman=OFFICE_SEATS.find(seat=>seat.role==='chairman');assert.equal(shared.occupantVisible,false);
+  const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)});try{f.frame();assert.equal(f.button('post',chairman.id).hidden,true,'full view keeps role labels clear of signed-in employee nameplates');f.api.focusNode('general_office');f.drain();assert.equal(f.button('post',chairman.id).hidden,false,'department magnification reveals the chairman role');f.api.focusNode('channels');f.drain();assert.ok(f.api.getPerformanceStats().scale>=1.65&&f.api.getPerformanceStats().scale<=6.5);const label=f.button('post',shared.id);assert.ok(label);assert.equal(label.hidden,false);label.emit('focus');assert.equal(f.postTooltip().children[0].textContent,'商务部经理兼任');label.emit('blur');assert.equal(f.postTooltip().hidden,true);label.emit('click',{detail:0});assert.deepEqual(selected,['channels']);
+    const chairmanLabel=f.button('post',chairman.id);assert.ok(chairmanLabel);assert.equal(chairmanLabel.textContent,'董事长');const smallDepartmentScale=f.api.getPerformanceStats().scale;f.api.focusNode('ai_data');f.drain();assert.ok(f.api.getPerformanceStats().scale<smallDepartmentScale,'a larger department zooms back to fit instead of inheriting the small department magnification');f.api.resetView();f.drain();assert.equal(f.api.getPerformanceStats().scale,1);assert.equal(f.button('post',chairman.id).hidden,true,'returning to full view hides the chairman overlay again');assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+
+test('AI departments expose five shared-plan team labels that focus locally and return to the same full view',()=>{
+  const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)});try{f.frame();const initial=f.api.getPerformanceStats(),initialAnchor=f.api.getPostAnchor('ai_data_head_001');
+    const teams=OFFICE_ROOMS.find(room=>room.id==='ai_data').teamZones;assert.equal(teams.length,5);
+    for(const team of teams){const label=f.button('team',team.id);assert.ok(label);assert.equal(label.firstChild.textContent,`${team.title} · 40 人`);label.emit('click',{detail:0});f.drain();assert.ok(f.api.getPerformanceStats().scale>=1.65&&f.api.getPerformanceStats().scale<=6.5);assert.ok(f.api.getPostAnchor(team.headPersonId).visible);assert.deepEqual(selected,[],'team navigation never opens or mutates ERP records');}
+    f.api.resetView();f.drain();assert.equal(f.api.getPerformanceStats().scale,1);assert.equal(f.api.getPerformanceStats().azimuth,initial.azimuth);const finalAnchor=f.api.getPostAnchor('ai_data_head_001');for(const key of['x','y'])assert.ok(Math.abs(finalAnchor[key]-initialAnchor[key])<1e-6);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+
+test('rounded architecture and furniture geometry honors its declared footprint including bevels',()=>{
+  const assets=createOffice3DAssets();try{for(const kind of['round','slab']){const geometry=assets.geometries[kind];geometry.computeBoundingBox();const dimensions=new THREE.Vector3();geometry.boundingBox.getSize(dimensions);for(const value of dimensions.toArray())assert.ok(Math.abs(value-1)<1e-6,`${kind} expanded outside its footprint`);}
+    const layout=createOffice3DLayout(assets);layout.root.updateMatrixWorld(true);const extents=new THREE.Box3().setFromObject(layout.root);assert.ok(extents.min.x>=OFFICE3D_BOUNDS.min.x&&extents.max.x<=OFFICE3D_BOUNDS.max.x);assert.ok(extents.min.z>=OFFICE3D_BOUNDS.min.z&&extents.max.z<=OFFICE3D_BOUNDS.max.z);assert.ok(extents.max.y<=OFFICE3D_BOUNDS.max.y,'tree canopy and server racks remain inside the fitted height');
+  }finally{assets.dispose();}
+});
+
+
+test('a selected department can reveal its roles at full scale without displaying unrelated labels',()=>{
+  const f=mountedSceneFixture();try{f.frame();const chairman=OFFICE_SEATS.find(seat=>seat.role==='chairman'),shared=OFFICE_SEATS.find(seat=>!seat.occupantVisible);assert.equal(f.button('post',chairman.id).hidden,true);f.api.setSelectedNode('general_office');f.frame();assert.equal(f.button('post',chairman.id).hidden,false);assert.equal(f.button('post',shared.id).hidden,true);f.api.setSelectedNode(null);f.frame();assert.equal(f.button('post',chairman.id).hidden,true);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+
+test('ambient poses finish within one burst and never change the employee task pose or world position',()=>{
+  const assets=createOffice3DAssets();try{for(const kind of['typing','sip','look','nod','wave']){
+    const actor=createOffice3DActor(assets,{id:`ambient-${kind}`},{virtual:kind==='typing'});actor.setPosition({x:120,y:180});actor.animate(0,{reducedMotion:true});const before={...actor.target},point=actor.root.position.clone();
+    assert.equal(actor.setAmbient(kind,{x:150,y:180}),true);assert.equal(actor.isAnimating,true);actor.animate(0);actor.animate(900);assert.equal(actor.ambientKind,kind);assert.deepEqual(actor.target,before);assert.deepEqual(actor.root.position,point);
+    if(kind==='sip')assert.equal(actor.ambientCup.visible,true);if(kind==='typing')assert.equal(actor.ambientTablet.visible,true);
+    actor.animate(2400);assert.equal(actor.ambientKind,null);assert.equal(actor.isAnimating,false);assert.equal(actor.ambientCup.visible,false);assert.equal(actor.ambientTablet.visible,false);assert.equal(actor.animate(5000),false);assert.deepEqual(actor.target,before);
+  }}finally{assets.dispose();}
+});
+
+test('business movement, deliveries, hover greetings and reduced motion take priority over idle gestures',()=>{
+  const assets=createOffice3DAssets();try{const actor=createOffice3DActor(assets,{id:'priority'});actor.setAmbient('sip');actor.animate(0);actor.animate(700);assert.equal(actor.ambientCup.visible,true);actor.setPose({carrying:true,offering:true});assert.equal(actor.ambientKind,null);actor.animate(720,{reducedMotion:true});assert.equal(actor.ambientCup.visible,false);assert.equal(actor.document.visible,true);assert.equal(actor.setAmbient('wave'),false);
+    actor.setPose({carrying:false,offering:false});actor.animate(800,{reducedMotion:true});actor.setAmbient('look');actor.setGreeting(true);assert.equal(actor.ambientKind,null);assert.equal(actor.setAmbient('nod'),false);actor.setGreeting(false);actor.animate(900,{reducedMotion:true});actor.setAmbient('look');actor.animate(1000,{reducedMotion:true});assert.equal(actor.ambientKind,null);assert.equal(actor.isAnimating,false);
+  }finally{assets.dispose();}
+});
+
+test('3D ambience wakes only for a finite idle burst and stops immediately for a business task or hidden page',()=>{
+  const events=[],f=mountedSceneFixture({onDelivery:event=>events.push(event),onSelectNode:id=>events.push(id)},{ambientEnabled:true});try{f.frame();assert.equal(f.pending.size,0);assert.equal(f.timers.size,1,'one future timeout does not keep the render loop awake');const initial=f.api.getPerformanceStats();
+    for(let i=0;i<50&&!f.api.getPerformanceStats().ambientActive;i++)f.frame();assert.ok(f.api.getPerformanceStats().ambientActive);f.frame();assert.ok(f.pending.size>0);assert.ok(f.api.getPerformanceStats().instanceUploads>initial.instanceUploads);
+    f.api.update({runStatus:'running',agents:[{id:'zhang',status:'working'}]});assert.equal(f.api.getPerformanceStats().ambientActive,null);assert.equal(f.timers.size,0,'blocked business state has no idle polling timeout');f.drain();assert.equal(f.pending.size,0);assert.deepEqual(events,[]);
+    f.api.update({runStatus:'completed',agents:[]});f.frame();assert.equal(f.timers.size,1);for(let i=0;i<50&&!f.api.getPerformanceStats().ambientActive;i++)f.frame();assert.ok(f.api.getPerformanceStats().ambientActive);
+    f.document.hidden=true;f.document.emit('visibilitychange');assert.equal(f.api.getPerformanceStats().ambientActive,null);assert.equal(f.timers.size,0);assert.equal(f.pending.size,0);f.document.hidden=false;f.document.emit('visibilitychange');f.frame();assert.equal(f.timers.size,1);f.preference.listeners.get('change')({matches:true});f.frame();assert.equal(f.timers.size,0);assert.equal(f.api.getPerformanceStats().ambientActive,null);assert.equal(f.pending.size,0);assert.deepEqual(events,[]);
+  }finally{f.restore();}
+});
+
+
+test('3D home shows only shared overview posts while one selected team can reveal all 41 workplaces',()=>{
+  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets),team=OFFICE_ROOMS.find(room=>room.id==='ai_data').teamZones[0],hiddenStaff=team.seats.find(seat=>!seat.overviewVisible),head=team.seats[0];
+    assert.deepEqual([...layout.visibleSeatIds].sort(),OFFICE_OVERVIEW_SEATS.map(seat=>seat.id).sort());assert.equal(layout.isSeatVisible(hiddenStaff.id),false);assert.equal(layout.seatGeometry(head.id).scale,.58);assert.equal(layout.statistics.people,250);assert.equal(layout.statistics.workplaces,251);
+    assert.equal(layout.setDetailGroups([team.id]),true);assert.equal(layout.detailGroupIds.length,1);for(const seat of team.seats){assert.equal(layout.isSeatVisible(seat.id),true);assert.equal(layout.seatGeometry(seat.id).scale,.24);}assert.equal(layout.visibleSeatIds.size,OFFICE_OVERVIEW_SEATS.length-team.overviewSeatIds.length+41);assert.equal(layout.setDetailGroups([team.id]),false,'unchanged camera frames do not upload overview instances');
+    assert.equal(layout.setDetailGroups([]),true);assert.equal(layout.isSeatVisible(hiddenStaff.id),false);assert.equal(layout.seatGeometry(head.id).scale,.58);
+  }finally{assets.dispose();}
+});
+
+test('AI department navigation retains its representative view and team detail never expands the entire roster',()=>{
+  const f=mountedSceneFixture();try{f.frame();assert.equal(f.api.getPerformanceStats().visibleWorkplaces,OFFICE_OVERVIEW_SEATS.length);assert.deepEqual(f.api.getPerformanceStats().detailGroups,[]);const team=OFFICE_ROOMS.find(room=>room.id==='ai_data').teamZones[0],hiddenStaff=team.seats.find(seat=>!seat.overviewVisible);assert.equal(f.api.getPostAnchor(hiddenStaff.id).visible,false);
+    f.api.focusNode('ai_data');f.drain();assert.deepEqual(f.api.getPerformanceStats().detailGroups,[],'viewing the AI department does not show a dense roster');f.button('team',team.id).emit('click',{detail:0});f.drain();assert.deepEqual(f.api.getPerformanceStats().detailGroups,[team.id]);assert.equal(f.api.getPostAnchor(hiddenStaff.id).visible,true);assert.ok(f.api.getPerformanceStats().visibleWorkplaces<100);assert.ok(f.api.getPerformanceStats().scale>3.2,'the compact team can be inspected beyond ordinary overview magnification');
+    f.api.resetView();f.drain();assert.equal(f.api.getPostAnchor(hiddenStaff.id).visible,false);assert.deepEqual(f.api.getPerformanceStats().detailGroups,[]);assert.equal(f.api.getPerformanceStats().visibleWorkplaces,OFFICE_OVERVIEW_SEATS.length);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+
+test('department and team hover show authoritative role counts without inferred business or online status',()=>{
+  const f=mountedSceneFixture();try{f.frame();const tooltip=f.postTooltip();f.room('general_office').emit('pointerenter');assert.equal(tooltip.children[0].textContent,'总经办');assert.equal(tooltip.children[1].textContent,'1 董事长 · 1 经理');assert.equal(tooltip.dataset.department,'general_office');f.room('general_office').emit('pointerleave');assert.equal(tooltip.hidden,true);
+    f.room('ai_data').emit('focus');assert.equal(tooltip.children[1].textContent,'1 经理 · 5 部长 · 200 员工');f.room('ai_data').emit('blur');assert.equal(tooltip.hidden,true);const team=OFFICE_ROOMS.find(room=>room.id==='ai_data').teamZones[0];f.button('team',team.id).emit('pointerenter');assert.equal(tooltip.children[0].textContent,'AI数据算法部 · 第1部');assert.equal(tooltip.children[1].textContent,'1 部长 · 40 员工');assert.doesNotMatch(tooltip.children.map(child=>child.textContent).join(' '),/待命|在线|处理中/);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+test('narrow 3D overview labels use short names while focus and wide displays retain full accessible titles',()=>{
+  const f=mountedSceneFixture({}, {width:405,height:724});try{f.frame();const hr=f.room('hr_admin'),publicAffairs=f.room('public_affairs'),team=f.button('team','ai_data_team_1');assert.equal(hr.firstChild.textContent,'人事行政');assert.equal(publicAffairs.firstChild.textContent,'公共事务');assert.equal(hr.firstChild.style.fontSize,'11px');assert.equal(team.firstChild.textContent,'第1部');assert.match(hr.attributes['aria-label'],/人力资源与行政管理部/);assert.equal(hr.attributes.title,'人力资源与行政管理部');assert.match(team.attributes['aria-label'],/40/);const baseline=f.api.getPerformanceStats();
+    f.api.focusNode('hr_admin');f.drain();assert.equal(hr.firstChild.textContent,'人力资源与行政管理部');assert.equal(hr.firstChild.style.fontSize,'14px');assert.equal(team.firstChild.textContent,'第1部 · 40 人');f.api.resetView();f.drain();assert.equal(hr.firstChild.textContent,'人事行政');assert.equal(f.api.getPerformanceStats().azimuth,baseline.azimuth);
+    f.resize(1440,900);f.drain();assert.equal(hr.firstChild.textContent,'人力资源与行政管理部');assert.equal(publicAffairs.firstChild.textContent,'公共事务关系部');assert.equal(team.firstChild.textContent,'第1部 · 40 人');assert.equal(hr.firstChild.style.fontSize,'14px');assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+
+test('the public information wall has one readable action and a physical pick target under native zoom',()=>{
+  for(const visualScale of[1,2,3]){const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)},{visualScale,offsetLeft:81,offsetTop:37});try{f.frame();const button=f.button('node','bulletin');assert.ok(button);assert.equal(button.firstChild.textContent,'信息公开栏');assert.equal(button.hidden,false);assert.equal(button.attributes['aria-label'],'信息公开栏');const at=f.api.getNodeAnchor('bulletin');assert.ok(at.visible);const point=f.client(at.x,at.y);f.canvas.emit('pointerdown',point);f.canvas.emit('pointerup',point);f.drain();assert.deepEqual(selected,['bulletin']);assert.equal(f.api.getPerformanceStats().organizationPeople,250);assert.equal(f.api.getPerformanceStats().workplaces,251);
+    f.api.setTopology(false);f.frame();assert.equal(button.hidden,false,'announcements remain accessible when network lines are off');button.emit('click',{detail:0});assert.deepEqual(selected,['bulletin','bulletin']);f.api.focusNode('bulletin');f.drain();assert.ok(f.api.getPerformanceStats().scale>1);f.api.resetView();f.drain();assert.equal(f.api.getPerformanceStats().scale,1);assert.equal(f.pending.size,0);
+  }finally{f.restore();}}
+});
+
+
+test('the courtyard convenience store is scenery with a readable label and no retail business action',()=>{
+  const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)},{width:405,height:724});try{f.frame();const label=f.area('convenience');assert.ok(label);assert.equal(label.firstChild.textContent,'无人便利店');assert.equal(label.attributes.role,'img');assert.equal(label.firstChild.style.fontSize,'11px');assert.equal(f.button('node','convenience'),undefined);assert.equal(NODE_META.convenience,undefined);label.emit('pointerenter');assert.equal(label.firstChild.style.color,'var(--office-ui-accent)');label.emit('pointerleave');assert.equal(label.firstChild.style.color,'');label.emit('click',{detail:0});assert.deepEqual(selected,[]);assert.equal(f.api.getPerformanceStats().organizationPeople,250);assert.equal(f.api.getPerformanceStats().workplaces,251);assert.equal(f.pending.size,0);
+    f.resize(1440,900);f.drain();assert.equal(label.firstChild.style.fontSize,'14px');assert.equal(label.attributes['aria-label'],OFFICE_CONVENIENCE_AREA.title);
+  }finally{f.restore();}
 });

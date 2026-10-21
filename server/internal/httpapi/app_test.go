@@ -204,10 +204,13 @@ func (f *appFixture) action(cookie, id, action string, p M, status int) response
 
 func TestHTTPAuthenticationOriginHostAndAPIBoundary(t *testing.T) {
 	f := newApp(t)
-	f.expect(f.send("GET", "/api/livez", "", nil, nil), 200)
+	live := f.expect(f.send("GET", "/api/livez", "", nil, nil), 200)
 	f.expect(f.send("GET", "/api/health", "", nil, nil), 401)
 	f.expect(f.send("GET", "/api/erp/snapshot", "", nil, nil), 401)
 	health := f.expect(f.send("GET", "/api/health", f.admin, nil, nil), 200)
+	if live.json["version"] == "" || live.json["version"] != health.json["version"] {
+		t.Fatal("public and authenticated probes must identify the same release")
+	}
 	if health.json["runtime"] != "go" {
 		t.Fatal("health runtime")
 	}

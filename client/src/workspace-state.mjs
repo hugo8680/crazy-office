@@ -1,3 +1,4 @@
+import {ORGANIZATION_DEPARTMENTS} from './organization.mjs';
 // Scene projections carry positions and state only. Business content lives in ERP views.
 export const CREW = Object.freeze([
   ['hr','小禾','人事','workstations','people'],['invest_research','沈研','研究','investment','projects'],
@@ -7,8 +8,8 @@ export const CREW = Object.freeze([
   ['finance','许姐','财务','finance','reports'],['boss','周助理','管理','general_office','desk'],
   ['ops','阿杰','运维','server','inventory']
 ].map(([id,name,role,nodeId,section])=>Object.freeze({id,name,role,nodeId,section,selected:true,status:'idle'})));
-export const ROOM_SECTIONS=Object.freeze({workstations:'people',executive:'projects',storage:'inventory',reception:'flows',meeting:'projects',finance:'reports',general_office:'desk',investment:'projects',server:'inventory',core:'inventory',access:'inventory',ups:'inventory',internet:'desk',firewall:'desk'});
-export const SECTION_ROOMS=Object.freeze({desk:'general_office',projects:'meeting',flows:'reception',inventory:'storage',products:'storage',people:'workstations',reports:'finance'});
+export const ROOM_SECTIONS=Object.freeze({bulletin:'notices',...Object.fromEntries(ORGANIZATION_DEPARTMENTS.map(d=>[d.id,({hr_admin:'people',finance:'reports',general_office:'desk',maintenance:'inventory',channels:'flows',business:'flows'})[d.id]||'projects'])),workstations:'people',executive:'projects',storage:'inventory',reception:'flows',meeting:'projects',finance:'reports',general_office:'desk',investment:'projects',server:'inventory',core:'inventory',access:'inventory',ups:'inventory',internet:'desk',firewall:'desk'});
+export const SECTION_ROOMS=Object.freeze({notices:'bulletin',desk:'general_office',projects:'research',flows:'business',inventory:'maintenance',products:'maintenance',people:'hr_admin',reports:'finance'});
 const list=value=>Array.isArray(value)?value:[];
 const records=value=>list(value).filter(item=>item&&typeof item==='object');
 const scalar=value=>typeof value==='string'?value:'';

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"crazyoffice/server/internal/access"
+	"crazyoffice/server/internal/buildinfo"
 	"crazyoffice/server/internal/erp"
 	"crazyoffice/server/internal/erpflow"
 	"crazyoffice/server/internal/identity"
@@ -216,7 +217,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 	path := r.URL.Path
 	ctx := r.Context()
 	if path == "/api/livez" && r.Method == "GET" {
-		write(w, 200, M{"ok": true, "version": "4.1.1", "runtime": "go"})
+		write(w, 200, M{"ok": true, "version": buildinfo.Version, "runtime": "go"})
 		return nil
 	}
 	if path == "/api/session" && r.Method == "GET" {
@@ -288,7 +289,7 @@ func (a *App) route(w http.ResponseWriter, r *http.Request) error {
 		if a.Config.Lab != nil {
 			active = a.Config.Lab.Active()
 		}
-		write(w, 200, M{"ok": true, "provider": status, "activeRuns": active, "erpActiveRuns": a.Flow.Active(), "version": "4.1.1", "runtime": "go"})
+		write(w, 200, M{"ok": true, "provider": status, "activeRuns": active, "erpActiveRuns": a.Flow.Active(), "version": buildinfo.Version, "runtime": "go"})
 		return nil
 	case path == "/api/catalog" && r.Method == "GET":
 		if a.Config.Catalog == nil {
@@ -402,6 +403,8 @@ func (a *App) erp(w http.ResponseWriter, r *http.Request, actor *identity.Actor)
 	path := r.URL.Path
 	ctx := r.Context()
 	switch {
+	case path == "/api/erp/notices" || strings.HasPrefix(path, "/api/erp/notices/"):
+		return a.notices(w, r, actor)
 	case path == "/api/erp/catalog" && r.Method == "GET":
 		write(w, 200, M{"workflows": erpflow.Workflows, "roles": erpflow.RoleLabels})
 		return nil

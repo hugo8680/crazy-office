@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.js';
+import { employeeAppearance } from './employee-appearance.mjs';
 import { OFFICE3D_COLORS } from './scene3d-layout.js';
 
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
@@ -7,7 +8,7 @@ export const STANDING_ACTOR_HEIGHT=48;
 export const SEATED_ACTOR_HEIGHT=40;
 export function facingForHeading(heading,fallback=0){return ({down:0,right:Math.PI/2,up:Math.PI,left:-Math.PI/2})[heading]??fallback;}
 export function actorIdentity(meta,{virtual=false}={}) {
-  return {virtual,uniform:virtual?'#728c7c':meta.color||'#a9816c',trousers:virtual?'#42574e':'#465057',hair:meta.hair||'#51463c',skin:virtual?'#e2c4a8':'#e5bb9b',badge:virtual?'chip':'lanyard'};
+  const appearance=employeeAppearance(virtual);return {virtual,uniform:appearance.uniform,trousers:virtual?'#375b4b':'#465057',hair:meta.hair||'#51463c',skin:virtual?'#e2c4a8':'#e8bc98',badge:virtual?'chip':'lanyard'};
 }
 
 /* A lightweight articulated colleague. Both identities are opaque people;
@@ -52,11 +53,15 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
   const legs={left:leg(-1),right:leg(1)};
   const document=new THREE.Group();arms.right.hand.add(document);document.position.set(0,-.3,3.6);document.rotation.x=.5;
   mesh('round',OFFICE3D_COLORS.copper,document,0,0,0,8.2,10.4,.8);mesh('round','#efe6d5',document,0,-.1,.5,7.3,9.4,.12);mesh('box',OFFICE3D_COLORS.copper,document,0,3,.65,7.5,3.8,.2);mesh('box','#f6e4d4',document,0,2.7,.8,3.6,.6,.12);document.visible=false;
+  const ambientCup=new THREE.Group();ambientCup.name='ambient-cup';arms.right.hand.add(ambientCup);ambientCup.position.set(0,1.4,2);ambientCup.visible=false;
+  mesh('cylinder','#f7efe1',ambientCup,0,2,0,2.1,4.2,2.1);mesh('cylinder','#aa7854',ambientCup,0,4.15,0,1.65,.2,1.65);mesh('torus','#f7efe1',ambientCup,2.1,2,0,1.25,1.25,1.25);
+  const ambientTablet=new THREE.Group();ambientTablet.name='ambient-tablet';arms.left.hand.add(ambientTablet);ambientTablet.position.set(1,0,2.5);ambientTablet.rotation.set(-.5,0,.12);ambientTablet.visible=false;
+  mesh('round','#345c51',ambientTablet,0,0,0,9,12,.8);mesh('round','#b4d9c5',ambientTablet,0,.2,.48,7.4,9.2,.16);mesh('box','#e9f3df',ambientTablet,0,2.1,.6,4.5,.6,.1);mesh('box','#78a795',ambientTablet,-.7,0,.6,3.1,.5,.1);
   const target={seated:false,walking:false,phase:0,stride:0,bob:0,working:false,lounging:false,carrying:false,offering:false,receiving:false,heading:'down',nod:0};
   let dirty=true;
-  const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3,settling=false,reaction=null,faceAngle=null,greeting=false,wave=null;
+  const pose={seated:0,step:0,typing:0,offer:0};let idleOffset=(String(meta.id||'').split('').reduce((n,c)=>n+c.charCodeAt(0),0)%19)/3,settling=false,reaction=null,faceAngle=null,greeting=false,wave=null,ambient=null;
   function animate(now=0,{reducedMotion=false,delta=16,idleMotion=false}={}) {
-    if(!dirty&&!settling&&!reaction&&!wave&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
+    if(!dirty&&!settling&&!reaction&&!wave&&!ambient&&!target.walking&&!target.offering&&!target.receiving&&!(idleMotion&&target.working))return false;
     const weight=reducedMotion?1:1-Math.exp(-Math.min(delta,100)/95),goals={seated:target.seated?1:0,step:target.walking?target.stride*Math.PI/180*1.75:0,typing:target.working&&target.seated?1:0,offer:target.offering?1:target.carrying?.35:0};
     settling=false;for(const key of Object.keys(goals)){pose[key]=blend(pose[key],goals[key],weight);if(Math.abs(pose[key]-goals[key])<.001)pose[key]=goals[key];else settling=true;}
     let response=0;
@@ -70,7 +75,7 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
       arm.upper.rotation.x=-sit*(target.lounging?.28:Math.min(1.14,1.07-(scale-1)*1.6))-step*sign*.5-(side==='right'?pose.offer*.9:0)+type;arm.upper.rotation.z=-sign*(.065+pose.offer*.045);
       arm.lower.rotation.x=-sit*(target.lounging?1.15:.63)-(side==='right'?pose.offer*.32:.03)+type;
     }
-    arms.left.lower.rotation.z=0;arms.left.hand.rotation.z=0;
+    arms.left.lower.rotation.z=0;arms.left.hand.rotation.z=0;arms.right.lower.rotation.z=0;arms.right.hand.rotation.z=0;head.rotation.y=0;ambientCup.visible=false;ambientTablet.visible=false;
     if(wave&&(reducedMotion||target.walking||target.offering||target.receiving||target.carrying))wave=null;
     if(wave){
       wave.started??=now;const progress=Math.min(1,Math.max(0,(now-wave.started)/1000)),envelope=Math.sin(progress*Math.PI),wrist=Math.sin(progress*Math.PI*6)*envelope;
@@ -78,20 +83,37 @@ export function createOffice3DActor(assets,meta,{virtual=false,background=false,
       if(progress===1)wave=null;
     }
     head.rotation.x=(target.receiving&&!reducedMotion?Math.sin(now/160)*.09:0)+sit*.06+response*.09;
-    const blink=idleMotion&&!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:greeting?.32:.6);neutralMouth.visible=!greeting;smilingMouth.visible=greeting;
+    if(ambient&&(reducedMotion||target.walking||target.offering||target.receiving||target.carrying||target.working||greeting))ambient=null;
+    if(ambient){
+      ambient.started??=now;const progress=clamp((now-ambient.started)/ambient.duration,0,1),envelope=Math.sin(progress*Math.PI),phase=progress*Math.PI*2;
+      const look=ambient.partner?clamp(Math.atan2(ambient.partner.x-root.position.x,ambient.partner.y-root.position.z)-root.rotation.y,-.75,.75):Math.sin(phase)*.42;
+      if(ambient.kind==='sip'){
+        ambientCup.visible=true;arms.right.upper.rotation.x-=1.1*envelope;arms.right.upper.rotation.z-=.45*envelope;arms.right.lower.rotation.x-=1.75*envelope;head.rotation.x-=.09*envelope;
+      }else if(ambient.kind==='typing'){
+        if(!target.seated){ambientTablet.visible=true;arms.left.upper.rotation.x-=1.15*envelope;arms.left.lower.rotation.x-=.6*envelope;arms.right.upper.rotation.x-=1.08*envelope;arms.right.upper.rotation.z-=.5*envelope;arms.right.lower.rotation.x-=(.7+Math.sin(progress*Math.PI*14)*.07)*envelope;}else for(const [index,side]of['left','right'].entries())arms[side].lower.rotation.x+=Math.sin(progress*Math.PI*16+index*2)*.045*envelope;
+        head.rotation.x+=.12*envelope;
+      }else if(ambient.kind==='wave'){
+        arms.left.upper.rotation.z-=1.8*envelope;arms.left.upper.rotation.x-=.2*envelope;arms.left.lower.rotation.x-=.55*envelope;arms.left.hand.rotation.z=Math.sin(progress*Math.PI*8)*.2*envelope;head.rotation.y=look*envelope;
+      }else if(ambient.kind==='nod'){head.rotation.x+=Math.sin(progress*Math.PI*6)*.16*envelope;head.rotation.y=look*envelope;}else head.rotation.y=look*envelope;
+      torso.rotation.z+=Math.sin(phase)*.012*envelope;
+      if(progress===1){ambient=null;ambientCup.visible=false;ambientTablet.visible=false;}
+    }
+    const blink=idleMotion&&!reducedMotion&&((now/1000+idleOffset)%5.6)<.12;eyes.forEach(eye=>eye.scale.y=blink?.1:greeting?.32:.6);const happy=greeting||ambient?.kind==='wave'||ambient?.kind==='nod';neutralMouth.visible=!happy;smilingMouth.visible=!!happy;
     document.visible=target.carrying||target.offering;
     if(target.walking)faceAngle=null;
     const facing=target.walking?facingForHeading(target.heading,root.rotation.y):faceAngle;
     if(facing!=null){let diff=facing-root.rotation.y;diff=Math.atan2(Math.sin(diff),Math.cos(diff));if(reducedMotion||Math.abs(diff)<.001){root.rotation.y+=diff;if(!target.walking)faceAngle=null;}else{root.rotation.y+=diff*weight;settling=true;}}
     dirty=false;return true;
   }
-  const api={root,identity,rig,head,arms,legs,document,target,animate,
+  const api={root,identity,rig,head,arms,legs,document,ambientCup,ambientTablet,target,animate,
     setPosition(point){if(root.position.x!==point.x||root.position.z!==point.y){root.position.set(point.x,1.9,point.y);dirty=true;}},
     facePoint(point){const angle=Math.atan2(point.x-root.position.x,point.y-root.position.z);if(root.rotation.y!==angle){faceAngle=angle;dirty=true;}},
-    react(kind='hover'){reaction={press:kind==='press',started:null};dirty=true;},
-    setGreeting(value,{animated=true}={}){const next=!!value;if(next===greeting)return;greeting=next;wave=next&&!virtual&&animated&&!target.walking&&!target.offering&&!target.receiving&&!target.carrying?{started:null}:null;dirty=true;},
-    setPose(patch){for(const [key,value]of Object.entries(patch))if(target[key]!==value){target[key]=value;dirty=true;}},
-    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return settling||!!reaction||!!wave||target.walking||target.offering||target.receiving;},get greetingActive(){return greeting;},get waving(){return !!wave;},
+    react(kind='hover'){if(ambient){ambient=null;dirty=true;}reaction={press:kind==='press',started:null};dirty=true;},
+    setGreeting(value,{animated=true}={}){const next=!!value;if(next===greeting)return;if(next)ambient=null;greeting=next;wave=next&&!virtual&&animated&&!target.walking&&!target.offering&&!target.receiving&&!target.carrying?{started:null}:null;dirty=true;},
+    setAmbient(kind,partner,{duration=2400}={}){if(!['typing','sip','look','nod','wave'].includes(kind)||greeting||target.walking||target.offering||target.receiving||target.carrying||target.working)return false;ambient={kind,partner:partner?{x:partner.x,y:partner.y}:null,started:null,duration:Math.max(600,Math.min(4000,Number(duration)||2400))};dirty=true;return true;},
+    clearAmbient(){if(!ambient)return false;ambient=null;dirty=true;return true;},get ambientKind(){return ambient?.kind||null;},
+    setPose(patch){if(ambient&&['walking','working','carrying','offering','receiving'].some(key=>patch[key])){ambient=null;dirty=true;}for(const [key,value]of Object.entries(patch))if(target[key]!==value){target[key]=value;dirty=true;}},
+    invalidate(){dirty=true;},get needsUpdate(){return dirty;},get isAnimating(){return settling||!!reaction||!!wave||!!ambient||target.walking||target.offering||target.receiving;},get greetingActive(){return greeting;},get waving(){return !!wave;},
     get height(){return (target.seated?SEATED_ACTOR_HEIGHT:STANDING_ACTOR_HEIGHT)*scale;},
   };
   root.userData={identity,actorId:meta.id,virtual,background};

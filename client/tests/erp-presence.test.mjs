@@ -1,3 +1,4 @@
+import {OFFICE_ROOMS} from '../src/organization.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeOfficePresence,MAX_OFFICE_PEOPLE,PRESENCE_NODE_IDS,presencePosition,createOfficePresenceMotion,mountErpPresence} from '../src/erp-presence.js';
@@ -12,7 +13,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
 test('在线人物只展示已登录身份，离线/重复项剔除，最多20人并保留本人',()=>{
  const people=Array.from({length:30},(_,i)=>person('user-'+i));people.push(person('offline','meeting',{online:false}),person('user-1','finance'));
  const state=normalizeOfficePresence({enabled:true,people,currentUserId:'user-29'});assert.equal(state.people.length,MAX_OFFICE_PEOPLE);assert.equal(state.people[0].id,'user-29');assert.equal(state.people[0].current,true);assert.equal(state.people.some(p=>p.id==='offline'),false);assert.equal(new Set(state.people.map(p=>p.id)).size,20);
- assert.notEqual(state.people[0].title,'老板');assert.equal(normalizeOfficePresence({people}).enabled,false);assert.equal(normalizeOfficePresence({enabled:true,people:[person('valid','bad-node')]}).people[0].nodeId,'workstations');
+ assert.notEqual(state.people[0].title,'老板');assert.equal(normalizeOfficePresence({people}).enabled,false);assert.equal(normalizeOfficePresence({enabled:true,people:[person('valid','bad-node')]}).people[0].nodeId,'hr_admin');
 });
 
 test('所有在线员工目的地都在现有办公室通道中，拥挤时仍不穿越墙体',()=>{
@@ -23,7 +24,7 @@ test('所有在线员工目的地都在现有办公室通道中，拥挤时仍�
 test('人物首次出现不重放走路，部门变化沿真实通道走动，心跳不重置当前行程',()=>{
  let time=0;const changes=[],motion=createOfficePresenceMotion({now:()=>time,onChange:entry=>changes.push({...entry.point})});
  const base={enabled:true,currentUserId:'user',people:[person('user')]};motion.set(base);assert.equal(motion.busy,false);const start={...motion.entries.get('user').point};
- motion.set({...base,people:[person('user','finance')]});assert.equal(motion.busy,true);const route=motion.entries.get('user').motion.route;assert(route.some(p=>p.y===411),'跨部门先通过主走廊');time=500;motion.tick(time);const halfway={...motion.entries.get('user').point};assert.notDeepEqual(halfway,start);
+ motion.set({...base,people:[person('user','finance')]});assert.equal(motion.busy,true);const route=motion.entries.get('user').motion.route;assert(route.some(p=>p.x===285),'跨部门先通过西侧回廊');time=500;motion.tick(time);const halfway={...motion.entries.get('user').point};assert.notDeepEqual(halfway,start);
  const started=motion.entries.get('user').motion.started;motion.set({...base,people:[person('user','finance')]});assert.equal(motion.entries.get('user').motion.started,started);
  time=20000;motion.tick(time);assert.deepEqual(motion.entries.get('user').point,presencePosition('finance'));assert.equal(motion.busy,false);assert(changes.length>=2);motion.destroy();assert.equal(motion.entries.size,0);
 });
@@ -41,8 +42,8 @@ function heartbeatFixture(request,options={}){
 }
 
 test('在线心跳只调用presence接口，15秒更新自身位置，并复用响应的在线名单',async()=>{
- const f=heartbeatFixture(async(_path,_method,body)=>({online:[person('me',body.nodeId),person('other','finance')]}));await f.presence.refresh();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0],['/api/erp/presence','PUT',{nodeId:'workstations'}]);assert.equal([...f.timers.values()][0].ms,15000);assert.equal(f.values.at(-1).people.length,2);assert.equal(f.values.at(-1).currentUserId,'me');
- await f.presence.moveTo('meeting');assert.equal(f.calls.at(-1)[2].nodeId,'meeting');assert.equal(await f.presence.moveTo('unknown'),false);assert(f.calls.every(([url])=>url==='/api/erp/presence'));f.presence.destroy();assert.equal(f.timers.size,0);assert.equal(f.listeners.size,0);assert.equal(f.values.at(-1).enabled,false);
+ const f=heartbeatFixture(async(_path,_method,body)=>({online:[person('me',body.nodeId),person('other','finance')]}));await f.presence.refresh();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0],['/api/erp/presence','PUT',{nodeId:'hr_admin'}]);assert.equal([...f.timers.values()][0].ms,15000);assert.equal(f.values.at(-1).people.length,2);assert.equal(f.values.at(-1).currentUserId,'me');
+ await f.presence.moveTo('meeting');assert.equal(f.calls.at(-1)[2].nodeId,'research');assert.equal(await f.presence.moveTo('unknown'),false);assert(f.calls.every(([url])=>url==='/api/erp/presence'));f.presence.destroy();assert.equal(f.timers.size,0);assert.equal(f.listeners.size,0);assert.equal(f.values.at(-1).enabled,false);
 });
 
 test('后台暂停心跳，前台立即刷新，销毁后迟到响应不能恢复在线人物',async()=>{

@@ -80,7 +80,7 @@ export function createScene3DMotion({agents,humans,onDelivery=()=>{},onChange=()
       const elapsed=time-exchange.started,{event,pair,timing}=exchange,actor=agents.get(pair.mover),receiver=person(pair.recipient);
       exchange.progress=timing.transfer<=timing.approach?(elapsed>=timing.transfer?1:0):Math.max(0,Math.min(1,(elapsed-timing.approach)/(timing.transfer-timing.approach)));
       if(!exchange.acknowledged&&elapsed>=timing.transfer){exchange.acknowledged=true;actor?.setPose({offering:false,carrying:!!pair.collecting,receiving:!!pair.collecting});receiver?.setPose({offering:false,carrying:!pair.collecting,receiving:true});onDelivery(event);onChange();}
-      if(elapsed>=timing.total){exchanges.delete(key);queue.finish(key);actor?.setPose({offering:false,receiving:false,carrying:false});receiver?.setPose({offering:false,receiving:false,carrying:false});if(pair.recipientHuman){const seated=['owner','investment_owner'].includes(pair.recipient);receiver?.setPose({seated});if(seated)receiver.facePoint({x:receiver.point.x,y:receiver.point.y-100});}
+      if(elapsed>=timing.total){exchanges.delete(key);queue.finish(key);actor?.setPose({offering:false,receiving:false,carrying:false});receiver?.setPose({offering:false,receiving:false,carrying:false});if(pair.recipientHuman){const seated=!!receiver?.homeSeated;receiver?.setPose({seated});if(seated)receiver.facePoint({x:receiver.point.x,y:receiver.point.y-100});}
         startReady();resume(pair.mover);if(!pair.recipientHuman)resume(pair.recipient);onChange();}
     }
     return walks.size>0||exchanges.size>0;

@@ -18,11 +18,12 @@ import (
 	"time"
 
 	"crazyoffice/server/internal/agent"
+	"crazyoffice/server/internal/buildinfo"
 	"crazyoffice/server/internal/httpapi"
 	"crazyoffice/server/internal/model"
 )
 
-var version = "4.1.1"
+var version = buildinfo.Version
 
 func env(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {

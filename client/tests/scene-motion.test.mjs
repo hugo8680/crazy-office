@@ -1,7 +1,11 @@
+import {OFFICE_ROOMS,departmentWorkPoint} from '../src/organization.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HUMAN_EMPLOYEES, humanForScenario } from '../src/people.js';
 import { FLOOR_SEGMENTS, routeBetweenPoints, routeLength, pointAlongRoute, walkingDuration, walkingSample, handoffTiming, deliveryParticipants, createDeliveryQueue, motionUpdatePolicy, createViewTween } from '../src/scene-motion.js';
+
+
+const routePasses=(route,p)=>route.slice(1).some((b,i)=>{const a=route[i];return Math.abs((b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x))<.001&&p.x>=Math.min(a.x,b.x)-.001&&p.x<=Math.max(a.x,b.x)+.001&&p.y>=Math.min(a.y,b.y)-.001&&p.y<=Math.max(a.y,b.y)+.001;});
 
 test('view interpolation eases from the displayed position, accumulates targets and terminates exactly',()=>{
  let value={scale:1,x:0},starts=0;const tween=createViewTween({read:()=>({...value}),write:next=>{value=next;},onStart:()=>starts++,duration:400});
@@ -24,34 +28,26 @@ test('seven explicit human representatives cover each scenario without virtual b
   for(const human of HUMAN_EMPLOYEES) assert.ok(human.role&&human.responsibility&&human.nodeId);
 });
 
-test('investment annex walks through both visible doors and the outside corridor',()=>{
-  const route=routeBetweenPoints({x:153,y:87},{x:909,y:315});
-  assert.deepEqual(route[0],{x:153,y:87});
-  assert.deepEqual(route.at(-1),{x:909,y:315});
-  assert.ok(route.some(p=>p.x===82&&p.y===107),'annex bottom door');
-  assert.ok(route.some(p=>p.x===32&&p.y===411),'outside corridor');
-  assert.ok(route.some(p=>p.x===827&&p.y===411),'office entry from the hall');
-  // No shortcut through the annex/main-building walls.
-  assert.ok(routeLength(route)>1300);
-  for(let i=1;i<route.length;i++) assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
+test('department walks use visible doors and the common corridor',()=>{
+ const from=OFFICE_ROOMS.find(room=>room.id==='investment'),to=OFFICE_ROOMS.find(room=>room.id==='research');
+ const a=departmentWorkPoint(from.id),b=departmentWorkPoint(to.id),route=routeBetweenPoints(a,b);
+ assert.deepEqual(route[0],a);assert.deepEqual(route.at(-1),b);
+ for(const room of [from,to])assert.ok(routePasses(route,room.door),'walks through '+room.id+' door');
+ for(let i=1;i<route.length;i++)assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
 });
 
 test('every human is connected to the network-room aisle',()=>{
   for(const human of HUMAN_EMPLOYEES) {
-    const route=routeBetweenPoints({x:650,y:286},human);
+    const route=routeBetweenPoints(departmentWorkPoint('maintenance',3),human);
     assert.deepEqual(route.at(-1),{x:human.x,y:human.y},human.id);
     assert.ok(routeLength(route)>0);
   }
 });
 
-test('walking to core goes around the switch instead of through it',()=>{
-  const route=routeBetweenPoints({x:650,y:286},{x:650,y:345});
-  assert.ok(route.some(p=>p.x===590&&p.y===345));
-  assert.ok(routeLength(route)>150);
-  for(let progress=0;progress<=1;progress+=.02) {
-    const p=pointAlongRoute(route,progress);
-    assert.ok(!(p.x>609&&p.x<685&&p.y>300&&p.y<330),'switch remains an obstacle');
-  }
+test('walking between department chair-side lanes respects the room exit',()=>{
+ const a=departmentWorkPoint('general_office'),b=departmentWorkPoint('maintenance'),route=routeBetweenPoints(a,b);
+ assert.deepEqual(route.at(-1),b);assert.ok(routeLength(route)>Math.hypot(a.x-b.x,a.y-b.y));
+ const room=OFFICE_ROOMS.find(room=>room.id==='general_office');assert.ok(routePasses(route,room.door));
 });
 
 test('in-flight points remain on the floor and resume without teleportation',()=>{
@@ -122,18 +118,12 @@ test('floor graph segments are finite axis-aligned paths',()=>{
   }
 });
 
-test('general office connects through its own door and outside corridor without crossing office walls',()=>{
-  const boss={x:604,y:87},owner={x:729,y:87};
-  const local=routeBetweenPoints(boss,owner);
-  assert.equal(routeLength(local),125);
-  const route=routeBetweenPoints(owner,{x:909,y:579});
-  assert.deepEqual(route[0],owner);
-  assert.ok(route.some(p=>p.x===550&&p.y===87),'general office aisle');
-  assert.ok(route.some(p=>p.x===550&&p.y===107),'general office door');
-  assert.ok(route.some(p=>p.x===32&&p.y===107),'outside corridor');
-  assert.ok(route.some(p=>p.x===32&&p.y===411),'main office entrance');
-  assert.deepEqual(route.at(-1),{x:909,y:579});
-  for(let i=1;i<route.length;i++)assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
+test('general office connects through its own door while local handoffs stay on its arrival lane',()=>{
+ const boss=departmentWorkPoint('general_office',5),owner=departmentWorkPoint('general_office'),target=departmentWorkPoint('finance');
+ assert.equal(routeLength(routeBetweenPoints(boss,owner)),Math.abs(boss.x-owner.x));
+ const route=routeBetweenPoints(owner,target),room=OFFICE_ROOMS.find(room=>room.id==='general_office');assert.deepEqual(route[0],owner);assert.deepEqual(route.at(-1),target);
+ assert.ok(routePasses(route,room.door));
+ for(let i=1;i<route.length;i++)assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
 });
 
 test('walking sampler eases departure and arrival and stops feet exactly at the endpoint',()=>{
@@ -202,12 +192,12 @@ test('same-run cancellation and failure halt active and queued exchanges; comple
 });
 
 test('onboarding intake, HR approval and final handoff keep human identity through the walking queue',()=>{
-  const hr=HUMAN_EMPLOYEES.find(h=>h.id==='hr_owner');assert.equal(hr.nodeId,'workstations');
+  const hr=HUMAN_EMPLOYEES.find(h=>h.id==='hr_owner');assert.equal(hr.nodeId,'hr_admin');
   const intake={id:'hr-intake',type:'handoff',sourceHumanId:'hr_owner',targetAgentId:'hr',deliveryKind:'task_input'};
   const approval={id:'hr-approval',type:'handoff',sourceAgentId:'hr',targetHumanId:'hr_owner',deliveryKind:'approval_request',approvalId:'hr-approval-id'};
   const final={id:'hr-final',type:'handoff',sourceAgentId:'lead',targetHumanId:'hr_owner',deliveryKind:'final_delivery'};
   assert.deepEqual(deliveryParticipants(intake),{mover:'hr',recipient:'hr_owner',recipientHuman:true,collecting:true});
   assert.deepEqual(deliveryParticipants(approval),{mover:'hr',recipient:'hr_owner',recipientHuman:true});
-  const path=routeBetweenPoints({x:464,y:235},hr);assert.deepEqual(path.at(-1),{x:hr.x,y:hr.y});assert.ok(path.some(p=>p.y===300));
+  const path=routeBetweenPoints(departmentWorkPoint('hr_admin',5),hr);assert.deepEqual(path.at(-1),{x:hr.x,y:hr.y});assert.ok(path.every(p=>p.y===departmentWorkPoint('hr_admin').y));
   const queue=createDeliveryQueue();queue.ingest([intake,approval,final]);assert.equal(queue.startReady()[0].id,'hr-approval');assert.ok(queue.locked('hr_owner'));queue.finish('hr-approval');assert.equal(queue.startReady()[0].id,'hr-intake');queue.finish('hr-intake');assert.equal(queue.startReady()[0].id,'hr-final');queue.finish('hr-final');assert.equal(queue.activeCount,0);
 });

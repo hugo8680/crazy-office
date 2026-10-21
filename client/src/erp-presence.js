@@ -1,18 +1,20 @@
+import {employeeAppearance} from './employee-appearance.mjs';
+import {OFFICE_ROOMS,OFFICE_WORLD,OFFICE_BULLETIN_AREA,canonicalDepartmentId} from './organization.mjs';
 import {routeBetweenPoints,walkingDuration,walkingSample} from './scene-motion.js';
 
 export const MAX_OFFICE_PEOPLE=20;
-export const PRESENCE_NODE_IDS=Object.freeze(['workstations','executive','storage','reception','meeting','finance','general_office','investment','server']);
+export const PRESENCE_NODE_IDS=Object.freeze([...OFFICE_ROOMS.map(room=>room.id),'bulletin']);
 const nodes=new Set(PRESENCE_NODE_IDS);
+const presenceArea=value=>value==='bulletin'?'bulletin':canonicalDepartmentId(value);
 const clean=(value,max=100)=>typeof value==='string'?value.replace(/[\x00-\x1f\x7f]/g,'').trim().slice(0,max):'';
-const shirts=['#b98d75','#8b9caa','#b6a179','#a38f9b','#78968d','#a89177'];
 const hairs=['#51453d','#5c4839','#424641','#62483c'];
-function identity(id){const hash=[...id].reduce((n,c)=>(n*31+c.charCodeAt(0))>>>0,0);return{color:shirts[hash%shirts.length],hair:hairs[hash%hairs.length]};}
+function identity(id){const hash=[...id].reduce((n,c)=>(n*31+c.charCodeAt(0))>>>0,0);return{color:employeeAppearance(false).uniform,hair:hairs[hash%hairs.length]};}
 
 export function normalizeOfficePresence(value={}){
   const currentUserId=clean(value.currentUserId),seen=new Set(),people=[];
   for(const source of Array.isArray(value.people)?value.people:[]){
     const id=clean(source?.id);if(!id||seen.has(id)||source?.online!==true)continue;seen.add(id);
-    people.push({id,name:clean(source.name,80)||'员工',title:clean(source.title,80),nodeId:nodes.has(source.nodeId)?source.nodeId:'workstations',online:true,current:id===currentUserId,...identity(id)});
+    people.push({id,name:clean(source.name,80)||'员工',title:clean(source.title,80),nodeId:presenceArea(source.nodeId)||canonicalDepartmentId(source.department)||'hr_admin',online:true,current:id===currentUserId,...identity(id)});
   }
   people.sort((a,b)=>Number(b.current)-Number(a.current)||a.id.localeCompare(b.id));
   return{enabled:value.enabled===true,currentUserId,people:people.slice(0,MAX_OFFICE_PEOPLE),onSelectEmployee:typeof value.onSelectEmployee==='function'?value.onSelectEmployee:()=>{}};
@@ -20,10 +22,13 @@ export function normalizeOfficePresence(value={}){
 
 // Each destination is on an existing walkable centre line, clear of desks,
 // cabinets and walls. Crowds spread along the same office corridor.
-const arrivalLines={workstations:[213,445,300],executive:[839,969,315],storage:[605,777,373],reception:[484,642,480],meeting:[213,316,479],finance:[770,910,579],general_office:[562,764,87],investment:[92,470,87],server:[607,775,286]};
-export function presencePosition(nodeId,index=0,count=1){const [start,end,y]=arrivalLines[nodeId]||arrivalLines.workstations;const spacing=Math.min(22,(end-start)/Math.max(1,count-1));return{x:start+Math.max(0,index)*spacing,y};}
+export function presencePosition(nodeId,index=0,count=1){
+  const id=presenceArea(nodeId)||'hr_admin',room=id==='bulletin'?OFFICE_BULLETIN_AREA:OFFICE_ROOMS.find(item=>item.id===id),[a,b]=room.arrivalLine;
+  const total=Math.max(1,Math.min(MAX_OFFICE_PEOPLE,count)),rank=Math.max(0,Math.min(total-1,index)),spacing=Math.min(22,(b[0]-a[0])/Math.max(1,total-1));
+  return {x:(a[0]+b[0])/2+(rank-(total-1)/2)*spacing,y:a[1]};
+}
 const same=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y)<.1;
-const validPoint=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=20&&p.x<=1035&&p.y>=20&&p.y<=625;
+const validPoint=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=20&&p.x<=OFFICE_WORLD.width-20&&p.y>=20&&p.y<=OFFICE_WORLD.height-20;
 
 export function createOfficePresenceMotion({onChange=()=>{},now=()=>performance.now(),reducedMotion=false}={}){
   const entries=new Map();let reduced=!!reducedMotion,destroyed=false;
@@ -53,7 +58,7 @@ export function createOfficePresenceMotion({onChange=()=>{},now=()=>performance.
  * an approval, and receives no other employee's private work records. */
 export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},document:doc=globalThis.document,intervalMs=15000,setTimer=globalThis.setInterval,clearTimer=globalThis.clearInterval,now=()=>Date.now()}={}){
   if(!scene?.setPresence||typeof request!=='function')throw new TypeError('缺少办公室在线员工接口');
-  const currentUserId=clean(session?.actor?.id||session?.user?.id||session?.id);let nodeId='workstations',destroyed=false,timer=null,inflight=null,revision=0,unauthorized=false,lastSuccess=now();
+  const currentUserId=clean(session?.actor?.id||session?.user?.id||session?.id);let nodeId=canonicalDepartmentId(session?.actor?.department||session?.user?.department)||'hr_admin',destroyed=false,timer=null,inflight=null,revision=0,unauthorized=false,lastSuccess=now();
   let people=[];
   const publish=()=>{if(!destroyed)scene.setPresence({enabled:!!currentUserId,people,currentUserId,onSelectEmployee});};
   async function refresh(){
@@ -67,7 +72,7 @@ export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},
   function visibility(){if(doc?.hidden){schedule();return;}schedule();void refresh();}
   doc?.addEventListener?.('visibilitychange',visibility);publish();schedule();void refresh();
   return{refresh,
-    async moveTo(next){if(!nodes.has(next))return false;nodeId=next;revision++;await refresh();return true;},
+    async moveTo(next){const id=presenceArea(next);if(!id||!nodes.has(id))return false;nodeId=id;revision++;await refresh();return true;},
     get nodeId(){return nodeId;},
     destroy(){if(destroyed)return;destroyed=true;if(timer!==null)clearTimer(timer);timer=null;doc?.removeEventListener?.('visibilitychange',visibility);scene.setPresence({enabled:false,people:[],currentUserId:null});},
   };

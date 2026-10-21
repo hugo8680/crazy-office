@@ -1,3 +1,4 @@
+import {ORGANIZATION_DEPARTMENTS} from '../src/organization.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {WORKFLOWS,buildDocumentPayload,cents,fulfillmentLines,allowedActions,assertAllowedAction,pendingTasks,normalizeSnapshot,renderActions,renderFiles,renderEmpty,safeFileUrl,csvDocument,safeSourceUrl,renderQuoteEvidence,reportFacts,renderBusinessResult,money,statusLabel,weeklyDocumentCounts} from '../src/erp-ui.mjs';
@@ -249,4 +250,33 @@ test('successful POST and PUT changes read a new snapshot and fence out the pend
    const writes=h.root.htmlWrites;old.resolve({currentUser:{id:'me',roles:['admin']},products:[],projects:[record],documents:[documentRecord]});await poll;assert.equal(h.root.htmlWrites,writes,'The pre-write response must not replace the confirmed result.');assert.equal(h.calls.filter(call=>call.method!=='GET').length,1);
   }finally{h.cleanup();}
  }
+});
+
+
+test('employee invitations and profile edits use the current twelve departments without fabricating accounts',async()=>{
+ const h=harness(({path})=>path==='/api/erp/users'?{users:[{id:'existing',name:'在册员工',department:'业务部',roles:['employee'],active:true}]}:undefined);
+ try{
+  await h.mounted.open('people');await h.click('invite');
+  assert.match(h.root.innerHTML,/<select name="department" required>/);
+  for(const department of ORGANIZATION_DEPARTMENTS)assert.ok(h.root.innerHTML.includes(`<option value="${department.name}"`),department.name);
+  await h.mounted.open('people');await h.click('edit-user',{id:'existing'});
+  assert.match(h.root.innerHTML,/<option value="商务部" selected>/);assert.doesNotMatch(h.root.innerHTML,/<option value="业务部"/);
+  assert.equal(h.calls.filter(call=>call.method!=='GET').length,0);
+ }finally{h.cleanup();}
+});
+
+test('public notice readers can read announcements but cannot create or edit by forging UI actions',async()=>{
+ const row={id:'notice-1',title:'公司公告',body:'实际发布内容',authorName:'行政同事',createdAt:'2026-10-21T01:00:00Z',version:1};
+ const h=harness(({path})=>path==='/api/erp/notices'?{notices:[row],canPublish:false}:undefined);
+ try{await h.mounted.open('notices');assert.match(h.root.innerHTML,/实际发布内容/);assert.match(h.root.innerHTML,/行政同事/);assert.doesNotMatch(h.root.innerHTML,/data-erp-action="new-notice"/);await h.click('new-notice');assert.equal(h.mounted.state.mode,undefined);const forged=h.form('notice',{title:'伪造公告',body:'未授权'});await h.submit(forged);assert.equal(h.calls.filter(c=>c.method!=='GET').length,0);assert.match(h.root.errorBox.textContent,/无权/);}finally{h.cleanup();}
+});
+
+test('notice publishing retries keep one request key and edits carry the actual version; results stay in the business UI',async()=>{
+ let rows=[],attempts=0;const h=harness(({path,method,body})=>{if(path==='/api/erp/notices'&&method==='GET')return{notices:rows,canPublish:true};if(path==='/api/erp/notices'&&method==='POST'){if(++attempts===1)throw new Error('连接中断');const notice={id:'n1',title:body.title,body:body.body,authorName:'行政同事',createdAt:'2026-10-21T01:00:00Z',version:1};rows=[notice];return{notice};}if(path==='/api/erp/notices/n1'&&method==='PUT'){assert.equal(body.expectedVersion,1);rows=[{...rows[0],title:body.title,body:body.body,version:2,updatedAt:'2026-10-21T02:00:00Z'}];return{notice:rows[0]};}});
+ try{await h.mounted.open('notices');await h.click('new-notice');const form=h.form('notice',{title:'办公安排',body:'实际公司安排'});await h.submit(form);assert.match(h.root.errorBox.textContent,/连接中断/);await h.submit(form);assert.match(h.root.innerHTML,/公告已发布/);assert.match(h.root.innerHTML,/实际公司安排/);const writes=h.calls.filter(c=>c.method==='POST');assert.equal(writes.length,2);assert.equal(writes[0].body._requestId,writes[1].body._requestId);await h.click('edit-notice',{id:'n1'});await h.submit(h.form('notice',{title:'办公安排已修订',body:'修订后的正式内容'},{id:'n1',version:'1'}));assert.match(h.root.innerHTML,/公告已更新/);assert.match(h.root.innerHTML,/修订后的正式内容/);assert.equal(h.calls.some(c=>/run_agents|\/api\/runs/.test(c.path)),false);}finally{h.cleanup();}
+});
+
+test('a delayed public notice read cannot replace another business page or a later visit',async()=>{
+ let release;const pending=new Promise(resolve=>release=resolve);const h=harness(({path})=>path==='/api/erp/notices'?pending:undefined);
+ try{const first=h.mounted.open('notices');await new Promise(resolve=>setImmediate(resolve));await h.mounted.open('projects');release({notices:[{id:'late',title:'过期页面内容',body:'旧公告'}],canPublish:true});await first;assert.equal(h.mounted.state.section,'projects');assert.doesNotMatch(h.root.innerHTML,/过期页面内容|旧公告/);}finally{h.cleanup();}
 });
