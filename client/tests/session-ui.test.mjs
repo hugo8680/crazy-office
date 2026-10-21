@@ -133,6 +133,58 @@ test('同一登录视图的探测不抢输入焦点，销毁清理未结束的�
   h.ui.close();assert.equal(h.timers.size,1);h.destroy();assert.equal(h.timers.size,0);assert.equal(h.dialog.open,false);assert.equal(h.dialog.isConnected,false);
 });
 
+test('同一登录窗口的重复打开和会话探测保留正在填写的口令与反馈',async()=>{
+  const h=harness();await h.ui.ready;
+  h.setResponder(async()=>response({},401));await h.login();
+  const error=h.element('#session-login-error').textContent;
+  h.element('#session-password').value='password-being-edited';
+  h.dialog.scrollTop=96;
+  h.ui.open();
+  assert.equal(h.element('#session-password').value,'password-being-edited');
+  assert.equal(h.element('#session-login-error').textContent,error);
+  h.setResponder(async()=>response({session:{authenticated:false}}));await h.ui.refresh();
+  assert.equal(h.element('#session-password').value,'password-being-edited');
+  assert.equal(h.element('#session-login-error').textContent,error);
+  assert.equal(h.dialog.scrollTop,96);
+  h.ui.requireLogin('请重新登录。');
+  assert.equal(h.element('#session-password').value,'');
+  assert.equal(h.element('#session-login-error').hidden,true);
+  h.destroy();
+});
+
+test('保存中的账户窗口重复打开不会切换视图或丢失当前等待状态',async()=>{
+  const h=harness({session:AUTH});await h.ui.ready;h.ui.open();h.click('password');
+  const pending=deferred();h.setResponder(()=>pending.promise);const submit=h.password();
+  h.ui.open();
+  assert.equal(h.dialog.dataset.view,'password');
+  assert.equal(h.element('#session-password-form').hidden,false);
+  assert.equal(h.element('#session-password-label').textContent,'正在保存');
+  assert.equal(h.element('#session-password-spinner').hidden,false);
+  pending.resolve(response({error:'原密码不正确。'},401));await submit;
+  assert.equal(h.element('#session-password-error').textContent,'原密码不正确。');
+  assert.equal(h.element('#session-password-label').textContent,'保存密码');
+  h.destroy();
+});
+
+test('被取消的旧登录、改密或邀请请求结束时不清除新登录口令',async()=>{
+  for(const kind of ['login','password','invitation']){
+    const h=harness(kind==='password'?{session:AUTH}:kind==='invitation'?{fragment:'#token='+TOKEN}:{});
+    await h.ui.ready;
+    if(kind==='password'){h.ui.open();h.click('password');}
+    const late=deferred();h.setResponder(()=>late.promise);
+    const submit=kind==='password'?h.password():kind==='invitation'?h.invitation():h.login();
+    h.ui.requireLogin('请重新登录。');
+    h.element('#session-password').value='new-login-draft-after-reset';
+    late.resolve(response(kind==='login'?{session:AUTH}:kind==='invitation'?{employee:{id:'new',username:'new'}}:{ok:true}));
+    await submit;
+    assert.equal(h.element('#session-password').value,'new-login-draft-after-reset',kind);
+    assert.equal(h.ui.session,null,kind);
+    assert.equal(h.dialog.dataset.view,'login',kind);
+    assert.equal(h.element('#session-login-submit').disabled,false,kind);
+    h.destroy();
+  }
+});
+
 test('账户对话框具备原生焦点隔离和表单语义，没有模型、演示或技术介绍',()=>{
   assert.match(source,/createElement\('dialog'\)/);assert.match(source,/showModal\(\)/);assert.match(source,/aria-labelledby/);assert.match(source,/autocomplete="current-password"/);assert.match(source,/autocomplete="new-password"/);assert.match(source,/role="alert"/);
   assert.doesNotMatch(source,/localStorage|sessionStorage|console\.|模型|Agent|虚拟员工|功能介绍|查看进展/);

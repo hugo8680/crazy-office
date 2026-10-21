@@ -1,12 +1,12 @@
 :root{
-  --dialog-paper:#fffdf6;
-  --dialog-ink:#29483d;
-  --dialog-muted:#687565;
-  --dialog-line:#d3ddcd;
-  --dialog-soft:#eef2e6;
-  --dialog-accent:#3c7160;
-  --dialog-radius:24px;
-  --dialog-ease:cubic-bezier(.2,.75,.25,1);
+  --dialog-paper:var(--office-ui-paper);
+  --dialog-ink:var(--office-ui-ink);
+  --dialog-muted:var(--office-ui-muted);
+  --dialog-line:var(--office-ui-line);
+  --dialog-soft:var(--office-ui-soft);
+  --dialog-accent:var(--office-ui-accent);
+  --dialog-radius:var(--office-ui-radius-window);
+  --dialog-ease:var(--office-ui-ease);
 }
 
 /* Shared materials. Each surface keeps its own layout and interaction model. */
@@ -24,7 +24,7 @@
 }
 :where(.erp-layer,.session-dialog,.workspace-view-menu){
   scrollbar-width:thin;
-  scrollbar-color:#c5d0bc transparent;
+  scrollbar-color:var(--office-ui-scrollbar) transparent;
 }
 @media(prefers-reduced-motion:reduce){
   :where(.erp-layer,.session-dialog,.workspace-view-menu,.workspace-receipt,.workspace-toast){

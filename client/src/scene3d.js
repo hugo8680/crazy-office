@@ -64,7 +64,7 @@ export function mountScene3D(container,{
   let maxBufferDimension=8192;
   try{const gl=renderer.getContext?.();for(const limit of [renderer.capabilities?.maxTextureSize,gl?.getParameter(gl.MAX_RENDERBUFFER_SIZE),...(gl?.getParameter(gl.MAX_VIEWPORT_DIMS)||[])])if(Number.isFinite(limit)&&limit>0)maxBufferDimension=Math.min(maxBufferDimension,limit);}catch{/* Retain the conservative size limit if the context cannot report it. */}
   const wrapper=document.createElement('div');wrapper.className='office-scene3d';wrapper.dataset.view='3d';wrapper.tabIndex=0;wrapper.setAttribute('aria-label','办公室');
-  const canvas=renderer.domElement;canvas.className='office-scene3d-canvas';canvas.setAttribute('aria-hidden','true');canvas.style.touchAction='none';
+  const canvas=renderer.domElement;canvas.className='office-scene3d-canvas';canvas.setAttribute('aria-hidden','true');canvas.style.touchAction='none';canvas.style.width='100%';canvas.style.height='100%';
   const labels=document.createElement('div');labels.className='office-scene3d-labels';
   wrapper.append(canvas,labels);container.append(wrapper);
   const greetingElement=document.createElement('div');greetingElement.className='office3d-greeting';greetingElement.id=`office3d-person-greeting-${++greetingSequence}`;greetingElement.hidden=true;greetingElement.setAttribute('role','tooltip');greetingElement.setAttribute('aria-hidden','true');
@@ -85,7 +85,7 @@ export function mountScene3D(container,{
   const touches=new Map();let touchGesture=null,nativeGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
-  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null;
+  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null;
   const actorList=()=>[...agents.values(),...humans.values(),...background];
   const disposables=[];
   const schedule=()=>{if(!frame&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
@@ -266,7 +266,11 @@ export function mountScene3D(container,{
     for(const actor of actorList())if(actor.needsUpdate||actor.isAnimating){
       actor.animate(time,{reducedMotion,delta,idleMotion:false});actor.root.updateMatrixWorld(true);changed.add(actor);stats.actorUpdates++;
     }
-    updateExchangeFiles();updateActorInstances(changed);renderer.render(scene,camera);
+    updateExchangeFiles();updateActorInstances(changed);
+    // Changing canvas width/height clears WebGL's drawing buffer. Keep that
+    // mutation next to the replacement draw, never inside ResizeObserver.
+    if(pendingResize){const next=pendingResize;pendingResize=null;renderer.setDrawingBufferSize(next.width,next.height,next.pixelRatio);Object.assign(stats,{...next,bufferWidth:canvas.width,bufferHeight:canvas.height,resizes:stats.resizes+1});}
+    renderer.render(scene,camera);
     stats.renders++;stats.drawCalls=renderer.info.render.calls;stats.triangles=renderer.info.render.triangles;stats.lastRenderMs=performance.now()-started;
     stats.frameMs=stats.frameMs?stats.frameMs*.9+stats.lastRenderMs*.1:stats.lastRenderMs;
     wrapper.dataset.renderCount=String(stats.renders);wrapper.dataset.drawCalls=String(stats.drawCalls);wrapper.dataset.frameMs=stats.frameMs.toFixed(2);
@@ -275,10 +279,9 @@ export function mountScene3D(container,{
   function resize(){if(destroyed||contextLost)return;const rect=container.getBoundingClientRect(),nextWidth=Number(container.clientWidth??rect.width),nextHeight=Number(container.clientHeight??rect.height);
     if(!Number.isFinite(nextWidth)||!Number.isFinite(nextHeight)||nextWidth<=0||nextHeight<=0)return;
     const nextRatio=scene3DPixelRatio(nextWidth,nextHeight,globalThis.devicePixelRatio||1,{maxDimension:maxBufferDimension});
-    if(stats.resizes&&width===nextWidth&&height===nextHeight&&Math.abs(pixelRatio-nextRatio)<1e-8)return;
+    if((stats.resizes||pendingResize)&&width===nextWidth&&height===nextHeight&&Math.abs(pixelRatio-nextRatio)<1e-8)return;
     width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
-    renderer.setDrawingBufferSize(width,height,pixelRatio);canvas.style.width='100%';canvas.style.height='100%';
-    Object.assign(stats,{pixelRatio,width,height,bufferWidth:canvas.width,bufferHeight:canvas.height,resizes:stats.resizes+1});setCamera();markDirty();}
+    pendingResize=stats.resizes&&stats.width===width&&stats.height===height&&Math.abs(stats.pixelRatio-pixelRatio)<1e-8?null:{pixelRatio,width,height};setCamera();markDirty();}
   function renderFrame(time){
     frame=0;if(destroyed||contextLost||document.hidden)return;
     const wasBusy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;
@@ -360,8 +363,9 @@ export function mountScene3D(container,{
   if(globalThis.window?.addEventListener)listen(window,'resize',resize);
   const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);watchDensity();resize();update({animateEvents:false});
   function resetView(){clearSelectionTimer();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
+  function prepare(){if(destroyed||contextLost||document.hidden)return;cancelAnimationFrame(frame);frame=0;lastFrame=0;renderFrame(performance.now());}
   return {
-    update,setTopology(visible){topologyVisible=!!visible;links.visible=topologyVisible;wrapper.dataset.topology=String(topologyVisible);markDirty();},
+    update,prepare,setTopology(visible){topologyVisible=!!visible;links.visible=topologyVisible;wrapper.dataset.topology=String(topologyVisible);markDirty();},
     setSelectedNode(id){select('node',id,false);},setSelectedAgent(id){select('agent',id,false);},setSelectedHuman(id){select('human',id,false);},
     setPresence,getPresenceState:()=>presenceMotion.snapshot(),
     getHumanAnchor(id='owner'){const actor=humans.get(id);return actor?project(actor.point,actor.height*.55):null;},

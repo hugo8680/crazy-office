@@ -312,11 +312,11 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let viewFrame = 0;
   let motionUntil = 0;
   let destroyed = false;
-  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null;
+  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null,lastViewBox='0 0 1060 650';
   let greetingElement=null,greetingAnimation=null;
   const feedbackAnimations=new WeakMap();
-  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);applyView();if(wheelAnchor){const after=worldPoint(wheelAnchor.x,wheelAnchor.y);panX+=wheelAnchor.world.x-after.x;panY+=wheelAnchor.world.y-after.y;applyView();}}});
-  function animateView(patch,anchor=null){wheelAnchor=anchor;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
+  const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);if(wheelAnchor){panX=wheelAnchor.world.x-530-wheelAnchor.offsetX/scale;panY=wheelAnchor.world.y-325-wheelAnchor.offsetY/scale;}applyView();}});
+  function animateView(patch,anchor=null){wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-530-panX)*scale,offsetY:(anchor.world.y-325-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
   function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
   function stopCamera(){wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
@@ -660,7 +660,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function applyView() {
     const width = 1060 / scale;
     const height = 650 / scale;
-    svg.setAttribute('viewBox', `${530 + panX - width / 2} ${325 + panY - height / 2} ${width} ${height}`);
+    const next=`${530 + panX - width / 2} ${325 + panY - height / 2} ${width} ${height}`;
+    if(next===lastViewBox)return;lastViewBox=next;svg.setAttribute('viewBox',next);
     scheduleViewChange();
   }
 
@@ -677,13 +678,13 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     return matrix ? new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse()) : new DOMPoint();
   }
 
-  function scaleAt(nextScale,clientX,clientY,before=worldPoint(clientX,clientY)) {
-    scale = Math.max(.72, Math.min(2.25, nextScale));
-    applyView();
-    const after = worldPoint(clientX, clientY);
-    panX += before.x - after.x;
-    panY += before.y - after.y;
-    applyView();
+  function scaleAt(nextScale,clientX,clientY,before=null) {
+    const at=worldPoint(clientX,clientY),next=Math.max(.72,Math.min(2.25,nextScale));before??=at;
+    // The viewBox keeps its aspect ratio. Preserve the pointer's world anchor
+    // algebraically, avoiding a write -> getScreenCTM layout flush -> write.
+    panX=before.x-530-(at.x-530-panX)*scale/next;
+    panY=before.y-325-(at.y-325-panY)*scale/next;
+    scale=next;applyView();
     return scale;
   }
   function sampleTouches(){const [a,b]=touches.values();return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y))}:null;}

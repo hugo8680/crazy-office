@@ -33,6 +33,71 @@ test('an unavailable 3D renderer preserves the working 2D scene and reports the 
   f.controller.update({runId:'unchanged'});assert.equal(await f.controller.setMode('3d'),'2d');assert.equal(f.scenes[0].destroyed,0);assert.equal(f.controller.pending,false);assert.equal(f.errors[0].message,'WebGL unavailable');assert.equal(f.layers[1].removed,true);assert.deepEqual(f.controller.getHumanAnchor('owner'),{x:5,y:6});f.controller.destroy();
 });
 
+test('a candidate prepares the restored snapshot while hidden and before the previous view is removed',async()=>{
+  let prepared=0;
+  const f=fixture(mount=>({load3D:async()=>({mountScene3D(layer,callbacks){
+    const scene=mount(layer,callbacks);
+    scene.prepare=()=>{
+      prepared++;
+      assert.equal(layer.style.visibility,'hidden');
+      assert.equal(f.controller.mode,'2d');
+      assert.equal(f.scenes[0].destroyed,0);
+      assert.notEqual(f.layers[0].removed,true);
+      assert.equal(scene.states[0].runId,'active-run');
+      assert.equal(scene.states[0].humanApproval,true);
+      assert.equal(scene.states[0].animateEvents,false);
+      assert.equal(scene.topology,false);
+      assert.equal(scene.selected.human,'owner');
+      callbacks.onDelivery({id:'prepare-callback'});
+    };
+    return scene;
+  }})}));
+  try {
+    f.controller.update({runId:'active-run',humanApproval:true,animateEvents:true});
+    f.controller.setTopology(false);f.controller.setSelectedHuman('owner');
+    assert.equal(await f.controller.setMode('3d'),'3d');
+    assert.equal(prepared,1);assert.equal(f.layers[1].style.visibility,'');
+    assert.equal(f.scenes[0].destroyed,1);assert.equal(f.layers[0].removed,true);
+    assert.deepEqual(f.deliveries,[]);
+    const animations=f.layers[1].animations.length;
+    f.controller.update({runId:'active-run',humanApproval:true,logs:[{id:'new-live-event'}]});
+    assert.equal(prepared,1);assert.equal(f.layers[1].animations.length,animations);
+  } finally { f.controller.destroy(); }
+});
+
+test('preparation failure leaves the previous scene visible and usable',async()=>{
+  const f=fixture(mount=>({load3D:async()=>({mountScene3D(layer,callbacks){
+    const scene=mount(layer,callbacks);
+    scene.prepare=()=>{throw new Error('Initial render failed');};
+    return scene;
+  }})}));
+  try {
+    const run={runId:'retained-run',humanApproval:true};f.controller.update(run);
+    assert.equal(await f.controller.setMode('3d'),'2d');
+    assert.equal(f.controller.pending,false);assert.equal(f.scenes[0].destroyed,0);
+    assert.notEqual(f.layers[0].removed,true);assert.notEqual(f.layers[0].style.visibility,'hidden');
+    assert.equal(f.scenes[1].destroyed,1);assert.equal(f.layers[1].removed,true);
+    assert.equal(f.errors[0].message,'Initial render failed');assert.deepEqual(f.deliveries,[]);
+    const next={...run,logs:[{id:'still-working'}]};f.controller.update(next);
+    assert.equal(f.scenes[0].states.at(-1),next);
+    assert.deepEqual(f.controller.getHumanAnchor('owner'),{x:5,y:6});
+  } finally { f.controller.destroy(); }
+});
+
+test('a switch cancelled during preparation removes only the candidate',async()=>{
+  const f=fixture(mount=>({load3D:async()=>({mountScene3D(layer,callbacks){
+    const scene=mount(layer,callbacks);
+    scene.prepare=()=>{void f.controller.setMode('2d');};
+    return scene;
+  }})}));
+  try {
+    assert.equal(await f.controller.setMode('3d'),'2d');
+    assert.equal(f.scenes[0].destroyed,0);assert.notEqual(f.layers[0].removed,true);
+    assert.equal(f.scenes[1].destroyed,1);assert.equal(f.layers[1].removed,true);
+    assert.equal(f.controller.pending,false);assert.deepEqual(f.errors,[]);
+  } finally { f.controller.destroy(); }
+});
+
 test('a delayed 3D load uses the latest live state, and switching back cancels stale imports',async()=>{
   let resolve;const delayed=new Promise(yes=>{resolve=yes;});
   const f=fixture(mount=>({load3D:()=>delayed.then(()=>({mountScene3D:mount}))}));

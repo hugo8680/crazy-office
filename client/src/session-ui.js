@@ -105,28 +105,30 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     }
     notify(onChange,session);
   }
-  function show(view,notice=''){
+  function show(view,notice='',reset=false){
     if(destroyed)return;
-    const opened=dialog.open,changed=mode!==view,reopening=closing;
+    const opened=dialog.open,changed=mode!==view,reopening=closing,entering=!opened||changed||reopening||reset;
     cancelClose();
     mode=view;
     dialog.dataset.view=view;
     login.hidden=view!=='login';profile.hidden=view!=='profile';passwordForm.hidden=view!=='password';invitationForm.hidden=view!=='invitation';
     q('#session-title').textContent=view==='login'?'登录':view==='password'?'修改密码':view==='invitation'?'设置密码':'账户';
-    message('#session-message',notice);
-    for(const selector of ['#session-login-error','#session-profile-error','#session-password-error','#session-invitation-error'])message(selector);
-    clearPasswords();
+    if(entering){
+      message('#session-message',notice);
+      for(const selector of ['#session-login-error','#session-profile-error','#session-password-error','#session-invitation-error'])message(selector);
+      clearPasswords();
+    }else if(notice)message('#session-message',notice);
     if(view==='login'&&!username.value)username.value=session?.username||'';
     if(!dialog.open){returnFocus=document.activeElement;dialog.showModal();}
     const focus=view==='login'?(username.value?password:username):view==='password'?current:view==='invitation'?invitationPassword:q('.session-close');
-    if(!opened||changed||reopening)focus.focus();
+    if(entering)focus.focus();
   }
   function close(){if(pending||destroyed)return;dismiss();}
-  function open(){show(invitationToken?'invitation':session?'profile':'login');}
+  function open(){if(pending||destroyed)return;show(invitationToken?'invitation':session?'profile':'login');}
   function requireLogin(notice='请登录。'){
     if(destroyed)return;
     for(const [controller,timeout] of controllers){clearTimeout(timeout);controller.abort();}controllers.clear();
-    const expired=Boolean(session);generation++;setSession(null);setPending(false);show('login',notice);
+    const expired=Boolean(session);generation++;setSession(null);setPending(false);show('login',notice,true);
     if(expired)notify(onSessionExpired);
   }
   async function request(url,body){
@@ -160,7 +162,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       if(data.session?.authenticated!==true)throw new Error('invalid session');
       invalidInvitation=false;setSession(data.session);setPending(false);dismiss(false);notify(onAuthenticated,session);
     }catch(error){if(!destroyed&&stamp===generation)message('#session-login-error',errorText(error,'login'));}
-    finally{credentials.password='';password.value='';if(!destroyed&&stamp===generation){setPending(false);if(!q('#session-login-error').hidden)password.focus();}}
+    finally{credentials.password='';if(!destroyed&&stamp===generation){password.value='';setPending(false);if(!q('#session-login-error').hidden)password.focus();}}
   }
   async function signOut(){
     if(pending||destroyed)return false;
@@ -189,7 +191,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
         if((error.status===401&&error.data?.error!=='原密码不正确。')||(error.status===409&&error.data?.error!=='管理员原始登录口令由服务器配置维护。'))requireLogin('登录已过期，请重新登录。');
         else message('#session-password-error',errorText(error,'password'));
       }
-    }finally{credentials.currentPassword='';credentials.newPassword='';clearPasswords();if(!destroyed&&stamp===generation)setPending(false);}
+    }finally{credentials.currentPassword='';credentials.newPassword='';if(!destroyed&&stamp===generation){clearPasswords();setPending(false);}}
   }
   async function submitInvitation(event){
     event.preventDefault();if(pending||destroyed||!invitationToken||!invitationForm.reportValidity())return;
@@ -209,7 +211,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     }catch(error){if(!destroyed&&stamp===generation){
       if(error.status===410){invitationToken='';setPending(false);show('login','链接已失效，请联系管理员。');}
       else message('#session-invitation-error',errorText(error,'invitation'));
-    }}finally{credentials.token='';credentials.password='';clearPasswords();if(!destroyed&&stamp===generation)setPending(false);}
+    }}finally{credentials.token='';credentials.password='';if(!destroyed&&stamp===generation){clearPasswords();setPending(false);}}
   }
   async function refresh(){
     if(destroyed||pending)return session;

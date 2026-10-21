@@ -113,13 +113,13 @@ test('an environment without animation frames can update once without starting a
   try{Object.assign(f.viewport,{offsetLeft:10,offsetTop:20,width:720,height:450,scale:2});f.viewport.emit('resize');assert.equal(f.style.getPropertyValue('transform'),'scale(0.5)');assert.equal(f.frames.size,0);}finally{f.mounted.destroy();}
 });
 
-test('business windows receive real visible bounds while the office surface keeps its logical resolution',()=>{
+test('all surfaces share logical dimensions while native top-layer dialogs also receive visible bounds',()=>{
   const boundsTarget={style:new InlineStyle()},f=fixture({boundsTarget,viewport:{offsetLeft:310,offsetTop:120,width:720,height:450,scale:2}});
   try{
     assert.equal(f.style.getPropertyValue('width'),'1440px');
     assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-width'),'720px');
     assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-left'),'310px');
-    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-height'),'450px');
+    assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-height'),'450px');assert.equal(boundsTarget.style.getPropertyValue('--workspace-logical-width'),'1440px');assert.equal(boundsTarget.style.getPropertyValue('--workspace-logical-height'),'900px');
     const writes=boundsTarget.style.writes.length;f.viewport.emit('resize');f.viewport.emit('scroll');f.flush();assert.equal(boundsTarget.style.writes.length,writes);
     Object.assign(f.viewport,{offsetLeft:420,offsetTop:180,width:480,height:300,scale:3});f.viewport.emit('resize');f.flush();
     assert.equal(boundsTarget.style.getPropertyValue('--workspace-visible-width'),'480px');
@@ -133,4 +133,30 @@ test('business viewport bounds are restored with their prior priorities on teard
   const f=fixture({boundsTarget:{style},viewport:{offsetLeft:20,offsetTop:30,width:720,height:450,scale:2}});
   f.viewport.offsetTop=50;f.viewport.emit('scroll');const late=[...f.frames.values()][0];f.mounted.destroy();late();
   assert.deepEqual(style.snapshot(),before);
+});
+
+
+test('all sibling surfaces commit the same viewport in one frame and restore independently',()=>{
+  const viewport=Object.assign(new Events(),{offsetLeft:0,offsetTop:0,width:1440,height:900,scale:1}),windowTarget=new Events(),frames=new Map();
+  const surfaces=[new InlineStyle({width:'100%'}),new InlineStyle({height:'100%'}),new InlineStyle({transform:'none'})],originals=surfaces.map(style=>style.snapshot());
+  const controller=mountWorkspaceViewport(surfaces.map(style=>({style})),{viewport,windowTarget,requestFrame:fn=>{frames.set(1,fn);return 1;},cancelFrame:id=>frames.delete(id)});
+  assert.equal(viewport.size,2,'one listener per event, not one per layer');
+  Object.assign(viewport,{offsetLeft:250,offsetTop:100,width:720,height:450,scale:2});
+  for(let n=0;n<12;n++){viewport.emit('resize');viewport.emit('scroll');windowTarget.emit('resize');}
+  assert.equal(frames.size,1);frames.get(1)();frames.clear();
+  for(const style of surfaces){assert.equal(style.getPropertyValue('width'),'1440px');assert.equal(style.getPropertyValue('height'),'900px');assert.equal(style.getPropertyValue('left'),'250px');assert.equal(style.getPropertyValue('transform'),'scale(0.5)');}
+  controller.destroy();surfaces.forEach((style,index)=>assert.deepEqual(style.snapshot(),originals[index]));assert.equal(viewport.size,0);assert.equal(windowTarget.size,0);
+});
+
+test('fractional pinch measurements cannot repeatedly resize logical rendering surfaces',()=>{
+  const f=fixture();
+  try{
+    const initial=f.style.writes.filter(item=>['width','height'].includes(item.name)).length;
+    for(const scale of [1.2,1.5,2,2.25,2.75,3]){
+      Object.assign(f.viewport,{width:(1440+.00003)/scale,height:(900-.00002)/scale,scale});f.viewport.emit('resize');f.flush();
+      assert.equal(f.style.getPropertyValue('width'),'1440px');assert.equal(f.style.getPropertyValue('height'),'900px');
+    }
+    assert.equal(f.style.writes.filter(item=>['width','height'].includes(item.name)).length,initial,'pinch changes the camera scale, not the logical buffer dimensions');
+    assert.equal(f.frames.size,0);
+  }finally{f.mounted.destroy();}
 });

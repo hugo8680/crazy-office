@@ -54,7 +54,7 @@ test('anonymous startup keeps the office visible and requires same-layer sign-in
 });
 
 test('sign-in mounts business and presence once; repeated public session metadata does not replace the workbench',async()=>{
-  const h=await harness();try{await h.login();assert.equal(h.erps.length,1);assert.equal(h.presences.length,1);assert.equal(h.currentErp.options.container,h.element('#lab'));assert.equal(h.currentPresence.options.session.actor.id,'employee-a');assert.equal(h.currentErp.refreshes.length,1);assert.match(h.element('#action-dock').innerHTML,/王敏/);
+  const h=await harness();try{await h.login();assert.equal(h.erps.length,1);assert.equal(h.presences.length,1);assert.equal(h.currentErp.options.container,h.element('#workspace-business'));assert.equal(h.currentPresence.options.session.actor.id,'employee-a');assert.equal(h.currentErp.refreshes.length,1);assert.match(h.element('#action-dock').innerHTML,/王敏/);
     const original=h.currentErp;await h.login({...loginSession(),actor:{...loginSession().actor,title:'交付负责人'}});assert.equal(h.erps.length,1);assert.equal(h.currentErp,original);assert.equal(original.lastSession.actor.title,'交付负责人');
   }finally{h.cleanup();}
 });

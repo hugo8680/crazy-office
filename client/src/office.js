@@ -13,8 +13,8 @@ const viewMenu=document.querySelector('#view-menu');
 const viewSwitch=document.querySelector('#view-switch');
 const receipt=document.querySelector('#workspace-receipt');
 const toastElement=document.querySelector('#toast');
-const viewportScene=mountWorkspaceViewport(document.querySelector('#workspace-stage'));
-const viewportChrome=mountWorkspaceViewport(document.querySelector('#workspace-chrome'),{boundsTarget:lab});
+const businessFrame=document.querySelector('#workspace-business');
+const workspaceViewport=mountWorkspaceViewport([document.querySelector('#workspace-stage'),businessFrame,document.querySelector('#workspace-chrome')],{boundsTarget:lab});
 const observer=createDocumentObserver();
 const motionPreference=window.matchMedia?.('(prefers-reduced-motion: reduce)');
 const surfaceMotions=new Map();
@@ -114,7 +114,7 @@ async function startSession(next){
   if(!nextActor?.id){cleanPrivateState();return;}
   if(isAuthenticated()&&actor().id===nextActor.id){session=next;erp?.updateSession(next);renderDock();return;}
   cleanPrivateState();session=next;
-  erp=mountErp({request:api,session,scene,container:lab,onChange:({snapshot:value})=>receiveSnapshot(value),onNavigate:({section:nextSection,opened,documentId})=>{section=opened?nextSection:null;preferredDocument=documentId||null;renderDock();},onClose:()=>{scene.setSelectedNode(null);scene.setSelectedAgent(null);}});
+  erp=mountErp({request:api,session,scene,container:businessFrame,onChange:({snapshot:value})=>receiveSnapshot(value),onNavigate:({section:nextSection,opened,documentId})=>{section=opened?nextSection:null;preferredDocument=documentId||null;renderDock();},onClose:()=>{scene.setSelectedNode(null);scene.setSelectedAgent(null);}});
   presence=mountErpPresence({scene,request:api,session,onSelectEmployee:person=>{if(!requireAccount())return;if(person.id===actor().id)void openSection('desk');else void erp.openPerson(person.id);}});
   renderDock();await erp.refresh();
 }
@@ -152,4 +152,4 @@ await account.ready;
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelSurfaceMotions();else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
 try{const saved=localStorage.getItem('office-view-mode');if(saved==='3d')void scene.setMode('3d');}catch{}
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;viewportScene.destroy();viewportChrome.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});

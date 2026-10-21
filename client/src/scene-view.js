@@ -47,6 +47,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
         }
       } });
       restore(candidate,layer);
+      candidate.prepare?.();
       if (disposed || ticket !== epoch) { candidate.destroy(); layer.remove(); return mode; }
       const previous = current, previousLayer = currentLayer;
       current = candidate; currentLayer = layer; mode = next;

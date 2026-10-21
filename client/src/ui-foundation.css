@@ -1,0 +1,98 @@
+/* The only source of HTML UI theme, type and control metrics. Scene artwork owns its palette. */
+:root{
+  --office-ui-font-sans:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  --office-ui-font-mono:ui-monospace,SFMono-Regular,Consolas,monospace;
+  --office-ui-text-caption:11px;
+  --office-ui-text-meta:12px;
+  --office-ui-text-control:13px;
+  --office-ui-text-body:14px;
+  --office-ui-text-section:15px;
+  --office-ui-text-subheading:16px;
+  --office-ui-text-input-touch:16px;
+  --office-ui-text-title:21px;
+  --office-ui-text-title-mobile:20px;
+  --office-ui-text-value:22px;
+  --office-ui-leading-body:1.55;
+  --office-ui-leading-reading:1.75;
+  --office-ui-weight-regular:400;
+  --office-ui-weight-medium:500;
+  --office-ui-weight-semibold:600;
+  --office-ui-paper:#fffdf6;
+  --office-ui-ink:#29483d;
+  --office-ui-muted:#62705f;
+  --office-ui-line:#d3ddcd;
+  --office-ui-soft:#eef2e6;
+  --office-ui-canvas:#f2f1e8;
+  --office-ui-surface:#f9faf2;
+  --office-ui-surface-muted:#f5f7ee;
+  --office-ui-accent:#3c7160;
+  --office-ui-accent-hover:#2f5c4b;
+  --office-ui-on-accent:#fffdf1;
+  --office-ui-control-line:#ccd9c3;
+  --office-ui-scrollbar:#c0cfb9;
+  --office-ui-danger:#a05a43;
+  --office-ui-warning:#8e5c33;
+  --office-ui-warning-soft:#f9eddb;
+  --office-ui-radius-field:8px;
+  --office-ui-radius-control:9px;
+  --office-ui-radius-card:12px;
+  --office-ui-radius-section:15px;
+  --office-ui-radius-window:24px;
+  --office-ui-radius-pill:999px;
+  --office-ui-control-compact:36px;
+  --office-ui-control-height:38px;
+  --office-ui-control-touch:44px;
+  --office-ui-field-height:40px;
+  --office-ui-field-touch:42px;
+  --office-ui-icon-control:34px;
+  --office-ui-heading-mark:36px;
+  --office-ui-card-height:78px;
+  --office-ui-space-1:4px;
+  --office-ui-space-2:8px;
+  --office-ui-space-3:12px;
+  --office-ui-space-4:16px;
+  --office-ui-space-5:20px;
+  --office-ui-space-6:24px;
+  --office-ui-duration-fast:160ms;
+  --office-ui-duration-normal:220ms;
+  --office-ui-duration-view:380ms;
+  --office-ui-ease:cubic-bezier(.2,.75,.25,1);
+  --office-ui-disabled-opacity:.55;
+  /* Scene labels still use these two font aliases; their colors stay local. */
+  --sans:var(--office-ui-font-sans);
+  --mono:var(--office-ui-font-mono);
+}
+
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0;overflow:hidden}
+body{
+  background:var(--office-ui-canvas);
+  color:var(--office-ui-ink);
+  font:var(--office-ui-text-body)/var(--office-ui-leading-body) var(--office-ui-font-sans);
+  -webkit-font-smoothing:antialiased;
+}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;-webkit-tap-highlight-color:transparent}
+button:disabled{cursor:not-allowed;opacity:var(--office-ui-disabled-opacity)}
+:is(button,input,textarea,select,a,summary):focus-visible{outline:2px solid var(--office-ui-accent);outline-offset:3px}
+a{color:inherit}
+[hidden]{display:none!important}
+.icon-sprite{position:absolute;width:0;height:0;overflow:hidden}
+.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.icon.small{width:12px;height:12px}
+#lab{position:relative;width:100%;height:100dvh;overflow:hidden;isolation:isolate;background:var(--office-ui-canvas)}
+
+/* Business pages and office controls inherit one readable HTML type scale. */
+:where(.workspace-business,.workspace-chrome,.erp-layer,.session-dialog){
+  font-family:var(--office-ui-font-sans);
+  font-size:var(--office-ui-text-body);
+  line-height:var(--office-ui-leading-body);
+  color:var(--office-ui-ink);
+  -webkit-font-smoothing:antialiased;
+}
+:where(.workspace-business,.workspace-chrome) :is(button,input,select,textarea){
+  font-family:inherit;
+}
+:where(.workspace-business,.workspace-chrome,.session-dialog) :disabled{
+  opacity:var(--office-ui-disabled-opacity);
+}

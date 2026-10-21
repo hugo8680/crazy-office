@@ -1,63 +1,99 @@
-:root{--ink:#2e3e36;--muted:#788274;--line:#d7d9ce;--green:#345a48;--paper:#f5f3eb;--office-ink:#2e3e36;--office-accent:#345a48;--office-border:#d7d9ce}
-body{background:var(--paper);color:var(--ink)}#lab{background:#f2f1e8;background-image:none}#office-scene{position:absolute;inset:0 0 72px;width:100%;transform:none}#office-scene>svg{display:block;width:100%;height:100%}
-.workspace-stage{position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;transform-origin:0 0}
-.workspace-chrome{position:absolute;left:0;top:0;width:100%;height:100%;z-index:200;transform-origin:0 0;pointer-events:none}
+/* Workspace geometry only. Theme and type are owned by ui-foundation.css. */
+#office-scene{position:absolute;inset:0 0 72px;width:100%;transform:none}
+#office-scene>svg{display:block;width:100%;height:100%}
+.workspace-stage,.workspace-business,.workspace-chrome{position:absolute;left:0;top:0;width:100%;height:100%;transform-origin:0 0}
+.workspace-stage{z-index:0}
+.workspace-business{z-index:180;pointer-events:none}
+.workspace-business>.erp-layer{pointer-events:auto}
+.workspace-chrome{z-index:200;pointer-events:none}
 .workspace-chrome>:is(.workspace-dock,.workspace-perspective,.workspace-view-menu,.workspace-receipt){pointer-events:auto}
-.workspace-dock{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:200;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);min-height:66px;padding:9px 12px;background:#fffdf6;border:1px solid #cdd3c5;border-radius:18px;color:#677364;isolation:isolate}
-.workspace-dock button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;white-space:nowrap;border-radius:10px;padding:9px 12px;transition:background .15s ease,color .15s ease;font-size:13px;line-height:1.2}.workspace-dock button:hover{background:#ecefe4;color:#345a48}.workspace-dock .icon{width:17px;height:17px;stroke-width:1.6}
-.workspace-dock .workspace-home{padding:8px;width:38px;color:#48654d}.workspace-home svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.workspace-dock .workspace-new{background:#345a48;border:1px solid #345a48;color:#fffef8;padding:10px 15px;gap:6px}.workspace-dock .workspace-new:hover{background:#426c56}.workspace-navigation{display:flex;gap:2px;min-width:0;overflow:auto;scrollbar-width:none}.workspace-navigation::-webkit-scrollbar{display:none}.workspace-dock .workspace-nav-item{color:#6d7669}.workspace-dock .workspace-nav-item.is-active{background:#e7ebdd;color:#294d3b}.workspace-nav-item em{display:grid;place-items:center;min-width:17px;height:17px;background:#a24f3c;color:white;font:10px var(--sans);font-style:normal;border-radius:5px}
-.workspace-utilities{display:flex;gap:6px;align-items:center}.workspace-view-switch{display:flex;padding:3px;background:#eef0e6;border:1px solid #d8ddcf;border-radius:10px}.workspace-dock .workspace-view-switch button{font:500 11px var(--mono);min-height:32px;min-width:32px;padding:7px}.workspace-dock .workspace-view-switch [aria-pressed=true]{background:#354d3c;color:#fffdf5}.workspace-dock .workspace-view-button{width:36px;padding:8px}.workspace-dock .workspace-account{gap:8px;padding:4px 8px 4px 4px}.workspace-avatar{display:grid;place-items:center;width:32px;height:32px;border:1px solid #cbd3c2;border-radius:10px;background:#e3e8d9;color:#4b654c;font-size:13px}.workspace-account-name{font-size:12px;max-width:90px;overflow:hidden;text-overflow:ellipsis}
-.workspace-view-menu{position:absolute;z-index:205;bottom:98px;right:max(22px,calc((100vw - 1050px)/2));width:244px;padding:12px;border:1px solid #cdd3c5;border-radius:15px;background:#fffdf7}.workspace-view-row{display:flex;align-items:center;justify-content:space-between;padding:5px 7px;font-size:12px;color:#737f6d}.workspace-view-row>div{display:flex;gap:4px}.workspace-view-row button{display:grid;place-items:center;width:34px;height:34px;background:#eef0e5;border-radius:8px;font-size:24px}.workspace-view-row button .icon{width:16px;height:16px}.workspace-view-option{display:flex;align-items:center;gap:12px;width:100%;padding:12px 7px;font-size:12px;border-radius:8px}.workspace-view-option:hover{background:#edf0e3}.workspace-view-option span:last-child:not(:first-child){margin-left:auto}.workspace-view-option .icon{width:16px;height:16px}
-.workspace-toast{position:absolute;z-index:220;bottom:104px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 40px);padding:12px 20px;background:#344c3c;border:1px solid #627e64;color:#fffdf5;border-radius:12px;font-size:13px;line-height:1.5;text-align:center}
-.workspace-receipt{position:absolute;z-index:201;left:24px;bottom:104px;display:flex;align-items:center;max-width:min(380px,calc(100vw - 40px));background:#fffdf5;border:1px solid #c8d4bc;border-radius:14px;padding:10px}.workspace-receipt>button:first-child{display:flex;align-items:center;gap:12px;text-align:left;min-width:0;padding:2px 6px}.workspace-receipt>button:last-child{padding:5px;color:#7e8975}.workspace-receipt-mark{display:grid;place-items:center;width:36px;height:36px;flex:none;background:#e9eddd;border-radius:10px;color:#3e6548}.workspace-receipt small{display:block;font-size:11px;color:#79836d;margin-bottom:5px}.workspace-receipt strong{display:block;max-width:220px;font-size:13px;color:#3d5140;font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.workspace-receipt .icon{width:17px;height:17px}
-/* Names appear on focus; people and furniture remain the primary visual. */
-#office-scene .cnl-agent-caption{font:500 9px var(--sans);fill:#425c4c;paint-order:stroke;stroke:#faf8ec;stroke-width:3px;stroke-linejoin:round}#office-scene .cnl-person-card{opacity:0;pointer-events:none;transition:opacity .15s}#office-scene .cnl-agent:hover .cnl-person-card,#office-scene .cnl-agent:focus .cnl-person-card,#office-scene .cnl-agent.is-selected .cnl-person-card{opacity:1}#office-scene .cnl-ai-aura,#office-scene .cnl-agent-ground-grid,#office-scene .cnl-human-halo-static,#office-scene .cnl-agent-ground{display:none}#office-scene .cnl-agent-person{opacity:1!important;filter:none!important}#office-scene .cnl-agent-badge{opacity:1}#office-scene .cnl-agents [role=button]:focus-visible{outline:none}#office-scene .cnl-agents [role=button]:focus-visible .cnl-agent-person{stroke:#567b61;stroke-width:.6}
-.workspace-dock,.workspace-view-menu,.workspace-receipt,.workspace-toast{box-shadow:none;backdrop-filter:none}
-@media(min-width:1600px){.workspace-dock{gap:14px;padding:10px 16px}.workspace-dock .workspace-nav-item{padding:11px 15px}}
-@media(max-width:1100px){.workspace-dock{gap:6px;max-width:calc(100vw - 24px);padding:8px;bottom:14px}.workspace-dock button{padding:9px}.workspace-account-name{display:none}.workspace-dock .workspace-home{display:none}.workspace-utilities{gap:2px}}
-@media(max-width:780px){#office-scene{bottom:78px;min-width:0;left:0;right:0;transform:none;width:100%}#lab[data-view="3d"] #office-scene{min-width:0;left:0;right:0;transform:none;width:100%}.workspace-dock{width:calc(100vw - 20px);max-width:none;min-height:64px;gap:4px;border-radius:15px;padding:7px}.workspace-navigation{flex:1}.workspace-dock .workspace-nav-item{flex-direction:column;gap:5px;min-width:59px;padding:6px 8px;font-size:10px;position:relative}.workspace-nav-item em{position:absolute;right:2px;top:0}.workspace-dock .workspace-new{padding:10px;min-width:39px}.workspace-new span{display:none}.workspace-dock .workspace-view-switch button{min-width:27px;padding:5px;min-height:28px}.workspace-dock .workspace-view-button{width:29px;padding:5px}.workspace-dock .workspace-account{padding:3px}.workspace-avatar{width:28px;height:32px;border-radius:8px}.workspace-view-menu{bottom:96px;right:12px}.workspace-receipt{left:12px;bottom:96px}.workspace-toast{bottom:96px}.workspace-navigation .workspace-nav-item .icon{width:16px;height:16px}}
-@media(prefers-reduced-motion:reduce){.workspace-dock button,#office-scene .cnl-person-card{transition:none}}
+.erp-layer{position:absolute;inset:24px 24px 108px auto;width:min(1000px,72%);max-width:calc(100% - 48px);height:auto}
 
-.workspace-mobile-view{display:none}
-@media(max-width:480px){.workspace-utilities .workspace-view-switch{display:none}.workspace-dock .workspace-nav-item{min-width:42px;padding:6px 4px;font-size:9px}.workspace-dock .workspace-new{min-width:35px;padding:8px}.workspace-mobile-view{display:flex;gap:5px;margin-bottom:10px;padding:3px;border:1px solid #d7ddcc;border-radius:10px}.workspace-mobile-view button{flex:1;min-height:34px;border-radius:7px;font-size:12px}.workspace-mobile-view button[aria-pressed=true]{background:#345a48;color:#fffdf5}}
-/* Keep the office visible beside the active business document. */
-.erp-layer{--erp-window-top:26px;--erp-window-side:28px;--erp-window-bottom:108px;left:auto;bottom:auto;top:calc(var(--workspace-visible-top,0px) + var(--erp-window-top) * var(--workspace-inverse-scale,1));right:calc(100vw - var(--workspace-visible-left,0px) - var(--workspace-visible-width,100vw) + var(--erp-window-side) * var(--workspace-inverse-scale,1));height:calc(var(--workspace-visible-height,100dvh) - (var(--erp-window-top) + var(--erp-window-bottom)) * var(--workspace-inverse-scale,1));width:min(1040px,70vw,calc(var(--workspace-visible-width,100vw) - 56px * var(--workspace-inverse-scale,1)));max-width:calc(var(--workspace-visible-width,100vw) - 56px * var(--workspace-inverse-scale,1))}
-@media(max-width:1100px){.erp-layer{--erp-window-top:18px;--erp-window-side:18px;--erp-window-bottom:104px;width:min(calc(100vw - max(18px,18vw) - 18px),calc(var(--workspace-visible-width,100vw) - 36px * var(--workspace-inverse-scale,1)));max-width:calc(var(--workspace-visible-width,100vw) - 36px * var(--workspace-inverse-scale,1))}}
-@media(max-width:720px){.erp-layer{--erp-window-top:10px;--erp-window-side:10px;--erp-window-bottom:100px;width:calc(var(--workspace-visible-width,100vw) - 20px * var(--workspace-inverse-scale,1));max-width:calc(var(--workspace-visible-width,100vw) - 20px * var(--workspace-inverse-scale,1))}}
-/* Feedback belongs to the control under the pointer, without moving the dock. */
-.workspace-dock button,.workspace-view-menu button,.workspace-receipt button{transition:background-color 180ms ease,color 180ms ease,transform 180ms cubic-bezier(.2,.75,.25,1)}
-.workspace-dock button:active,.workspace-view-menu button:active,.workspace-receipt button:active{transform:scale(.96)}
-.workspace-dock button:focus-visible,.workspace-view-menu button:focus-visible,.workspace-receipt button:focus-visible{outline:2px solid #6e8d72;outline-offset:3px}
-.workspace-dock button:disabled{opacity:.55;cursor:wait}
-.workspace-view-menu{transform-origin:85% 100%}
-.workspace-perspective{position:absolute;z-index:199;top:max(24px,env(safe-area-inset-top));left:max(24px,env(safe-area-inset-left));display:flex;gap:4px;padding:5px;border:1px solid #cdd3c5;border-radius:14px;background:#fffdf6;box-shadow:none}
-.workspace-perspective button{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;color:#788171;transition:background-color 180ms ease,color 180ms ease,transform 180ms cubic-bezier(.2,.75,.25,1)}
+.workspace-dock{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:calc(100% - 32px);min-height:66px;padding:9px 12px;background:var(--office-ui-paper);border:1px solid var(--office-ui-line);border-radius:18px;color:var(--office-ui-muted);isolation:isolate}
+.workspace-dock button{display:flex;align-items:center;justify-content:center;gap:7px;min-height:var(--office-ui-control-touch);padding:9px 12px;border-radius:10px;font-size:var(--office-ui-text-control);line-height:1.2;white-space:nowrap}
+.workspace-dock button:hover{background:var(--office-ui-soft);color:var(--office-ui-accent)}
+.workspace-dock .icon{width:17px;height:17px;stroke-width:1.6}
+.workspace-dock .workspace-home{width:38px;padding:8px;color:var(--office-ui-accent)}
+.workspace-home svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.workspace-dock .workspace-new{gap:6px;padding:10px 15px;background:var(--office-ui-accent);border:1px solid var(--office-ui-accent);color:var(--office-ui-on-accent)}
+.workspace-dock .workspace-new:hover{background:var(--office-ui-accent-hover)}
+.workspace-navigation{display:flex;gap:2px;min-width:0;overflow:auto;scrollbar-width:none}
+.workspace-navigation::-webkit-scrollbar{display:none}
+.workspace-dock .workspace-nav-item{color:var(--office-ui-muted)}
+.workspace-dock .workspace-nav-item.is-active{background:var(--office-ui-soft);color:var(--office-ui-ink)}
+.workspace-nav-item em{display:grid;place-items:center;min-width:17px;height:17px;background:var(--office-ui-danger);color:var(--office-ui-on-accent);font:var(--office-ui-text-caption) var(--office-ui-font-sans);font-style:normal;border-radius:5px}
+.workspace-utilities{display:flex;align-items:center;gap:6px}
+.workspace-dock .workspace-view-button{width:36px;padding:8px}
+.workspace-dock .workspace-account{gap:8px;padding:4px 8px 4px 4px}
+.workspace-avatar{display:grid;place-items:center;width:32px;height:32px;border:1px solid var(--office-ui-control-line);border-radius:10px;background:var(--office-ui-soft);color:var(--office-ui-accent);font-size:var(--office-ui-text-control)}
+.workspace-account-name{max-width:90px;overflow:hidden;text-overflow:ellipsis;font-size:var(--office-ui-text-meta)}
+
+.workspace-view-menu{position:absolute;bottom:98px;right:max(22px,calc((100% - 1050px)/2));width:272px;max-width:calc(100% - 24px);padding:14px;background:var(--office-ui-paper);border:1px solid var(--office-ui-line);border-radius:20px;color:var(--office-ui-ink);transform-origin:85% 100%}
+.workspace-view-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border:1px solid var(--office-ui-line);border-radius:13px;background:var(--office-ui-soft);font-size:var(--office-ui-text-meta);font-weight:var(--office-ui-weight-medium)}
+.workspace-view-row+.workspace-view-row{margin-top:8px}
+.workspace-view-row>div{display:flex;gap:5px}
+.workspace-view-row button{display:grid;place-items:center;width:35px;height:35px;border:1px solid var(--office-ui-control-line);border-radius:10px;background:var(--office-ui-paper);color:var(--office-ui-accent);font-size:21px}
+.workspace-view-row button .icon{width:16px;height:16px}
+.workspace-view-option{display:flex;align-items:center;gap:12px;width:100%;min-height:46px;margin-top:5px;padding:11px 12px;border:1px solid transparent;border-radius:12px;color:var(--office-ui-ink);font-size:var(--office-ui-text-meta);text-align:left}
+.workspace-view-option .icon{width:19px;height:19px;color:var(--office-ui-accent)}
+.workspace-view-option:hover{background:var(--office-ui-soft);border-color:var(--office-ui-line)}
+.workspace-view-option span:last-child:not(:first-child){margin-left:auto;font-size:var(--office-ui-text-caption);color:var(--office-ui-muted)}
+.workspace-toast{position:absolute;bottom:104px;left:50%;transform:translateX(-50%);max-width:calc(100% - 40px);padding:13px 22px;background:var(--office-ui-ink);border:1px solid var(--office-ui-accent);border-radius:16px;color:var(--office-ui-on-accent);font-size:var(--office-ui-text-control);line-height:1.65;text-align:center;overflow-wrap:anywhere}
+.workspace-receipt{position:absolute;left:24px;bottom:104px;display:flex;align-items:center;gap:6px;max-width:min(380px,calc(100% - 40px));padding:12px;background:var(--office-ui-paper);border:1px solid var(--office-ui-line);border-radius:20px}
+.workspace-receipt>button:first-child{display:flex;align-items:center;gap:13px;min-width:0;padding:1px 5px 1px 1px;text-align:left}
+.workspace-receipt>button:last-child{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:6px;border:1px solid var(--office-ui-line);border-radius:10px;color:var(--office-ui-muted)}
+.workspace-receipt>button:last-child:hover{background:var(--office-ui-soft);color:var(--office-ui-ink)}
+.workspace-receipt-mark{display:grid;place-items:center;flex:none;width:44px;height:44px;border:1px solid var(--office-ui-control-line);border-radius:15px;background:var(--office-ui-soft);color:var(--office-ui-accent)}
+.workspace-receipt small{display:block;margin-bottom:4px;color:var(--office-ui-muted);font-size:var(--office-ui-text-caption)}
+.workspace-receipt strong{display:block;max-width:220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--office-ui-ink);font-size:var(--office-ui-text-control);font-weight:var(--office-ui-weight-semibold);line-height:1.6}
+.workspace-receipt .icon{width:17px;height:17px}.workspace-receipt-mark .icon{width:21px;height:21px}
+.workspace-dock,.workspace-view-menu,.workspace-receipt,.workspace-toast,.workspace-perspective{box-shadow:none;backdrop-filter:none}
+
+.workspace-perspective{position:absolute;top:max(24px,env(safe-area-inset-top));left:max(24px,env(safe-area-inset-left));display:flex;gap:4px;padding:5px;background:var(--office-ui-paper);border:1px solid var(--office-ui-line);border-radius:14px}
+.workspace-perspective button{display:grid;place-items:center;width:40px;height:40px;border-radius:9px;color:var(--office-ui-muted)}
 .workspace-perspective .icon{width:22px;height:22px;stroke-width:1.5}
-.workspace-perspective button[aria-pressed=true]{background:#345a48;color:#fffdf6}
-.workspace-perspective button:hover:not([aria-pressed=true]){background:#e9eddf;color:#345a48}
-.workspace-perspective button:active{transform:scale(.93)}
-.workspace-perspective button:focus-visible{outline:2px solid #6e8d72;outline-offset:3px}
-.workspace-perspective button:disabled{opacity:.55;cursor:wait}
-@media(max-width:720px){.workspace-perspective{top:max(17px,env(safe-area-inset-top));left:max(17px,env(safe-area-inset-left));border-radius:11px;padding:4px}.workspace-perspective button{width:34px;height:34px;border-radius:7px}.erp-layer .erp-heading{padding-top:64px}}
-@media(hover:hover) and (pointer:fine){.workspace-dock button:hover{transform:translateY(-2px)}.workspace-dock button:active{transform:translateY(0) scale(.96)}.workspace-receipt>button:first-child:hover .workspace-receipt-mark{background:#dce8d3}.workspace-view-row button:hover{background:#dfe7d5}}
-@media(prefers-reduced-motion:reduce){.workspace-dock button,.workspace-view-menu button,.workspace-receipt button,.workspace-perspective button{transition:none!important;transform:none!important}}
+.workspace-perspective button[aria-pressed=true]{background:var(--office-ui-accent);color:var(--office-ui-on-accent)}
+.workspace-perspective button:hover:not([aria-pressed=true]){background:var(--office-ui-soft);color:var(--office-ui-accent)}
+.workspace-chrome button{transition:background-color var(--office-ui-duration-fast) ease,color var(--office-ui-duration-fast) ease,transform var(--office-ui-duration-fast) var(--office-ui-ease)}
+.workspace-chrome button:active{transform:scale(.96)}
+.workspace-chrome button:focus-visible{outline:2px solid var(--office-ui-accent);outline-offset:3px}
+.workspace-chrome button:disabled{opacity:var(--office-ui-disabled-opacity);cursor:wait}
 
-/* Compact feedback uses the same materials as business and account windows. */
-.workspace-view-menu{width:272px;padding:14px;background:var(--dialog-paper);border-color:var(--dialog-line);border-radius:20px;color:var(--dialog-ink)}
-.workspace-view-row{gap:16px;padding:12px;border:1px solid #dce3d2;border-radius:13px;background:var(--dialog-soft);font-size:12px;font-weight:550;color:var(--dialog-ink)}
-.workspace-view-row>div{gap:5px}.workspace-view-row button{width:35px;height:35px;border:1px solid #cdd9c3;border-radius:10px;background:var(--dialog-paper);color:var(--dialog-accent);font-size:21px}
-.workspace-view-option{gap:12px;min-height:46px;margin-top:5px;padding:11px 12px;border:1px solid transparent;border-radius:12px;color:var(--dialog-ink);font-size:12px;text-align:left}
-.workspace-view-option .icon{width:19px;height:19px;color:var(--dialog-accent)}
-.workspace-view-option:hover{background:var(--dialog-soft);border-color:#dce3d2}
-.workspace-view-option span:last-child:not(:first-child){font-size:11px;color:var(--dialog-muted)}
-.workspace-receipt{gap:6px;padding:12px;background:var(--dialog-paper);border-color:var(--dialog-line);border-radius:20px}
-.workspace-receipt>button:first-child{gap:13px;padding:1px 5px 1px 1px}
-.workspace-receipt-mark{width:44px;height:44px;border:1px solid #cbd9c2;border-radius:15px;background:var(--dialog-soft);color:var(--dialog-accent)}
-.workspace-receipt-mark .icon{width:21px;height:21px}
-.workspace-receipt small{margin-bottom:4px;color:var(--dialog-muted);font-size:10px;letter-spacing:.02em}
-.workspace-receipt strong{color:var(--dialog-ink);font-size:13px;font-weight:600;line-height:1.6}
-.workspace-receipt>button:last-child{display:grid;place-items:center;flex:none;width:30px;height:30px;padding:6px;border:1px solid #e0e5d8;border-radius:10px;color:var(--dialog-muted)}
-.workspace-receipt>button:last-child:hover{border-color:#bdcdb2;background:var(--dialog-soft);color:var(--dialog-ink)}
-.workspace-toast{padding:13px 22px;border-color:#527c68;border-radius:16px;background:#294b3f;color:#fffdf6;font-size:13px;line-height:1.65;overflow-wrap:anywhere}
-@media(max-width:480px){.workspace-view-menu{width:min(272px,calc(100vw - 24px));padding:12px;border-radius:18px}.workspace-receipt{max-width:calc(100vw - 24px);padding:10px;border-radius:17px}.workspace-receipt strong{max-width:min(220px,calc(100vw - 135px))}}
+/* Scene annotations remain local to the SVG, separate from HTML typography. */
+#office-scene .cnl-agent-caption{font:500 9px var(--sans);fill:#425c4c;paint-order:stroke;stroke:#faf8ec;stroke-width:3px;stroke-linejoin:round}
+#office-scene .cnl-person-card{opacity:0;pointer-events:none;transition:opacity var(--office-ui-duration-fast)}
+#office-scene .cnl-agent:is(:hover,:focus,.is-selected) .cnl-person-card{opacity:1}
+#office-scene :is(.cnl-ai-aura,.cnl-agent-ground-grid,.cnl-human-halo-static,.cnl-agent-ground){display:none}
+#office-scene .cnl-agent-person{opacity:1!important;filter:none!important}
+#office-scene .cnl-agent-badge{opacity:1}
+#office-scene .cnl-agents [role=button]:focus-visible{outline:none}
+#office-scene .cnl-agents [role=button]:focus-visible .cnl-agent-person{stroke:#567b61;stroke-width:.6}
+
+@media(min-width:1600px){.workspace-dock{gap:14px;padding:10px 16px}.workspace-dock .workspace-nav-item{padding:11px 15px}}
+@media(max-width:1100px){
+  .erp-layer{inset:18px 18px 104px max(18px,18%);width:auto;max-width:none}
+  .workspace-dock{gap:6px;max-width:calc(100% - 24px);padding:8px;bottom:14px}.workspace-dock button{padding:9px}
+  .workspace-account-name,.workspace-dock .workspace-home{display:none}.workspace-utilities{gap:2px}
+}
+@media(max-width:780px){
+  #office-scene{inset:0 0 78px;min-width:0}
+  .workspace-dock{width:calc(100% - 20px);max-width:none;min-height:64px;gap:4px;border-radius:15px;padding:7px}
+  .workspace-navigation{flex:1}.workspace-dock .workspace-nav-item{position:relative;flex-direction:column;gap:5px;min-width:59px;padding:6px 8px;font-size:var(--office-ui-text-caption)}
+  .workspace-nav-item em{position:absolute;right:2px;top:0}.workspace-navigation .workspace-nav-item .icon{width:16px;height:16px}
+  .workspace-dock .workspace-new{padding:10px;min-width:39px}.workspace-new span{display:none}
+  .workspace-dock .workspace-view-button{width:29px;padding:5px}.workspace-dock .workspace-account{padding:3px}.workspace-avatar{width:28px;height:32px;border-radius:8px}
+  .workspace-view-menu{bottom:96px;right:12px}.workspace-receipt{left:12px;bottom:96px}.workspace-toast{bottom:96px}
+}
+@media(max-width:720px){
+  .erp-layer{inset:12px 12px 100px;width:auto;max-width:none}
+  #lab:has(.erp-layer:not([hidden])) .workspace-perspective{visibility:hidden;pointer-events:none}
+  .workspace-perspective{top:max(17px,env(safe-area-inset-top));left:max(17px,env(safe-area-inset-left));border-radius:11px;padding:4px}
+  .workspace-perspective button{width:34px;height:34px;border-radius:7px}
+}
+@media(max-width:480px){
+  .workspace-dock .workspace-nav-item{min-width:42px;padding:6px 4px}.workspace-dock .workspace-new{min-width:35px;padding:8px}
+  .workspace-view-menu{padding:12px;border-radius:18px}.workspace-receipt{max-width:calc(100% - 24px);padding:10px;border-radius:17px}
+  .workspace-receipt strong{max-width:min(220px,calc(100vw - 135px))}
+}
+@media(hover:hover) and (pointer:fine){.workspace-dock button:hover{transform:translateY(-2px)}.workspace-dock button:active{transform:translateY(0) scale(.96)}.workspace-view-row button:hover{background:var(--office-ui-soft)}}
+@media(prefers-reduced-motion:reduce){.workspace-chrome button,#office-scene .cnl-person-card{transition:none!important}.workspace-chrome button{transform:none!important}}

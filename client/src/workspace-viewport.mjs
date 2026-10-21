@@ -1,47 +1,49 @@
-const OWNED_PROPERTIES=['left','top','width','height','transform','transform-origin'];
-const BOUNDS_PROPERTIES=['--workspace-visible-left','--workspace-visible-top','--workspace-visible-width','--workspace-visible-height','--workspace-inverse-scale'];
+const FRAME_PROPERTIES=['left','top','width','height','transform','transform-origin'];
+const BOUNDS_PROPERTIES=['--workspace-visible-left','--workspace-visible-top','--workspace-visible-width','--workspace-visible-height','--workspace-inverse-scale','--workspace-logical-width','--workspace-logical-height'];
 
-/** Keep office controls in the visible viewport without scaling business content. */
-export function mountWorkspaceViewport(element,{
+function ownedStyle(style,names){
+  const original=new Map(names.map(name=>[name,{value:style.getPropertyValue(name),priority:style.getPropertyPriority(name)}]));
+  const written=new Map(),touched=new Set();
+  return {
+    set(name,value){
+      if(written.get(name)===value)return;
+      written.set(name,value);
+      if(style.getPropertyValue(name)===value&&!style.getPropertyPriority(name))return;
+      touched.add(name);style.setProperty(name,value);
+    },
+    restore(){
+      for(const name of touched){const saved=original.get(name);if(saved.value)style.setProperty(name,saved.value,saved.priority);else style.removeProperty(name);}
+      touched.clear();written.clear();
+    }
+  };
+}
+
+/** One viewport transaction keeps the scene, business windows and controls aligned. */
+export function mountWorkspaceViewport(elements,{
   viewport=globalThis.visualViewport,
   boundsTarget,
   windowTarget=globalThis.window,
   requestFrame=globalThis.requestAnimationFrame,
   cancelFrame=globalThis.cancelAnimationFrame
 }={}){
-  if(!element?.style||!viewport)return {destroy(){}};
-  const style=element.style;
-  const original=new Map(OWNED_PROPERTIES.map(name=>[name,{value:style.getPropertyValue(name),priority:style.getPropertyPriority(name)}]));
-  const written=new Map(),touched=new Set();
-  const boundsStyle=boundsTarget?.style;
-  const boundsOriginal=boundsStyle?new Map(BOUNDS_PROPERTIES.map(name=>[name,{value:boundsStyle.getPropertyValue(name),priority:boundsStyle.getPropertyPriority(name)}])):null;
-  const boundsWritten=new Map(),boundsTouched=new Set();
+  const frames=[...new Set((Array.isArray(elements)?elements:[elements]).filter(element=>element?.style))];
+  if(!frames.length||!viewport)return {destroy(){}};
+  const styles=frames.map(element=>ownedStyle(element.style,FRAME_PROPERTIES));
+  const bounds=boundsTarget?.style?ownedStyle(boundsTarget.style,BOUNDS_PROPERTIES):null;
   let destroyed=false,pending=null;
-
   function update(){
     if(destroyed)return;
     const {offsetLeft:left,offsetTop:top,width,height,scale}=viewport;
     if(![left,top,width,height,scale].every(value=>typeof value==='number'&&Number.isFinite(value))||left<0||top<0||width<=0||height<=0||scale<=0)return;
-    const scaledWidth=width*scale,scaledHeight=height*scale,inverse=1/scale;
-    if(![scaledWidth,scaledHeight,inverse].every(value=>Number.isFinite(value)&&value>0))return;
-    const next={left:`${left}px`,top:`${top}px`,width:`${scaledWidth}px`,height:`${scaledHeight}px`,transform:`scale(${inverse})`,'transform-origin':'0 0'};
-    for(const name of OWNED_PROPERTIES){
-      const value=next[name];
-      if(written.get(name)===value)continue;
-      written.set(name,value);
-      if(style.getPropertyValue(name)===value&&!style.getPropertyPriority(name))continue;
-      touched.add(name);
-      style.setProperty(name,value);
-    }
-    if(boundsStyle){
-      const values=[left,top,width,height,inverse];
-      for(const [index,name] of BOUNDS_PROPERTIES.entries()){
-        const value=index===4?String(inverse):`${values[index]}px`;
-        if(boundsWritten.get(name)===value)continue;
-        boundsWritten.set(name,value);
-        if(boundsStyle.getPropertyValue(name)===value&&!boundsStyle.getPropertyPriority(name))continue;
-        boundsTouched.add(name);boundsStyle.setProperty(name,value);
-      }
+    // Pinch reports fractional dimensions. Whole CSS pixels prevent microscopic
+    // rounding differences from repeatedly reallocating a WebGL drawing buffer.
+    const logicalWidth=Math.round(width*scale),logicalHeight=Math.round(height*scale),inverse=1/scale;
+    if(![logicalWidth,logicalHeight,inverse].every(value=>Number.isFinite(value)&&value>0))return;
+    const values=[`${left}px`,`${top}px`,`${logicalWidth}px`,`${logicalHeight}px`,`scale(${inverse})`,'0 0'];
+    for(const style of styles)for(const [index,name] of FRAME_PROPERTIES.entries())style.set(name,values[index]);
+    if(bounds){
+      const values=[`${left}px`,`${top}px`,`${width}px`,`${height}px`,String(inverse),`${logicalWidth}px`,`${logicalHeight}px`];
+      for(const [index,name] of BOUNDS_PROPERTIES.entries())bounds.set(name,values[index]);
     }
   }
   function schedule(){
@@ -61,17 +63,7 @@ export function mountWorkspaceViewport(element,{
     windowTarget?.removeEventListener?.('resize',schedule);
     if(pending!==null&&typeof cancelFrame==='function')cancelFrame(pending);
     pending=null;
-    for(const name of touched){
-      const saved=original.get(name);
-      if(saved.value)style.setProperty(name,saved.value,saved.priority);
-      else style.removeProperty(name);
-    }
-    touched.clear();written.clear();
-    for(const name of boundsTouched){
-      const saved=boundsOriginal.get(name);
-      if(saved.value)boundsStyle.setProperty(name,saved.value,saved.priority);
-      else boundsStyle.removeProperty(name);
-    }
-    boundsTouched.clear();boundsWritten.clear();
+    for(const style of styles)style.restore();
+    bounds?.restore();
   }};
 }
