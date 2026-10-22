@@ -16,7 +16,7 @@ function fixture(people=population(60)){
 }
 function assertBatch(activity){
   assert.ok(activity.duration>=2800&&activity.duration<=4500);
-  assert.ok(activity.participants.length>=1&&activity.participants.length<=6);
+  assert.ok(activity.participants.length>=1&&activity.participants.length<=8);
   assert.equal(new Set(activity.participants.map(person=>person.id)).size,activity.participants.length);
   assert.ok(Object.isFrozen(activity));assert.ok(Object.isFrozen(activity.participants));
   for(const person of activity.participants){assert.ok(person.delay>=0);assert.ok(person.duration>0);assert.ok(person.delay+person.duration<=activity.duration);assert.ok(Object.isFrozen(person));if(person.kind==='post')assert.notEqual(person.pose,'sip');}
@@ -94,16 +94,16 @@ test('per-person cooldown persists through visibility changes and only schedules
 
 test('scheduler runs staggered bounded batches with one timer and a short gap without repeated polling',()=>{
   const f=fixture(),ambient=mountOfficeAmbient(f.options),initial=[...f.timers.values()][0].at;
-  assert.ok(initial>=600&&initial<=1500);f.advance(initial-1);assert.equal(f.starts.length,0);f.advance(1);
+  assert.ok(initial>=300&&initial<=700);f.advance(initial-1);assert.equal(f.starts.length,0);f.advance(1);
   assert.equal(f.starts.length,1);assertBatch(ambient.active);assert.ok(new Set(ambient.active.participants.map(p=>p.delay)).size>1);
   const duration=ambient.active.duration;f.advance(duration-1);assert.equal(f.ends.length,0);f.advance(1);assert.equal(f.ends.length,1);assert.equal(ambient.active,null);
-  const gap=[...f.timers.values()][0].at-f.clock;assert.ok(gap>=600&&gap<=1500);f.advance(gap);assert.equal(f.starts.length,2);
+  const gap=[...f.timers.values()][0].at-f.clock;assert.ok(gap>=180&&gap<=500);f.advance(gap);assert.equal(f.starts.length,2);
   f.advance(180000);assert.equal(f.maxTimers,1);assert.equal(f.timers.size,1);assert.ok(f.starts.length>20);
   for(const activity of f.starts)assertBatch(activity);
   ambient.destroy();assert.equal(f.timers.size,0);
 });
 
-test('business and hover blocking immediately cancel all poses and leave no background polling',()=>{
+test('inactive scene blocking immediately cancels all poses and leave no background polling',()=>{
   const f=fixture(),ambient=mountOfficeAmbient(f.options);f.runNext();assert.ok(ambient.active);
   f.setBlocked(true);ambient.refresh();assert.equal(ambient.active,null);assert.equal(f.ends.length,1);assert.equal(f.timers.size,0);
   f.advance(100000);assert.equal(f.starts.length,1);
@@ -118,15 +118,24 @@ test('hidden and reduced-motion states stop all activity and never replay elapse
   ambient.destroy();assert.equal(f.listeners.size,0);assert.equal(f.mediaListeners.size,0);
 });
 
-test('refresh cancels people becoming busy, removed or repositioned and never delays an already queued batch',()=>{
+test('an individual becoming busy or moving stops only their gesture, without interrupting colleagues',()=>{
   const people=population(60),f=fixture(people);let current=people;f.options.getPeople=()=>current;
   const ambient=mountOfficeAmbient(f.options),initial=[...f.timers.values()][0].at;
-  for(let i=0;i<5;i++){f.advance(50);ambient.refresh();}assert.equal([...f.timers.values()][0].at,initial);
-  f.runNext();const first=ambient.active.participants[0];current=people.map(person=>person.id===first.id?{...person,busy:true}:person);ambient.refresh();assert.equal(ambient.active,null);assert.equal(f.ends.length,1);
-  f.runNext();const next=ambient.active.participants[0];current=current.map(person=>person.id===next.id?{...person,x:person.x+20}:person);ambient.refresh();assert.equal(f.ends.length,2);
-  f.runNext();const third=ambient.active.participants[0];current=current.filter(person=>person.id!==third.id);ambient.refresh();assert.equal(f.ends.length,3);
-  ambient.pause();assert.equal(f.timers.size,0);ambient.resume();f.runNext();assert.equal(f.starts.length,4);
-  ambient.destroy();ambient.destroy();ambient.refresh();f.advance(100000);assert.equal(f.starts.length,4);assert.equal(f.timers.size,0);assert.equal(f.maxTimers,1);
+  for(let i=0;i<3;i++){f.advance(50);ambient.refresh();}assert.equal([...f.timers.values()][0].at,initial);
+  f.runNext();const batch=ambient.active,first=batch.participants[0],second=batch.participants[1],third=batch.participants[2],deadline=[...f.timers.values()][0].at;
+  current=people.map(person=>person.id===first.id?{...person,busy:true}:person);ambient.refresh();
+  assert.equal(ambient.active.id,batch.id);assert.equal(ambient.active.participants.length,batch.participants.length-1);assert.deepEqual(f.ends[0].participants.map(p=>p.id),[first.id]);assert.equal([...f.timers.values()][0].at,deadline);
+  current=current.map(person=>person.id===second.id?{...person,x:person.x+20}:person);ambient.refresh();assert.deepEqual(f.ends[1].participants.map(p=>p.id),[second.id]);
+  current=current.filter(person=>person.id!==third.id);ambient.refresh();assert.deepEqual(f.ends[2].participants.map(p=>p.id),[third.id]);assert.ok(ambient.active.participants.length>0);
+  f.advance(deadline-f.clock);assert.equal(ambient.active,null);assert.equal(f.ends[3].participants.length,batch.participants.length-3);
+  ambient.pause();assert.equal(f.timers.size,0);ambient.resume();f.runNext();assert.equal(f.starts.length,2);
+  ambient.destroy();ambient.destroy();ambient.refresh();f.advance(100000);assert.equal(f.starts.length,2);assert.equal(f.timers.size,0);assert.equal(f.maxTimers,1);
+});
+
+test('every employee in a sixty-person viewport receives an idle gesture within fifty seconds',()=>{
+  const f=fixture(population(60)),ambient=mountOfficeAmbient(f.options);f.advance(50000);
+  assert.equal(new Set(f.starts.flatMap(batch=>batch.participants.map(person=>person.id))).size,60);
+  assert.ok(f.starts.every(batch=>batch.participants.length<=8));assert.equal(f.maxTimers,1);ambient.destroy();
 });
 
 test('an empty scene sleeps until refreshed and tolerates missing DOM APIs or onStart destruction',()=>{

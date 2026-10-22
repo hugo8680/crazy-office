@@ -1,4 +1,5 @@
 /* The office is also the network: every visible endpoint is selectable. */
+import {BULLETIN_SECTIONS,bulletinTile} from './bulletin-sections.mjs';
 import { HUMAN_EMPLOYEES } from './people.js';
 import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming, createViewTween } from './scene-motion.js';
 import {createOfficePresenceMotion} from './erp-presence.js';
@@ -7,7 +8,7 @@ import {mountOfficeAmbient} from './office-ambient.mjs';
 import {employeeAppearance,employeeAppearanceKey,employeeAppearanceStyle} from './employee-appearance.mjs';
 import {organizationOccupant,subscribeOrganizationOccupants} from './organization-occupants.mjs';
 import {selectOfficeNameLabels} from './person-labels.mjs';
-import { OFFICE_WORLD, OFFICE_ROOMS, OFFICE_DATA_CENTER, OFFICE_NODE_ANCHORS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_DETAIL_ZOOM, officeSeatsForView } from './organization.mjs';
+import { OFFICE_WORLD, OFFICE_ROOMS, OFFICE_DATA_CENTER, OFFICE_BULLETIN_AREA, OFFICE_NODE_ANCHORS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_DETAIL_ZOOM, officeSeatsForView } from './organization.mjs';
 import {renderOrganizationFloor, renderOrganizationPositionContents, ORGANIZATION_POSITION_META} from './scene-floor2d.mjs';
 const WORLD_CX=OFFICE_WORLD.width/2,WORLD_CY=OFFICE_WORLD.height/2;
 const INITIAL_VIEW_BOX=`0 0 ${OFFICE_WORLD.width} ${OFFICE_WORLD.height}`;
@@ -20,7 +21,7 @@ const NETWORK_IDS=new Set(['internet','firewall','core','server','storage','ups'
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountScene(container, { onSelectNode = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
+export function mountScene(container, { onSelectNode = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
   const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], seated:[-26,-59,52,63], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35],empty_seat:[-26,-59,52,63] };
   const use = (name, x, y, scale = 1, extra = '') => {
@@ -94,8 +95,8 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     .cnl-ambient-props{pointer-events:none}.cnl-ambient-cup,.cnl-ambient-tablet{opacity:0}
     :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="sip"] .cnl-ambient-cup,.cnl-agent[data-ambient="typing"] .cnl-ambient-tablet{animation:cnl-ambient-prop var(--ambient-duration,3200ms) ease-in-out var(--ambient-delay,0ms) 1 both}
     :is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="wave"] .cnl-person-face-neutral{display:none}:is(.cnl-agent,.cnl-human,.cnl-presence)[data-ambient="wave"] .cnl-person-face-happy{display:block}
-    .cnl-position[data-ambient="wave"]{--position-arm:none;--position-neutral:none;--position-happy:block}
-    .cnl-position[data-ambient="wave"] .cnl-position-wave{display:block;animation:cnl-post-wave var(--ambient-duration,3200ms) ease-in-out var(--ambient-delay,0ms) 1 both}
+    .cnl-position[data-ambient="wave"]{--position-neutral:none;--position-happy:block}
+    .cnl-position[data-ambient="wave"] .cnl-position-wave{display:none}
     @keyframes cnl-ambient-prop{0%,100%{opacity:0}20%,80%{opacity:1}}
     @keyframes cnl-ambient-sip{0%,100%{transform:rotate(0deg)}24%,72%{transform:rotate(-105deg)}42%,58%{transform:rotate(-112deg)}}
     @keyframes cnl-ambient-look{0%,100%{transform:rotate(0deg)}25%,68%{transform:rotate(calc(var(--ambient-direction,1)*8deg)) translateX(1.4px)}}
@@ -103,6 +104,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     @keyframes cnl-ambient-wave{0%,100%{transform:rotate(0deg)}20%,62%{transform:rotate(-130deg)}34%,48%{transform:rotate(-106deg)}41%,55%{transform:rotate(-144deg)}}
     @keyframes cnl-ambient-type-left{0%,100%{transform:rotate(0deg)}20%,80%{transform:rotate(-47deg)}35%,62%{transform:rotate(-57deg)}}
     @keyframes cnl-ambient-type-right{0%,100%{transform:rotate(0deg)}20%,80%{transform:rotate(47deg)}46%,72%{transform:rotate(57deg)}}
+    @keyframes cnl-post-arm-wave{0%,100%{transform:rotate(0deg)}22%,70%{transform:rotate(-46deg)}34%,54%{transform:rotate(-65deg)}44%,64%{transform:rotate(-37deg)}}
     @keyframes cnl-post-look{0%,100%{transform:rotate(0deg) translateX(0)}25%,70%{transform:translateX(calc(var(--ambient-direction,1)*1.5px)) rotate(calc(var(--ambient-direction,1)*8deg))}45%{transform:translateX(calc(var(--ambient-direction,1)*2px)) rotate(calc(var(--ambient-direction,1)*11deg))}}
     @keyframes cnl-post-nod{0%,100%{transform:translateY(0) rotate(0deg)}22%,58%{transform:translateY(1.5px) rotate(7deg)}38%,74%{transform:translateY(-.6px) rotate(-4deg)}}
     @keyframes cnl-post-type-left{0%,100%{transform:rotate(0deg)}18%,46%,72%{transform:rotate(-9deg) translateY(-.5px)}30%,58%,84%{transform:rotate(5deg)}}
@@ -184,13 +186,13 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   let suppressClickUntil = 0;
   let viewFrame = 0;
   let motionUntil = 0;
-  let destroyed = false,ambient=null;
+  let destroyed = false,active=true,inactiveAt=null,ambient=null;
   let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null,lastViewBox=INITIAL_VIEW_BOX;
   let greetingElement=null,greetingAnimation=null,departmentHint=null,hintScaleBase=1,hintBounds={half:64,top:-88,bottom:-37};
   const feedbackAnimations=new WeakMap();
   const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);if(wheelAnchor){panX=wheelAnchor.world.x-WORLD_CX-wheelAnchor.offsetX/scale;panY=wheelAnchor.world.y-WORLD_CY-wheelAnchor.offsetY/scale;}applyView();}});
-  function animateView(patch,anchor=null){wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-WORLD_CX-panX)*scale,offsetY:(anchor.world.y-WORLD_CY-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion});if(viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
-  function tickCamera(time){cameraMotionFrame=0;if(destroyed)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
+  function animateView(patch,anchor=null){onLeaveBulletin();wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-WORLD_CX-panX)*scale,offsetY:(anchor.world.y-WORLD_CY-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion||!active});if(active&&viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
+  function tickCamera(time){cameraMotionFrame=0;if(destroyed||!active||document.hidden)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
   function stopCamera(){wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
   function stopGreetingWave(){greetingAnimation?.cancel();greetingAnimation=null;}
@@ -257,9 +259,9 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const body=el.querySelector('.cnl-presence-body');if(body)body.style.transform=`translateY(${sample?.bob||0}px) rotate(${sample?.lean||0}deg)`;
     for(const [selector,sign]of[['.cnl-person-leg-left',1],['.cnl-person-leg-right',-1],['.cnl-person-arm-left',-.65],['.cnl-person-arm-right',.65]]){const limb=el.querySelector(selector);if(limb)limb.style.transform=`rotate(${(sample?.stride||0)*sign}deg)`;}
   }
-  function ensurePresenceFrame(){if(!presenceFrame&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
-  function tickPresence(time){presenceFrame=0;if(destroyed||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();if(!presenceMotion.busy)ambient?.refresh();}
-  function presenceVisibility(){if(document.hidden){clearGreeting();resetInput();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
+  function ensurePresenceFrame(){if(!presenceFrame&&active&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
+  function tickPresence(time){presenceFrame=0;if(destroyed||!active||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();if(!presenceMotion.busy)ambient?.refresh();}
+  function presenceVisibility(){if(!active)return;if(document.hidden){clearGreeting();resetInput();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
   document.addEventListener?.('visibilitychange',presenceVisibility);
   function syncLegacyHumanVisibility(){
     const hidden=presenceState.enabled;humanLayer.style.display=hidden?'none':'';humanLayer.setAttribute('aria-hidden',String(hidden));
@@ -269,7 +271,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   // A signed-in colleague has one visible body. Hide the placeholder occupant,
   // preserving the workstation and inheriting this state across LOD redraws.
   function syncPresenceWorkplaces(){
-    const represented=new Set((presenceState.enabled?presenceState.people:[]).flatMap(person=>[person.appearanceKey,person.posture==='seated'?person.seatId:null]).filter(Boolean));
+    const represented=new Set((presenceState.enabled?presenceState.people:[]).flatMap(person=>[ORGANIZATION_POSITION_META[person.appearanceKey]?.primarySeatId||person.appearanceKey,person.posture==='seated'?person.seatId:null]).filter(Boolean));
     for(const [id,element]of positionElements){
       const hidden=represented.has(ORGANIZATION_POSITION_META[id]?.primarySeatId),value=String(hidden);
       if(element.dataset.presenceRepresented===value)continue;
@@ -289,10 +291,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   const scheduleViewChange = (duration = 0) => {
     motionUntil = Math.max(motionUntil, performance.now() + duration);
-    if (viewFrame || destroyed) return;
+    if (viewFrame || destroyed || !active || document.hidden) return;
     const notify = () => {
       viewFrame = 0;
-      if (destroyed) return;
+      if (destroyed || !active || document.hidden) return;
       onViewChange();
       if (performance.now() < motionUntil) viewFrame = requestAnimationFrame(notify);
     };
@@ -321,7 +323,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
 
   for(const room of OFFICE_ROOMS)for(const team of room.teamZones){const element=teamElements.get(team.id);if(!element)continue;const select=event=>{event.stopPropagation();if(destroyed||performance.now()<suppressClickUntil)return;clearGreeting();focusedDepartmentId=room.id;focusedTeamId=team.id;focusRegion(team);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
   nodeElements.forEach(el => {
-    const id=el.dataset.node;
+    const id=el.dataset.node;if(id==='bulletin')return;
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       if (destroyed||performance.now() < suppressClickUntil) return;
@@ -333,6 +335,18 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation();if(destroyed)return;cancelFloorClick();setSelectedNode(id);onSelectNode(id); }
     });
   });
+
+  // Each visible board panel owns its own pointer and keyboard action. The
+  // frame remains scenery, so moving through a gap never opens another tab.
+  for(const element of svg.querySelectorAll('[data-bulletin-section]')){
+    const id=element.dataset.bulletinSection,tile=bulletinTile(OFFICE_BULLETIN_AREA,id);
+    if(!tile)continue;
+    const enter=()=>{if(destroyed)return;clearGreeting();const at=projectPoint({x:tile.x,y:tile.y-tile.h/2}),rect=container.getBoundingClientRect();if(at)onHoverBulletin(id,{x:at.x+rect.left,y:at.y+rect.top});};
+    const leave=()=>{if(document.activeElement!==element)onLeaveBulletin(id);};
+    const blur=()=>{if(!element.matches?.(':hover'))onLeaveBulletin(id);};
+    const select=event=>{event.stopPropagation();if(destroyed||performance.now()<suppressClickUntil)return;cancelFloorClick();onLeaveBulletin();onSelectBulletin(id);};
+    element.addEventListener('pointerenter',enter);element.addEventListener('pointerleave',leave);element.addEventListener('focus',enter);element.addEventListener('blur',blur);element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});
+  }
 
   function statusPhrase(agent) {
     if (agent.selected === false) return '未派遣';
@@ -440,12 +454,12 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
 
   function ensureMotionFrame() {
-    if(motionFrame||destroyed||!motions.size)return;
+    if(motionFrame||destroyed||!active||document.hidden||!motions.size)return;
     motionFrame=requestAnimationFrame(tickMotions);
   }
 
   function tickMotions(now) {
-    motionFrame=0;if(destroyed)return;
+    motionFrame=0;if(destroyed||!active||document.hidden)return;
     for(const [id,motion] of [...motions]) {
       const sample=walkingSample(motion.route,now-motion.started,motion.duration),el=agentElements.get(id);
       setAgentPoint(id,sample);
@@ -631,6 +645,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function listenInput(target,type,handler,options){target?.addEventListener?.(type,handler,options);inputDisposers.push(()=>target?.removeEventListener?.(type,handler,options));}
 
   const onPointerDown = e => {
+    onLeaveBulletin();
     if(destroyed)return;
     cancelFloorClick();clearGreeting();
     if(e.pointerType==='touch'){
@@ -684,7 +699,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const next=Math.max(.72,Math.min(cameraZoomLimit,viewTween.target.scale*Math.exp(-Math.max(-120,Math.min(120,amount))*.0009))),world=worldPoint(e.clientX,e.clientY);
     releaseDetailScope(next);animateView({scale:next,panX:world.x-WORLD_CX-(world.x-WORLD_CX-panX)*scale/next,panY:world.y-WORLD_CY-(world.y-WORLD_CY-panY)*scale/next},{x:e.clientX,y:e.clientY,world});
   };
-  const onGestureStart=e=>{if(destroyed)return;cancelFloorClick();e.preventDefault();clearGreeting();stopCamera();const point=gesturePoint(e);nativeGesture=touches.size>1?null:{scale,anchor:worldPoint(point.x,point.y)};suppressClickUntil=performance.now()+200;};
+  const onGestureStart=e=>{if(destroyed)return;onLeaveBulletin();cancelFloorClick();e.preventDefault();clearGreeting();stopCamera();const point=gesturePoint(e);nativeGesture=touches.size>1?null:{scale,anchor:worldPoint(point.x,point.y)};suppressClickUntil=performance.now()+200;};
   const onGestureChange=e=>{if(destroyed)return;e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture||!Number.isFinite(e.scale)||e.scale<=0)return;const point=gesturePoint(e);scaleAt(nativeGesture.scale*e.scale,point.x,point.y,nativeGesture.anchor);suppressClickUntil=performance.now()+200;};
   const onGestureEnd=e=>{if(destroyed)return;e.preventDefault();nativeGesture=null;suppressClickUntil=performance.now()+200;ambient?.refresh();};
   listenInput(svg,'pointerdown',onPointerDown);
@@ -692,7 +707,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   listenInput(svg,'keydown',onMapKey);
   const onObjectHover=e=>{const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object&&!ROOM_IDS.has(object.dataset.node)&&!object.dataset.agent&&!object.dataset.human&&!object.dataset.position)objectFeedback(object);}showObjectHint(e);};
   const onObjectOut=e=>{if(departmentHint){if(e.relatedTarget?.closest?.('[data-node]')!==departmentHint.element)clearGreeting();}else if(greetingPerson(e.relatedTarget)!==greetingElement)clearGreeting();};
-  const onObjectLeave=()=>{hoveredObject=null;clearGreeting();};
+  const onObjectLeave=()=>{onLeaveBulletin();hoveredObject=null;clearGreeting();};
   const onPersonFocus=e=>showObjectHint(e);
   const onPersonBlur=onObjectOut;
   svg.addEventListener('pointerover',onObjectHover);
@@ -739,10 +754,10 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
     const people=[],rect=ambientRect,[vx,vy,vw,vh]=lastViewBox.split(' ').map(Number),unit=Math.min(rect.width/vw,rect.height/vh);
     const extraX=unit>0?Math.max(0,(rect.width/unit-vw)/2):0,extraY=unit>0?Math.max(0,(rect.height/unit-vh)/2):0;
     const inView=point=>point&&point.x>=vx-extraX&&point.x<=vx+vw+extraX&&point.y>=vy-extraY&&point.y<=vy+vh+extraY;
-    for(const [id,el]of agentElements){const point=agentPositions.get(id),state=agentState.get(id);if(inView(point)&&!motions.has(id)&&!deliveryQueue.locked(id)&&!['working','waiting','queued','blocked','error'].includes(state?.status)&&state?.selected!==false)people.push({id,kind:'virtual',...point,seated:el.classList.contains('is-seated'),areaId:NODE_META[state?.nodeId]?.departmentId||AGENT_META[id]?.departmentId});}
-    if(presenceState.enabled){for(const [id,entry]of presenceMotion.entries)if(inView(humanPositions.get(id)||entry.point)&&!entry.motion&&!deliveryQueue.locked(id))people.push({id,kind:'human',...(humanPositions.get(id)||entry.point),seated:entry.person.posture==='seated',areaId:entry.person.nodeId});}
-    else for(const meta of HUMAN_EMPLOYEES){const el=humanElements.get(meta.id),point=humanPositions.get(meta.id);if(el&&inView(point)&&!['waiting','awaiting_approval'].includes(el.dataset.status)&&!deliveryQueue.locked(meta.id))people.push({id:meta.id,kind:'human',...point,seated:meta.seated===true,areaId:meta.nodeId});}
-    for(const [id,seat]of displayedPositions){const element=positionElements.get(id);if(inView(seat)&&seat.occupantVisible&&element?.dataset.visible!=='false'&&element?.dataset.presenceRepresented!=='true')people.push({id:'post:'+id,kind:'post',seatId:id,x:seat.x,y:seat.y,seated:true,canSip:false,areaId:seat.departmentId});}
+    for(const [id,el]of agentElements){const point=agentPositions.get(id),state=agentState.get(id);if(el!==greetingElement&&inView(point)&&!motions.has(id)&&!deliveryQueue.locked(id)&&!['working','waiting','queued','blocked','error'].includes(state?.status)&&state?.selected!==false)people.push({id,kind:'virtual',...point,seated:el.classList.contains('is-seated'),areaId:NODE_META[state?.nodeId]?.departmentId||AGENT_META[id]?.departmentId});}
+    if(presenceState.enabled){for(const [id,entry]of presenceMotion.entries)if(presenceElements.get(id)!==greetingElement&&inView(humanPositions.get(id)||entry.point)&&!entry.motion&&!deliveryQueue.locked(id))people.push({id,kind:'human',...(humanPositions.get(id)||entry.point),seated:entry.person.posture==='seated',areaId:entry.person.nodeId});}
+    else for(const meta of HUMAN_EMPLOYEES){const el=humanElements.get(meta.id),point=humanPositions.get(meta.id);if(el&&el!==greetingElement&&inView(point)&&!['waiting','awaiting_approval'].includes(el.dataset.status)&&!deliveryQueue.locked(meta.id))people.push({id:meta.id,kind:'human',...point,seated:meta.seated===true,areaId:meta.nodeId});}
+    for(const [id,seat]of displayedPositions){const element=positionElements.get(id);if(element!==greetingElement&&inView(seat)&&seat.occupantVisible&&element?.dataset.visible!=='false'&&element?.dataset.presenceRepresented!=='true')people.push({id:'post:'+id,kind:'post',seatId:id,x:seat.x,y:seat.y,seated:true,canSip:false,areaId:seat.departmentId});}
     return people;
   }
   const ambientPostRigs=new Map();
@@ -760,7 +775,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   function startAmbientPose(el,participant,activity){
     const post=participant.kind==='post',seated=post||el.classList.contains('is-seated'),pose=participant.pose;
     const head=pose==='look'?(post?'cnl-post-look':'cnl-ambient-look'):pose==='nod'?(post?'cnl-post-nod':'cnl-ambient-nod'):pose==='stretch'?'cnl-stretch-head':'none';
-    const left=pose==='typing'?(seated?'cnl-post-type-left':'cnl-ambient-type-left'):pose==='stretch'?'cnl-stretch-left':'none';
+    const left=pose==='typing'?(seated?'cnl-post-type-left':'cnl-ambient-type-left'):pose==='stretch'?'cnl-stretch-left':pose==='wave'&&post?'cnl-post-arm-wave':'none';
     const right=pose==='typing'?(seated?'cnl-post-type-right':'cnl-ambient-type-right'):pose==='stretch'?'cnl-stretch-right':pose==='wave'&&!post?'cnl-ambient-wave':pose==='sip'?'cnl-ambient-sip':'none';
     el.dataset.ambient=pose;el.style.setProperty('--ambient-duration',`${Math.max(1,participant.duration||activity.duration)}ms`);el.style.setProperty('--ambient-delay',`${Math.max(0,participant.delay||0)}ms`);
     const partner=activity.participants.find(other=>other.id===participant.partnerId);el.style.setProperty('--ambient-direction',String(partner?partner.x<participant.x?-1:1:participant.direction===-1?-1:1));
@@ -769,14 +784,31 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectAgent =
   }
   ambient=mountOfficeAmbient({document,mediaQuery:{get matches(){return reducedMotion;}},
     getPeople:ambientPeople,
-    isBlocked:()=>destroyed||document.hidden||runIsActive||!!greetingElement||!!departmentHint||!!drag||!!touchGesture||!!nativeGesture||motions.size>0||presenceMotion.busy||deliveryQueue.activeCount>0||deliveryQueue.pendingCount>0,
+    isBlocked:()=>destroyed||!active||document.hidden||!!drag||!!touchGesture||!!nativeGesture,
     onStart:activity=>{for(const participant of activity.participants){const el=ambientElement(participant);if(el)startAmbientPose(el,participant,activity);}},
     onEnd:activity=>{for(const participant of activity.participants){const el=ambientElement(participant);if(el){delete el.dataset.ambient;for(const property of ambientProperties)el.style.setProperty(property,'none');}if(participant.kind==='post')releaseAmbientPost(participant.seatId);}},
   });
   syncNameLabels();
 
+  function prepare(){
+    if(destroyed)return;
+    ambientRect=svg.getBoundingClientRect?.()||ambientRect;
+    syncNameLabels();
+  }
+  function setActive(value){
+    if(destroyed||active===!!value)return;
+    active=!!value;
+    if(!active){
+      inactiveAt=performance.now();ambient?.pause();clearGreeting();resetInput();stopCamera();
+      cancelAnimationFrame(viewFrame);viewFrame=0;cancelAnimationFrame(presenceFrame);presenceFrame=0;
+      resetMotions();
+    }else{
+      if(inactiveAt!==null)presenceMotion.shiftTime(performance.now()-inactiveAt,{since:inactiveAt});
+      inactiveAt=null;presenceHiddenAt=null;prepare();ambient?.resume();ensurePresenceFrame();ensureMotionFrame();scheduleViewChange();
+    }
+  }
   return {
-    update,
+    update,prepare,setActive,
     setTopology(visible) { svg.classList.toggle('cnl-topology-off', !visible); },
     setSelectedNode,
     setSelectedAgent,

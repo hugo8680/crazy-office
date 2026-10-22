@@ -29,6 +29,26 @@ test('business and channels share one manager and only one visible occupant',()=
   assert.equal(manager.primarySeatId,business.id);
 });
 
+test('maintenance manager lives in maintenance and keeps the research post without a duplicate person',()=>{
+  const maintenance=roomForDepartment('maintenance').seats.find(post=>post.role==='manager');
+  const research=roomForDepartment('research').seats.find(post=>post.personId===maintenance.personId);
+  assert.ok(research,'shared research appointment is retained');
+  assert.equal(maintenance.primarySeat,true);assert.equal(maintenance.occupantVisible,true);
+  assert.equal(maintenance.label,'运维部经理');
+  assert.equal(research.primarySeat,false);assert.equal(research.occupantVisible,false);
+  assert.equal(research.label,'运维部经理兼任');
+  const manager=ORGANIZATION_PEOPLE.find(person=>person.id===maintenance.personId);
+  assert.equal(manager.role,'manager');
+  assert.equal(manager.primarySeatId,maintenance.id);
+  assert.deepEqual(manager.departmentIds,['maintenance','research']);
+  assert.deepEqual(manager.seatIds,[maintenance.id,research.id]);
+  assert.equal(OFFICE_SEATS.filter(post=>post.personId===manager.id&&post.occupantVisible).length,1);
+  assert.equal(ORGANIZATION_TOTALS.people,249);assert.equal(ORGANIZATION_TOTALS.workplaces,251);
+  assert.equal(departmentById('maintenance').managerPersonId,manager.id);
+  assert.equal(ORGANIZATION_PEOPLE.filter(person=>person.id===manager.id).length,1);
+  assert.equal(OFFICE_SEATS.length-ORGANIZATION_PEOPLE.length,2,'business/channels and development/maintenance share two colleagues');
+});
+
 test('AI department contains five complete divisions with one head and forty staff each',()=>{
   const ai=departmentById('ai_data');
   assert.equal(ai.roleCounts.manager,1);assert.equal(ai.roleCounts.head,5);assert.equal(ai.roleCounts.staff,200);
@@ -262,12 +282,4 @@ test('convenience corner fits the courtyard and leaves the shared table and all 
       assert.equal(crosses,false,'convenience furnishing blocks walkway');
     }
   }
-});
-
-
-test('the maintenance manager is the same colleague as development staff 002 and occupies one primary desk',()=>{
- const development=OFFICE_SEATS.find(post=>post.id==='research_staff_002'),maintenance=OFFICE_SEATS.find(post=>post.id==='maintenance_manager_001');
- assert.ok(development);assert.ok(maintenance);assert.equal(development.personId,maintenance.personId);assert.equal(development.primarySeat,true);assert.equal(development.occupantVisible,true);assert.equal(maintenance.primarySeat,false);assert.equal(maintenance.occupantVisible,false);assert.equal(maintenance.label,'研发部兼任');assert.equal(departmentById('maintenance').managerPersonId,development.personId);
- const colleague=ORGANIZATION_PEOPLE.find(person=>person.id===development.personId);assert.deepEqual(colleague.departmentIds,['research','maintenance']);assert.deepEqual(colleague.seatIds,[development.id,maintenance.id]);assert.equal(colleague.primarySeatId,development.id);assert.equal(ORGANIZATION_PEOPLE.filter(person=>person.id===development.personId).length,1);
- assert.equal(OFFICE_SEATS.length-ORGANIZATION_PEOPLE.length,2,'business/channels and development/maintenance share two colleagues');
 });

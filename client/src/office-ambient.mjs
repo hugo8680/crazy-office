@@ -4,7 +4,7 @@
 const finite=number=>Number.isFinite(number);
 const kinds=new Set(['virtual','human','post']);
 const basePoses=['look','nod','typing','wave','stretch','settle'];
-const MAX_PARTICIPANTS=6,NEIGHBOR_DISTANCE=130,MIN_NEIGHBOR_DISTANCE=12;
+const MAX_PARTICIPANTS=8,NEIGHBOR_DISTANCE=130,MIN_NEIGHBOR_DISTANCE=12;
 const unit=random=>{const value=Number(random());return finite(value)?Math.max(0,Math.min(1-Number.EPSILON,value)):.5;};
 const between=(random,min,max)=>min+unit(random)*(max-min);
 const integer=(random,min,max)=>Math.floor(between(random,min,max+1));
@@ -53,7 +53,7 @@ export function createOfficeAmbientSelector({random=Math.random,cooldownMs=6500}
     next(people,sequence=0,startedAt=0){
       const time=finite(startedAt)?startedAt:0,turn=finite(sequence)?Math.max(0,Math.floor(sequence)):0;
       const {available,byId}=sync(people);if(!available.length)return null;
-      const duration=integer(random,2800,4500),target=integer(random,Math.min(3,available.length),Math.min(MAX_PARTICIPANTS,available.length)),selected=[];
+      const duration=integer(random,2800,4000),target=integer(random,Math.min(6,available.length),Math.min(MAX_PARTICIPANTS,available.length)),selected=[];
       while(selected.length<target){
         const index=bag.findIndex(id=>ready(id,time));if(index<0)break;
         const [id]=bag.splice(index,1),person=byId.get(id);
@@ -89,14 +89,12 @@ export function selectOfficeAmbient(people,sequence=0,startedAt=0,options={}){
   const seeded=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
   return createOfficeAmbientSelector({...options,random:options.random||seeded}).next(people,turn,startedAt);
 }
-function stillAvailable(activity,people){
-  const pending=new Map(activity.participants.map(person=>[person.id,person]));
-  for(const person of Array.isArray(people)?people:[]){
-    const previous=pending.get(person?.id);if(!previous||!eligible(person))continue;
-    if(person.kind!==previous.kind||!!person.seated!==previous.seated||Math.abs(person.x-previous.x)>.01||Math.abs(person.y-previous.y)>.01)return false;
-    pending.delete(person.id);if(!pending.size)return true;
-  }
-  return false;
+function availableParticipants(activity,people){
+  const current=new Map((Array.isArray(people)?people:[]).filter(eligible).map(person=>[person.id,person]));
+  return activity.participants.filter(previous=>{
+    const person=current.get(previous.id);
+    return person&&person.kind===previous.kind&&!!person.seated===previous.seated&&Math.abs(person.x-previous.x)<=.01&&Math.abs(person.y-previous.y)<=.01;
+  });
 }
 export function mountOfficeAmbient({
   getPeople=()=>[],isBlocked=()=>false,onStart=()=>{},onEnd=()=>{},
@@ -118,13 +116,23 @@ export function mountOfficeAmbient({
     sequence++;active=next;onStart(next);
     if(destroyed||active!==next)return;
     if(blocked()){end();return;}
-    timer=setTimer(()=>{timer=null;end();queue(integer(random,600,1500));},next.duration);timer?.unref?.();
+    timer=setTimer(()=>{timer=null;end();queue(integer(random,180,500));},next.duration);timer?.unref?.();
   }
   function refresh(){
     if(destroyed)return;
     if(blocked()){cancelTimer();end();return;}
-    if(active){if(stillAvailable(active,getPeople()))return;cancelTimer();end();}
-    queue(integer(random,600,1500));
+    if(active){
+      const previous=active,remaining=availableParticipants(previous,getPeople());
+      if(remaining.length===previous.participants.length)return;
+      if(remaining.length){
+        const keep=new Set(remaining.map(person=>person.id));
+        active=Object.freeze({...previous,participants:Object.freeze(remaining)});
+        ending=true;try{onEnd(Object.freeze({...previous,participants:Object.freeze(previous.participants.filter(person=>!keep.has(person.id)))}));}finally{ending=false;}
+        return;
+      }
+      cancelTimer();end();
+    }
+    queue(integer(random,300,700));
   }
   const visibility=()=>refresh();
   document?.addEventListener?.('visibilitychange',visibility);

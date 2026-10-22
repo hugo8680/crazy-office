@@ -130,6 +130,54 @@ func TestRosterPreservesExistingCredentialRolesStatusAndInvitations(t *testing.T
 		t.Fatal("initial password leaked")
 	}
 }
+
+func TestRosterPrimaryAppointmentChangePreservesAccountAndAccess(t *testing.T) {
+	s, _ := fixture(t)
+	roster := syntheticRoster()
+	roster.Employees = roster.Employees[:1]
+	roster.Employees[0].Roles = []string{"employee", "manager"}
+	if _, err := s.ImportRoster(roster, ImportOptions{InitialPassword: "admin123"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := s.Authenticate(roster.Employees[0].Username, "admin123")
+	if err != nil || before == nil {
+		t.Fatalf("initial account: %#v %v", before, err)
+	}
+	old := *find(&s.data, before.ID)
+	roster.Revision = "isolated-primary-maintenance-v2"
+	p := &roster.Employees[0]
+	p.PrimaryDepartmentID = "maintenance"
+	p.DepartmentIDs = []string{"maintenance", "research"}
+	p.Departments = []string{"运维部", "研发部"}
+	p.SeatIDs = []string{"maintenance_manager_001", "research_staff_001"}
+	p.Title = "运维部经理"
+	// Existing authorization remains owned by the account, not by a re-import.
+	p.Roles = []string{"employee"}
+	plan, err := s.ImportRoster(roster, ImportOptions{DryRun: true})
+	if err != nil || plan.Created != 0 || plan.Updated != 1 {
+		t.Fatalf("primary appointment plan: %#v %v", plan, err)
+	}
+	changed, err := s.ImportRoster(roster, ImportOptions{})
+	if err != nil || changed.Created != 0 || changed.Updated != 1 {
+		t.Fatalf("primary appointment import: %#v %v", changed, err)
+	}
+	current := find(&s.data, before.ID)
+	if current == nil || current.ID != old.ID || current.OrganizationPersonID != old.OrganizationPersonID || current.Epoch != old.Epoch || current.Status != old.Status || *current.PasswordHash != *old.PasswordHash || strings.Join(current.Roles, "|") != strings.Join(old.Roles, "|") || current.CreatedAt != old.CreatedAt {
+		t.Fatal("primary appointment change altered the account, credential or access")
+	}
+	after, err := s.Authenticate(p.Username, "admin123")
+	if err != nil || after == nil || after.Department != "运维部" || after.Title != "运维部经理" || strings.Join(after.DepartmentIDs, "|") != "maintenance|research" || strings.Join(after.OrganizationSeatIDs, "|") != "maintenance_manager_001|research_staff_001" {
+		t.Fatalf("corrected actor metadata: %#v %v", after, err)
+	}
+	directory, err := s.ListOrganization("bootstrap")
+	if err != nil || len(directory) != 1 || directory[0].PrimaryDepartmentID != "maintenance" || directory[0].Title != "运维部经理" || directory[0].SeatIDs[0] != "maintenance_manager_001" || len(directory[0].DepartmentIDs) != 2 {
+		t.Fatalf("corrected directory: %#v %v", directory, err)
+	}
+	repeat, err := s.ImportRoster(roster, ImportOptions{})
+	if err != nil || repeat.Updated != 0 || repeat.Unchanged != 1 {
+		t.Fatalf("corrected import is not idempotent: %#v %v", repeat, err)
+	}
+}
 func TestRosterRejectsConflictDuplicatesPrivilegeEscalationAndStaleFiles(t *testing.T) {
 	s, path := fixture(t)
 	r := syntheticRoster()

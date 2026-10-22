@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#f7f8f2">
   <meta name="description" content="疯狂办公室 · 企业工作空间">
   <title>疯狂办公室</title>
+  <link rel="modulepreload" href="./scene3d.js">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./ui-foundation.css">
   <link rel="stylesheet" href="./dialog-system.css">
@@ -16,6 +17,7 @@
   <link rel="stylesheet" href="./session-ui.css">
   <link rel="stylesheet" href="./workspace.css">
   <link rel="stylesheet" href="./bulletin-center.css">
+  <link rel="stylesheet" href="./office-charts.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true"><defs>
@@ -54,13 +56,15 @@
     <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.5l9 5v9l-9 5-9-5v-9zM3 7.5l9 5 9-5M12 12.5v9"/></symbol>
   </defs></svg>
 
-  <main data-view="2d" id="lab" class="erp-office-mode" aria-label="疯狂办公室">
+  <main data-view="3d" id="lab" class="erp-office-mode" aria-label="疯狂办公室">
+    <div class="workspace-backdrop" aria-hidden="true"></div>
     <div id="workspace-stage" class="workspace-stage">
       <div id="office-scene"></div>
     </div>
     <div id="workspace-business" class="workspace-business"></div>
     <div id="workspace-chrome" class="workspace-chrome">
       <div id="view-switch" class="workspace-perspective" role="group" aria-label="办公室视角"></div>
+      <div class="workspace-tools"><button type="button" id="workspace-fullscreen" data-office-action="fullscreen" aria-label="全屏" title="全屏"><svg class="icon" aria-hidden="true"><use href="#i-fullscreen"/></svg></button></div>
       <div id="workspace-receipt" class="workspace-receipt" role="status" hidden></div>
       <nav id="action-dock" class="workspace-dock" aria-label="办公导航"></nav>
       <div id="toast" class="workspace-toast" role="status" hidden></div>

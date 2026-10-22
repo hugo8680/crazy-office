@@ -90,6 +90,21 @@ func TestOfficePresenceUsesActualMembershipAndStableWhitelistedIdentity(t *testi
 		t.Fatal("response mutated stored presence")
 	}
 }
+
+func TestOfficePresenceStartsAtCorrectedPrimaryMaintenanceAppointment(t *testing.T) {
+	f := newFlow(t)
+	real := presenceRosterPerson(t, f.ids, "primary-maintenance", []string{"maintenance", "research"}, []string{"运维部", "研发部"}, []string{"maintenance_manager_001", "research_staff_002"})
+	me := officeHeartbeat(t, f.svc, real)
+	if me["nodeId"] != "maintenance" || me["department"] != "运维部" || me["appearanceKey"] != "maintenance_manager_001" {
+		t.Fatalf("corrected primary appointment was ignored: %#v", me)
+	}
+	for _, seat := range []string{"maintenance_manager_001", "research_staff_002"} {
+		me = officeAction(t, f.svc, real, "sit", M{"seatId": seat})
+		if me["posture"] != "seated" || me["seatId"] != seat || me["appearanceKey"] != "maintenance_manager_001" {
+			t.Fatalf("corrected primary identity or shared appointment was lost: %#v", me)
+		}
+	}
+}
 func TestOfficeSeatRaceIsAtomicAndAllReleasePathsFreeTheSeat(t *testing.T) {
 	f := newFlow(t)
 	a, b := f.employee, f.approver

@@ -5,6 +5,7 @@ import { HUMAN_EMPLOYEES } from '../src/people.js';
 import {renderOrganizationPositionContents} from '../src/scene-floor2d.mjs';
 import {setOrganizationOccupants} from '../src/organization-occupants.mjs';
 import {employeeAppearance} from '../src/employee-appearance.mjs';
+import {BULLETIN_SECTIONS} from '../src/bulletin-sections.mjs';
 import {greetingForPerson} from '../src/person-greeting.mjs';
 import {OFFICE_WORLD,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_OVERVIEW_SEATS,officeSeatsForView,OFFICE_AGENT_HOMES,OFFICE_WORK_POSITIONS,departmentWorkPoint} from '../src/organization.mjs';
 const initialViewBox=`0 0 ${OFFICE_WORLD.width} ${OFFICE_WORLD.height}`;
@@ -26,8 +27,8 @@ function sceneFixture(callbacks={},options={}) {
   svg.querySelector=selector=>{if(selector.startsWith('#')){const id=selector.slice(1),match=markup.match(new RegExp(`<symbol id="${id}"[^>]*>([\\s\\S]*?)<\\/symbol>`));return {innerHTML:match?.[1]||''};}if(!layers.has(selector))layers.set(selector,new Element());return layers.get(selector);};
   svg.querySelectorAll=selector=>{
     if(groups.has(selector))return groups.get(selector);
-    const pattern=selector==='[data-node]'?/<g class="cnl-node" data-node="([^"]+)"/g:selector==='[data-team]'?/<g class="cnl-team-zone" data-team="([^"]+)"/g:selector==='[data-position]'?/<g class="cnl-position" data-position="([^"]+)"/g:selector==='[data-device]'?/<g class="cnl-device" data-device="([^"]+)"/g:/<g class="cnl-link" data-a="([^"]+)" data-b="([^"]+)"/g;
-    const result=[...markup.matchAll(pattern)].map(m=>{const el=new Element();el.dataset[selector==='[data-node]'?'node':selector==='[data-device]'?'device':selector==='[data-position]'?'position':selector==='[data-team]'?'team':'a']=m[1];if(m[2])el.dataset.b=m[2];return el;});if(selector==='[data-node]'&&options.duplicateNodeId){const copy=new Element();copy.dataset.node=options.duplicateNodeId;result.push(copy);}groups.set(selector,result);return result;
+    const pattern=selector==='[data-node]'?/<g class="cnl-node" data-node="([^"]+)"/g:selector==='[data-team]'?/<g class="cnl-team-zone" data-team="([^"]+)"/g:selector==='[data-position]'?/<g class="cnl-position" data-position="([^"]+)"/g:selector==='[data-device]'?/<g class="cnl-device" data-device="([^"]+)"/g:selector==='[data-bulletin-section]'?/<g class="cnl-bulletin-section" data-bulletin-section="([^"]+)"/g:/<g class="cnl-link" data-a="([^"]+)" data-b="([^"]+)"/g;
+    const result=[...markup.matchAll(pattern)].map(m=>{const el=new Element();el.dataset[selector==='[data-node]'?'node':selector==='[data-device]'?'device':selector==='[data-position]'?'position':selector==='[data-team]'?'team':selector==='[data-bulletin-section]'?'bulletinSection':'a']=m[1];if(m[2])el.dataset.b=m[2];return el;});if(selector==='[data-node]'&&options.duplicateNodeId){const copy=new Element();copy.dataset.node=options.duplicateNodeId;result.push(copy);}groups.set(selector,result);return result;
   };
   const preference={matches:options.reducedMotion===true,addEventListener:(_type,fn)=>preferenceListeners.add(fn),removeEventListener:(_type,fn)=>preferenceListeners.delete(fn)};
   const doc={hidden:false,createElementNS:()=>new Element(),addEventListener:(type,fn)=>{if(!documentListeners.has(type))documentListeners.set(type,new Set());documentListeners.get(type).add(fn);visibility.set(type,event=>{for(const listener of documentListeners.get(type)||[])listener(event);});},removeEventListener:(type,fn)=>{documentListeners.get(type)?.delete(fn);if(!documentListeners.get(type)?.size){documentListeners.delete(type);visibility.delete(type);}}};
@@ -361,12 +362,12 @@ test('compact workplace hit regions stay within their row so neighboring desks d
   }finally{f.destroy();}
 });
 
-test('finite idle batches animate at most six seated or moving colleagues without creating work or moving any workstation',()=>{
+test('finite idle batches animate at most eight seated or moving colleagues without creating work or moving any workstation',()=>{
   const actions=[],f=sceneFixture({onDelivery:e=>actions.push(e),onSelectNode:e=>actions.push(e)}, {timers:true});
   try {
     const actors=()=>[...f.groups.get('[data-position]'),...f.layers.get('.cnl-agent-layer').children,...f.layers.get('.cnl-human-layer').children,...f.layers.get('.cnl-presence-layer').children];
     const before=new Map(actors().map(el=>[el,el.style.transform||el.attrs.transform]));
-    f.advanceTimers(1500);const active=actors().filter(el=>el.dataset.ambient);assert.ok(active.length>0&&active.length<=6);
+    f.advanceTimers(1500);const active=actors().filter(el=>el.dataset.ambient);assert.ok(active.length>0&&active.length<=8);
     assert.ok(active.every(el=>['wave','look','nod','sip','typing','stretch','settle'].includes(el.dataset.ambient)));
     assert.deepEqual(actions,[]);for(const el of actors())assert.equal(el.style.transform||el.attrs.transform,before.get(el));
     for(const el of active){assert.match(el.props['--ambient-duration'],/ms$/);assert.match(el.props['--ambient-delay'],/ms$/);}
@@ -377,22 +378,18 @@ test('finite idle batches animate at most six seated or moving colleagues withou
   assert.equal(f.timers.size,0);assert.equal(f.visibility.size,0);
 });
 
-test('real tasks, greeting hover, hidden pages and reduced motion immediately stop ambient poses and pending timers',()=>{
-  const f=sceneFixture({}, {timers:true});
-  try {
-    const actors=()=>[...f.groups.get('[data-position]'),...f.layers.get('.cnl-agent-layer').children,...f.layers.get('.cnl-human-layer').children,...f.layers.get('.cnl-presence-layer').children],playing=()=>actors().filter(el=>el.dataset.ambient);
-    f.advanceTimers(1500);assert.ok(playing().length);
-    f.scene.update({runId:'actual-task',runStatus:'running',animateEvents:false,agents:[{id:'zhang',status:'working',nodeId:'server'}]});assert.equal(playing().length,0);assert.equal(f.timers.size,0);
-    f.advanceTimers(30000);assert.equal(playing().length,0);
-    f.scene.update({runId:'actual-task',runStatus:'completed',animateEvents:false,agents:[]});f.advanceTimers(1500);assert.ok(playing().length);
-    const zhang=f.layers.get('.cnl-agent-layer').children.find(el=>el.dataset.agent==='zhang');f.svg.listeners.get('pointerover')({target:eventTarget(zhang)});assert.equal(playing().length,0);assert.equal(f.timers.size,0);
-    f.svg.listeners.get('pointerleave')();f.advanceTimers(1500);assert.ok(playing().length);
-    f.doc.hidden=true;f.visibility.get('visibilitychange')();assert.equal(playing().length,0);assert.equal(f.timers.size,0);
-    f.doc.hidden=false;f.visibility.get('visibilitychange')();f.advanceTimers(1500);assert.ok(playing().length);
-    [...f.preferenceListeners][0]({matches:true});assert.equal(playing().length,0);assert.equal(f.timers.size,0);
-    [...f.preferenceListeners][0]({matches:false});f.advanceTimers(1500);assert.ok(playing().length);
-  }finally{f.destroy();}
-  assert.equal(f.timers.size,0);
+test('working or hovered people pause individually while unrelated staff stay alive; hidden and reduced motion pause all',()=>{
+ const f=sceneFixture({}, {timers:true});try{
+  const actors=()=>[...f.groups.get('[data-position]'),...f.layers.get('.cnl-agent-layer').children,...f.layers.get('.cnl-human-layer').children,...f.layers.get('.cnl-presence-layer').children],playing=()=>actors().filter(el=>el.dataset.ambient);
+  f.advanceTimers(1500);assert.ok(playing().length>1);
+  f.scene.update({runId:'actual-task',runStatus:'running',animateEvents:false,agents:[{id:'zhang',status:'working',nodeId:'server'}]});assert.ok(playing().length>0,'one working colleague cannot freeze the whole office');
+  const zhang=f.layers.get('.cnl-agent-layer').children.find(el=>el.dataset.agent==='zhang');assert.equal(zhang.dataset.ambient,undefined);f.svg.listeners.get('pointerover')({target:eventTarget(zhang)});assert.equal(zhang.dataset.ambient,undefined);assert.ok(playing().length>0,'a greeting reserves only its recipient');
+  const before=f.ambientHistory.length;f.advanceTimers(15000);assert.ok(f.ambientHistory.length>before+8,'future idle rounds keep running under a stationary cursor');
+  f.doc.hidden=true;f.visibility.get('visibilitychange')();assert.equal(playing().length,0);assert.equal(f.timers.size,0);
+  f.doc.hidden=false;f.visibility.get('visibilitychange')();f.advanceTimers(1500);assert.ok(playing().length);
+  [...f.preferenceListeners][0]({matches:true});assert.equal(playing().length,0);assert.equal(f.timers.size,0);
+  [...f.preferenceListeners][0]({matches:false});f.advanceTimers(1500);assert.ok(playing().length);
+ }finally{f.destroy();}assert.equal(f.timers.size,0);
 });
 
 test('overview and focused detail switch both artwork geometry and hit regions without exposing all AI employees',()=>{
@@ -442,7 +439,7 @@ test('department hover and focus show authoritative roles in one compact hint wi
   const actions=[],f=sceneFixture({onSelectNode:id=>actions.push(id)}, {timers:true});
   try {
     const room=f.groups.get('[data-node]').find(el=>el.dataset.node==='ai_data'),layer=f.layers.get('.cnl-greeting-layer');
-    f.svg.listeners.get('pointerover')({target:eventTarget(room)});assert.equal(layer.attrs['aria-hidden'],'false');assert.ok(layer.innerHTML.includes('AI数据算法部'));assert.ok(layer.innerHTML.includes('206 人'));assert.ok(layer.innerHTML.includes('经理 1 · 部长 5 · 员工 200'));assert.doesNotMatch(layer.innerHTML,/在线|待命|运行正常|ERP|shadow|filter=/);assert.deepEqual(actions,[]);assert.equal(f.timers.size,0);
+    f.svg.listeners.get('pointerover')({target:eventTarget(room)});assert.equal(layer.attrs['aria-hidden'],'false');assert.ok(layer.innerHTML.includes('AI数据算法部'));assert.ok(layer.innerHTML.includes('206 人'));assert.ok(layer.innerHTML.includes('经理 1 · 部长 5 · 员工 200'));assert.doesNotMatch(layer.innerHTML,/在线|待命|运行正常|ERP|shadow|filter=/);assert.deepEqual(actions,[]);assert.equal(f.timers.size,1,'a department hint does not stop the office idle scheduler');
     const original=layer.innerHTML;f.svg.listeners.get('pointerout')({relatedTarget:eventTarget(room)});assert.equal(layer.innerHTML,original);
     f.svg.listeners.get('pointerleave')();assert.equal(layer.attrs['aria-hidden'],'true');
     const executive=f.groups.get('[data-node]').find(el=>el.dataset.node==='general_office');f.svg.listeners.get('focusin')({target:eventTarget(executive)});assert.ok(layer.innerHTML.includes('2 人'));assert.ok(layer.innerHTML.includes('董事长 1 · 经理 1'));assert.deepEqual(actions,[]);
@@ -472,18 +469,17 @@ test('online signed-in colleagues receive ambient poses on their live presence e
   assert.equal(human.dataset.ambient,undefined);assert.equal(f.timers.size,0);
 });
 
-test('the public bulletin is a real selectable shared facility, with an empty board and no extra department or employee',()=>{
-  const selected=[],f=sceneFixture({onSelectNode:id=>selected.push(id)});
-  try {
-    const nodes=f.groups.get('[data-node]').filter(el=>el.dataset.node==='bulletin');assert.equal(nodes.length,1,'the physical bulletin must not also create a duplicate generic network hotspot');
-    assert.ok(f.markup.includes('data-shared-space="bulletin"'));assert.ok(f.markup.includes('class="cnl-bulletin-frame"'));assert.equal([...f.markup.matchAll(/class="cnl-bulletin-bench"/g)].length,2);
-    const area=f.markup.slice(f.markup.indexOf('class="cnl-bulletin-area"'),f.markup.indexOf('class="cnl-office-summary"'));
-    assert.ok(area.includes('信息公开栏'));assert.doesNotMatch(area,/示例公告|欢迎加入|发布人|发布时间|暂无公告|查看进展|待命|在线人数/);
-    assert.equal(OFFICE_ROOMS.length,12);assert.equal(OFFICE_SEATS.length,251);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));assert.equal(f.layers.get('.cnl-agent-layer').children.length,11);
-    nodes[0].listeners.get('click')({stopPropagation(){}});nodes[0].listeners.get('keydown')({key:'Enter',preventDefault(){},stopPropagation(){}});assert.deepEqual(selected,['bulletin','bulletin']);
-    f.scene.update({runId:null,animateEvents:false});assert.equal(nodes[0].attrs['aria-label'],'信息公开栏');
-    const point=f.scene.getNodeAnchor('bulletin'),screen=f.screen(OFFICE_BULLETIN_AREA.anchor);almost(point.x,screen.x);almost(point.y,screen.y);
-  }finally{f.destroy();}
+test('the public wall has exactly four content actions while its furniture remains passive',()=>{
+ const selected=[],hover=[],f=sceneFixture({onSelectNode:id=>selected.push('node:'+id),onSelectBulletin:id=>selected.push(id),onHoverBulletin:(id,at)=>hover.push({id,at})});
+ try{
+  const nodes=f.groups.get('[data-node]').filter(el=>el.dataset.node==='bulletin');assert.equal(nodes.length,1);assert.equal(nodes[0].listeners.has('click'),false,'the whole facility no longer opens a generic dashboard');
+  assert.ok(f.markup.includes('data-shared-space="bulletin"'));assert.ok(f.markup.includes('class="cnl-bulletin-frame"'));assert.equal([...f.markup.matchAll(/class="cnl-bulletin-bench"/g)].length,2);
+  const panels=f.groups.get('[data-bulletin-section]');assert.deepEqual(panels.map(el=>el.dataset.bulletinSection),BULLETIN_SECTIONS.map(item=>item.id));
+  for(const panel of panels){panel.listeners.get('pointerenter')();panel.listeners.get('click')({stopPropagation(){}});panel.listeners.get('keydown')({key:'Enter',preventDefault(){},stopPropagation(){}});}
+  assert.deepEqual(selected,BULLETIN_SECTIONS.flatMap(item=>[item.id,item.id]));assert.deepEqual(hover.map(item=>item.id),BULLETIN_SECTIONS.map(item=>item.id));for(const item of hover){assert.ok(Number.isFinite(item.at.x));assert.ok(Number.isFinite(item.at.y));}
+  assert.equal(OFFICE_ROOMS.length,12);assert.equal(OFFICE_SEATS.length,251);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));
+  const point=f.scene.getNodeAnchor('bulletin'),screen=f.screen(OFFICE_BULLETIN_AREA.anchor);almost(point.x,screen.x);almost(point.y,screen.y);
+ }finally{f.destroy();}
 });
 
 test('the unattended convenience shop is a furnished passive courtyard area without inventing retail functions or organization posts',()=>{
@@ -553,16 +549,16 @@ test('every visible primary workplace participates in the fair idle queue and re
 
 test('focused idle candidates exclude offscreen posts, LOD-hidden employees and an online colleague’s empty static seat',()=>{
  const f=sceneFixture({}, {timers:true,random:ambientRandom(71)});try{
-  f.scene.setPresence({enabled:true,people:[{...onlinePerson('research'),appearanceKey:'research_staff_002'}]});f.scene.focusNode('research');f.drain();f.ambientHistory.length=0;
+  f.scene.setPresence({enabled:true,people:[{...onlinePerson('research'),appearanceKey:'maintenance_manager_001'}]});f.scene.focusNode('research');f.drain();f.ambientHistory.length=0;
   const displayed=officeSeatsForView({focusedDepartmentId:'research'}),screen=point=>f.screen(point),inView=seat=>{const p=screen(seat);return p.x>=0&&p.x<=1060&&p.y>=0&&p.y<=650;};
-  const expected=displayed.filter(seat=>seat.occupantVisible&&seat.id!=='research_staff_002'&&inView(seat)).map(seat=>seat.id);assert.ok(expected.length>=5);
+  const expected=displayed.filter(seat=>seat.occupantVisible&&seat.id!=='maintenance_manager_001'&&inView(seat)).map(seat=>seat.id);assert.ok(expected.length>=5);
   f.advanceTimers(180000);const history=f.ambientHistory.filter(event=>event.element.dataset.position),observed=new Set(history.map(event=>event.element.dataset.position));assert.deepEqual([...observed].sort(),expected.sort());assert.equal(observed.has('research_staff_002'),false);assert.equal(observed.has('ai_data_staff_200'),false);assert.equal(observed.has('finance_manager_001'),false);
   for(const event of history)assert.notEqual(event.element.dataset.visible,'false');
  }finally{f.destroy();}
 });
 
 
-test('a secondary managerial title does not turn the same colleague’s primary staff desk into a manager desk',()=>{
+test('a shared staff appointment keeps its desk rank while the colleague’s primary maintenance appointment shows the manager role',()=>{
  const f=sceneFixture(),seat=OFFICE_SEATS.find(item=>item.id==='research_staff_002');try{
   f.scene.focusNode('research');f.drain();setOrganizationOccupants([{personId:seat.personId,name:'李嘉明',title:'运维部经理',username:'test@example.invalid',seatIds:[seat.id,'maintenance_manager_001']}]);
   const staff=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id),manager=f.groups.get('[data-position]').find(el=>el.dataset.position==='maintenance_manager_001');assert.match(staff.innerHTML,/>李嘉明<\/text>/);assert.doesNotMatch(staff.innerHTML,/cnl-position-rank|运维部经理/);assert.doesNotMatch(staff.attrs['aria-label'],/运维部经理/);assert.match(manager.innerHTML,/>运维部经理<\/text>/);
@@ -574,9 +570,9 @@ test('only the finite active seated batch is promoted from shared use symbols an
  const f=sceneFixture({}, {timers:true,random:ambientRandom(201)});try{
   const posts=f.groups.get('[data-position]'),rigs=()=>posts.flatMap(post=>post.queries.get('.cnl-position-person')?.children||[]).filter(child=>child.classes.has('cnl-post-live-seated'));
   assert.equal(rigs().length,0);for(let elapsed=0;elapsed<30000&&!rigs().length;elapsed+=500)f.advanceTimers(500);
-  const active=posts.filter(post=>post.dataset.ambient);assert.ok(active.length>0&&active.length<=6);assert.equal(rigs().length,active.length);for(const rig of rigs()){assert.ok(rig.dataset.ambientSeat);assert.match(rig.innerHTML,/cnl-person-head/);assert.match(rig.innerHTML,/animation:var\(--ambient-head-animation/);}
+  const active=posts.filter(post=>post.dataset.ambient);assert.ok(active.length>0&&active.length<=8);assert.equal(rigs().length,active.length);for(const rig of rigs()){assert.ok(rig.dataset.ambientSeat);assert.match(rig.innerHTML,/cnl-person-head/);assert.match(rig.innerHTML,/animation:var\(--ambient-head-animation/);}
   for(const post of active){const source=post.queries.get('.cnl-position-person').queries.get('use.cnl-seated');assert.equal(source.style.display,'none');}
-  f.scene.update({runId:'interruption',runStatus:'running',animateEvents:false});assert.equal(rigs().length,0);for(const post of active){assert.equal(post.dataset.ambient,undefined);assert.equal(post.queries.get('.cnl-position-person').queries.get('use.cnl-seated').style.display,'');}
+  f.scene.setActive(false);assert.equal(rigs().length,0);for(const post of active){assert.equal(post.dataset.ambient,undefined);assert.equal(post.queries.get('.cnl-position-person').queries.get('use.cnl-seated').style.display,'');}
   assert.equal(f.timers.size,0);
  }finally{f.destroy();}
 });
@@ -646,20 +642,38 @@ test('negative map coordinates can request the data center floor but cannot esca
  }finally{f.destroy();}
 });
 
-test('every physical copy of a shared facility handles title, floor and bench clicks once without submitting floor movement',()=>{
- const selected=[],moves=[],f=sceneFixture({onSelectNode:id=>selected.push(id),onMovePoint:point=>moves.push(point)},{timers:true,duplicateNodeId:'bulletin'});try{
-  const boards=f.groups.get('[data-node]').filter(el=>el.dataset.node==='bulletin');assert.equal(boards.length,2);for(const board of boards){assert.ok(board.listeners.has('click'),'the earlier physical group is not lost when a later hotspot has the same ID');for(const surface of['title','bench','background']){const target={closest:selector=>selector==='[data-node]'?board:selector==='[data-shared-space]'?{dataset:{sharedSpace:'bulletin'}}:null},event={target,clientX:700,clientY:580,detail:1,stopped:false,stopPropagation(){this.stopped=true;}};f.svg.listeners.get('click')(event);board.listeners.get('click')(event);assert.equal(event.stopped,true,'the physical copy consumes bubbling so no ancestor submits the same action');assert.equal(selected.at(-1),'bulletin',surface);f.advanceTimers(300);assert.equal(moves.length,0,surface);}}
-  assert.equal(selected.length,6);assert.ok(boards.every(board=>board.attrs['aria-pressed']==='true'));f.scene.update({nodes:{bulletin:'warning'},animateEvents:false});assert.ok(boards.every(board=>board.dataset.status==='warning'));boards[0].listeners.get('keydown')({key:'Enter',preventDefault(){},stopPropagation(){}});assert.equal(selected.length,7);
+test('repeated physical network targets consume their own events without submitting floor movement',()=>{
+ const selected=[],moves=[],f=sceneFixture({onSelectNode:id=>selected.push(id),onMovePoint:point=>moves.push(point)},{timers:true,duplicateNodeId:'core'});try{
+  const boards=f.groups.get('[data-node]').filter(el=>el.dataset.node==='core');assert.equal(boards.length,2);for(const board of boards){assert.ok(board.listeners.has('click'),'the earlier physical group is not lost when a later hotspot has the same ID');for(const surface of['title','bench','background']){const target={closest:selector=>selector==='[data-node]'?board:selector==='[data-shared-space]'?{dataset:{sharedSpace:'core'}}:null},event={target,clientX:700,clientY:580,detail:1,stopped:false,stopPropagation(){this.stopped=true;}};f.svg.listeners.get('click')(event);board.listeners.get('click')(event);assert.equal(event.stopped,true,'the physical copy consumes bubbling so no ancestor submits the same action');assert.equal(selected.at(-1),'core',surface);f.advanceTimers(300);assert.equal(moves.length,0,surface);}}
+  assert.equal(selected.length,6);assert.ok(boards.every(board=>board.attrs['aria-pressed']==='true'));f.scene.update({nodes:{core:'warning'},animateEvents:false});assert.ok(boards.every(board=>board.dataset.status==='warning'));boards[0].listeners.get('keydown')({key:'Enter',preventDefault(){},stopPropagation(){}});assert.equal(selected.length,7);
  }finally{f.destroy();}
 });
 
-test('selecting a physical facility cancels a pending floor walk instead of opening and moving at once',()=>{
- const selected=[],moves=[],f=sceneFixture({onSelectNode:id=>selected.push(id),onMovePoint:point=>moves.push(point)},{timers:true});try{
-  const point=f.screen({x:500,y:740});f.input('click',{clientX:point.x,clientY:point.y});const board=f.groups.get('[data-node]').find(el=>el.dataset.node==='bulletin');board.listeners.get('click')({target:{closest:()=>board},clientX:700,clientY:580,stopPropagation(){}});f.advanceTimers(500);assert.deepEqual(selected,['bulletin']);assert.deepEqual(moves,[]);
+test('selecting a public wall panel cancels a pending floor walk without triggering another action',()=>{
+ const selected=[],moves=[],f=sceneFixture({onSelectBulletin:id=>selected.push(id),onMovePoint:point=>moves.push(point)},{timers:true});try{
+  const point=f.screen({x:500,y:740});f.input('click',{clientX:point.x,clientY:point.y});const panel=f.groups.get('[data-bulletin-section]')[0];panel.listeners.get('click')({stopPropagation(){}});f.advanceTimers(500);assert.deepEqual(selected,['dashboard']);assert.deepEqual(moves,[]);
  }finally{f.destroy();}
 });
 
 
-test('the whole public-board surface has a topmost transparent SVG hit area including the empty space above its benches',()=>{
- const f=sceneFixture();try{const area=OFFICE_BULLETIN_AREA,hit=`<rect class="cnl-bulletin-hit" x="${area.x}" y="${area.y}" width="${area.w}" height="${area.h}" fill="transparent" pointer-events="all"/>`;assert.ok(f.markup.includes(hit),'native pointer hit-testing covers the complete labelled facility');assert.ok(f.markup.includes(hit+'</g></g>'),'the transparent hit surface is above all artwork, so children and gaps have one consistent target');assert.equal([...f.markup.matchAll(/class="cnl-bulletin-hit"/g)].length,1);assert.ok(f.markup.indexOf(hit)>f.markup.lastIndexOf('class="cnl-bulletin-bench"'));}finally{f.destroy();}
+test('only the four physical content panels are pointer targets, with no overlay covering their gaps',()=>{
+ const f=sceneFixture();try{
+  assert.doesNotMatch(f.markup,/class="cnl-bulletin-hit"/);assert.equal([...f.markup.matchAll(/class="cnl-bulletin-section"/g)].length,4);
+  for(const item of BULLETIN_SECTIONS){assert.ok(f.markup.includes(`data-bulletin-section="${item.id}"`));assert.ok(f.markup.includes(`aria-label="${item.title}" aria-haspopup="dialog"`));}
+ }finally{f.destroy();}
+});
+
+test('a cached inactive 2D scene suspends camera, presence, idle timers and animation frames until reactivated',()=>{
+ const f=sceneFixture({}, {frames:true,timers:true});try{
+  f.scene.zoom(.8);assert.ok(f.pending.size>0);f.frame();const before=f.svg.attrs.viewBox;f.scene.setActive(false);assert.equal(f.pending.size,0);assert.equal(f.timers.size,0);
+  f.advanceTimers(30000);f.doc.hidden=true;f.visibility.get('visibilitychange')?.();f.doc.hidden=false;f.visibility.get('visibilitychange')?.();assert.equal(f.pending.size,0);assert.equal(f.timers.size,0);assert.equal(f.svg.attrs.viewBox,before);
+  f.scene.prepare();assert.equal(f.pending.size,0);assert.equal(f.timers.size,0);f.scene.setActive(true);assert.ok(f.pending.size>0||f.timers.size>0);f.scene.setActive(false);assert.equal(f.pending.size,0);assert.equal(f.timers.size,0);
+ }finally{f.destroy();}
+});
+
+test('an existing cached 2D colleague resumes from the active view position without an inactive-period freeze',()=>{
+ const f=sceneFixture({}, {frames:true,timers:true}),base={enabled:true,currentUserId:'me',people:[{id:'me',name:'测试员工',nodeId:'research',online:true,x:500,y:1058}]};try{
+  f.scene.setPresence(base);f.scene.setActive(false);f.advanceTimers(10000);f.scene.setPresence({...base,people:[{...base.people[0],x:800}],positions:{me:{x:650,y:1058}},rebase:true});assert.deepEqual(f.scene.getPresenceState().positions.me,{x:650,y:1058});
+  f.scene.prepare();f.scene.setActive(true);f.frame();assert.ok(Math.hypot(f.scene.getPresenceState().positions.me.x-650,f.scene.getPresenceState().positions.me.y-1058)>.01,'the restored route moves on its first active frame');f.scene.setActive(false);
+ }finally{f.destroy();}
 });

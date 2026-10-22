@@ -59,9 +59,9 @@ test('移动期间合并心跳并发送最新位置，网络断开不永久展�
 });
 
 test('视角切换保留在线身份和中途位置，旧视角回调失效，不更改Agent或审批状态',async()=>{
- const scenes=[],layers=[],selected=[];const doc={createElement:()=>({style:{},remove(){},ownerDocument:doc})};const container={ownerDocument:doc,append:layer=>layers.push(layer)};
+ const scenes=[],layers=[],selected=[];const doc={createElement:()=>({style:{},dataset:{},remove(){},ownerDocument:doc})};const container={ownerDocument:doc,append:layer=>layers.push(layer)};
  const mount=()=>{const scene={states:[],update(state){this.states.push(state);},setTopology(){},setSelectedNode(){},setSelectedAgent(){},setSelectedHuman(){},setPresence(value){this.presence=value;},getPresenceState:()=>({positions:{me:{x:650,y:411}}}),destroy(){}};scenes.push(scene);return scene;};
- const controller=createSceneViewController(container,{}, {mount2D:mount,load3D:async()=>({mountScene3D:mount})});const state={runId:'real-run',humanApproval:true,agents:[{id:'zhang',status:'working'}]};controller.update(state);controller.setPresence({enabled:true,people:[person('me','finance')],currentUserId:'me',onSelectEmployee:p=>selected.push(p.id)});const old=scenes[0].presence.onSelectEmployee;
+ const controller=createSceneViewController(container,{}, {initialMode:'2d',warmup:false,mount2D:mount,load3D:async()=>({mountScene3D:mount})});const state={runId:'real-run',humanApproval:true,agents:[{id:'zhang',status:'working'}]};controller.update(state);controller.setPresence({enabled:true,people:[person('me','finance')],currentUserId:'me',onSelectEmployee:p=>selected.push(p.id)});const old=scenes[0].presence.onSelectEmployee;
  await controller.setMode('3d');assert.equal(scenes[1].presence.currentUserId,'me');assert.deepEqual(scenes[1].presence.positions.me,{x:650,y:411});assert.equal(scenes[1].states[0].humanApproval,true);assert.equal(scenes[1].states[0].agents,state.agents);old(person('me'));assert.deepEqual(selected,[]);scenes[1].presence.onSelectEmployee(person('me'));assert.deepEqual(selected,['me']);controller.destroy();
 });
 
@@ -121,4 +121,29 @@ test('在途坐姿目标、重复心跳与跨视角种子保持实际路程，�
 
 test('销毁后排队动作与慢响应都不能重建员工或触发就绪回调',async()=>{
  let release;const ready=[],f=heartbeatFixture(()=>new Promise(resolve=>{release=resolve;}),{onReady:person=>ready.push(person.id)});await flush();const move=f.presence.movePoint({x:350,y:1000});f.presence.destroy();const count=f.values.length;release({online:[person('me','research',{revision:1})]});await f.presence.ready;assert.equal(await move,false);assert.equal(f.calls.length,1);assert.equal(f.values.length,count);assert.deepEqual(ready,[]);assert.equal(f.timers.size,0);
+});
+
+test('switching back to a cached renderer rebases an existing person at the drawn position with a fresh route clock',()=>{
+ let clock=0;const motion=createOfficePresenceMotion({now:()=>clock}),base={enabled:true,currentUserId:'me',people:[person('me','research',{x:500,y:1058})]};
+ try{
+  motion.set(base);const entry=motion.entries.get('me');assert.deepEqual(entry.point,{x:500,y:1058});clock=10000;
+  motion.set({...base,people:[person('me','research',{x:800,y:1058})],positions:{me:{x:650,y:1058}},rebase:true});
+  assert.equal(motion.entries.get('me'),entry,'the same cached identity is retained');assert.deepEqual(entry.point,{x:650,y:1058});assert.equal(entry.motion.started,10000);assert.equal(entry.lastTick,10000);assert.equal(entry.sample,null);
+  motion.shiftTime(10000,{since:0});assert.equal(entry.motion.started,10000,'freshly restored walks do not inherit the inactive interval');assert.equal(entry.lastTick,10000);
+  clock=10050;motion.tick(clock);assert.notDeepEqual(entry.point,{x:650,y:1058});assert.ok(Math.hypot(entry.point.x-650,entry.point.y-1058)>.01,'the new walk advances immediately instead of freezing');
+ }finally{motion.destroy();}
+});
+
+test('rebasing with an unchanged server destination replaces the stale cached point, while invalid positions snap safely',()=>{
+ let clock=0;const motion=createOfficePresenceMotion({now:()=>clock}),base={enabled:true,people:[person('me','research',{x:800,y:1058})]};
+ try{motion.set(base);clock=5000;motion.set({...base,positions:{me:{x:650,y:1058}},rebase:true});const entry=motion.entries.get('me');assert.deepEqual(entry.point,{x:650,y:1058});assert.equal(entry.motion.started,5000);motion.set({...base,positions:{me:{x:Infinity,y:0}},rebase:true});assert.deepEqual(entry.point,{x:800,y:1058});assert.equal(entry.motion,null);assert.equal(entry.sample,null);}
+ finally{motion.destroy();}
+});
+
+test('pause adjustment shifts old routes fully and newly created routes only for time actually spent inactive',()=>{
+ let clock=0;const motion=createOfficePresenceMotion({now:()=>clock});try{
+  motion.set({enabled:true,people:[person('old','research',{x:500,y:1058})]});motion.set({enabled:true,people:[person('old','research',{x:800,y:1058})]});clock=5000;
+  motion.set({enabled:true,people:[person('old','research',{x:800,y:1058}),person('new','research',{x:800,y:1058})],positions:{new:{x:650,y:1058}}});
+  motion.shiftTime(10000,{since:0});assert.equal(motion.entries.get('old').motion.started,10000);assert.equal(motion.entries.get('new').motion.started,10000);assert.equal(motion.entries.get('new').lastTick,10000);
+ }finally{motion.destroy();}
 });

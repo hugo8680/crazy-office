@@ -1,3 +1,4 @@
+import {BULLETIN_SECTIONS,bulletinTile} from './bulletin-sections.mjs';
 import * as THREE from './vendor/three.module.js';
 import { NODE_META } from './scene.js';
 import { HUMAN_EMPLOYEES } from './people.js';
@@ -61,12 +62,12 @@ export function scene3DPixelRatio(width,height,deviceRatio=1,{maxDimension=8192}
 export function scene3DGestureMode(event,touches=1){return touches>1?'touch':event.button===1||event.button===2||event.shiftKey?'pan':'orbit';}
 
 export function mountScene3D(container,{
-  onSelectNode=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},
+  onSelectNode=()=>{},onSelectBulletin=()=>{},onHoverBulletin=()=>{},onLeaveBulletin=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},
   rendererFactory=options=>new THREE.WebGLRenderer(options),ambientEnabled=true,ambientRandom=Math.random,ambientNow=()=>performance.now(),
 }={}) {
   if(!container||!globalThis.document)throw new Scene3DUnavailableError('缺少 3D 显示容器');
-  let renderer;try{renderer=rendererFactory({antialias:true,alpha:false,powerPreference:'high-performance'});}catch(error){throw new Scene3DUnavailableError('当前设备未提供可用的 WebGL，已保留 2D 视图',error);}
-  const assets=createOffice3DAssets(),layout=createOffice3DLayout(assets),scene=new THREE.Scene();scene.background=new THREE.Color(OFFICE3D_COLORS.background);
+  let renderer;try{renderer=rendererFactory({antialias:true,alpha:true,powerPreference:'high-performance'});}catch(error){throw new Scene3DUnavailableError('当前设备未提供可用的 WebGL，已保留 2D 视图',error);}
+  const assets=createOffice3DAssets(),layout=createOffice3DLayout(assets),scene=new THREE.Scene();scene.background=null;
   scene.add(layout.root);scene.add(new THREE.HemisphereLight('#f7fbff','#b8c5b3',2.05));const sun=new THREE.DirectionalLight('#fff6e7',2);sun.position.set(-300,1000,400);scene.add(sun);
   renderer.shadowMap.enabled=false;renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.NeutralToneMapping;renderer.toneMappingExposure=1;
   let maxBufferDimension=8192;
@@ -92,14 +93,14 @@ export function mountScene3D(container,{
   const pickGeometry=new THREE.BoxGeometry(24,52,24);
   const routeMaterial=new THREE.MeshBasicMaterial({color:'#b95b43'});
   const linkMaterial=(status='online')=>{if(!linkMaterials.has(status))linkMaterials.set(status,new THREE.MeshBasicMaterial({color:({online:'#7a9a8a',warning:'#b88b46',offline:'#bd5c48',recovering:'#89a399'})[status]||'#7a9a8a'}));return linkMaterials.get(status);};
-  let destroyed=false,contextLost=false,frame=0,lastFrame=0,width=1,height=1,scale=1,panX=0,panY=0,drag=null,suppressClickUntil=0;
+  let destroyed=false,active=true,inactiveAt=null,contextLost=false,frame=0,lastFrame=0,width=1,height=1,scale=1,panX=0,panY=0,drag=null,suppressClickUntil=0;
   const touches=new Map();let touchGesture=null,nativeGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
   let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false;
   const actorList=()=>[...agents.values(),...humans.values()];
   const disposables=[];
-  const schedule=()=>{if(!frame&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
+  const schedule=()=>{if(!frame&&active&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
   const markDirty=reason=>{labelsDirty=true;renderDirty=true;if(reason!=='ambient')urgentRenderDirty=true;ambient?.refresh();schedule();};
   const viewTween=createViewTween({read:()=>({scale,panX,panY,azimuth,elevation}),write:value=>{({scale,panX,panY,azimuth,elevation}=value);setCamera();labelsDirty=true;renderDirty=true;},onStart:()=>{forceFrame=true;markDirty();}});
   const controller=createScene3DMotion({agents,humans,reducedMotion,onDelivery:event=>{onDelivery(event);markDirty();},onChange:markDirty});
@@ -140,19 +141,20 @@ export function mountScene3D(container,{
     const actor=type==='agent'?agents.get(id):humans.get(id);if(actor){actor.react(kind);markDirty();}
     if(element?.animate){buttonAnimations.get(element)?.cancel();buttonAnimations.set(element,element.animate([{translate:'0 0',scale:1},{translate:kind==='press'?'0 1px':'0 -2px',scale:kind==='press'?.97:1.035},{translate:'0 0',scale:1}],{duration:kind==='press'?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
   }
-  function identityFor(el){for(const type of ['agent','human','employee','post','team','node'])if(el?.dataset?.[type])return {type,id:el.dataset[type]};return null;}
+  function identityFor(el){for(const type of ['agent','human','employee','post','team','bulletin','node'])if(el?.dataset?.[type])return {type,id:el.dataset[type]};return null;}
   function clearSelectionTimer(){clearTimeout(selectionTimer);selectionTimer=null;pendingSelection=null;}
-  function focusObject(type,id){if(type==='team')return focusTeam(id);clearSelectionTimer();select(type,id,false);feedback(type,id,'press');if(type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===id))return focusDepartment(id);const point=type==='post'?layout.seatGeometry(id):type==='agent'?agents.get(id)?.point:type==='human'||type==='employee'?humans.get(id)?.point:NODE_META[id];return focusPoint(point);}
+  function focusObject(type,id){if(type==='bulletin')return select(type,id);if(type==='team')return focusTeam(id);clearSelectionTimer();select(type,id,false);feedback(type,id,'press');if(type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===id))return focusDepartment(id);const point=type==='post'?layout.seatGeometry(id):type==='agent'?agents.get(id)?.point:type==='human'||type==='employee'?humans.get(id)?.point:NODE_META[id];return focusPoint(point);}
   function queueSelection(type,id,detail=1){
     if(pendingSelection?.type===type&&pendingSelection.id===id||detail>1){focusObject(type,id);return;}
     clearSelectionTimer();pendingSelection={type,id};feedback(type,id,'press');selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)select(type,id);},350);
   }
   function button(className,label,choose){const el=document.createElement('button');el.type='button';el.className=className;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed','false');el.style.position='absolute';el.style.pointerEvents='auto';
     listen(el,'pointerdown',e=>{e.stopPropagation();const p=identityFor(el);if(p)onDown(e,p);});listen(el,'contextmenu',e=>e.preventDefault());
-    listen(el,'pointerenter',()=>{const p=identityFor(el);if(!p)return;if(['agent','human','employee'].includes(p.type))showGreeting(p.type,p.id,el);else if(p.type==='post')showPost(postsById.get(p.id));else if(p.type==='team'||p.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===p.id))showRegion(p.type==='team'?'team':'department',p.id);else{clearPost();clearGreeting();feedback(p.type,p.id,'hover',el);}});
-    listen(el,'pointerleave',()=>{const p=identityFor(el);if(p){leavePerson(p.type,p.id);if(['post','team','node'].includes(p.type))clearPost();}});listen(el,'focus',()=>{const p=identityFor(el);if(p?.type==='post')showPost(postsById.get(p.id));else if(p?.type==='team'||p?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===p.id))showRegion(p.type==='team'?'team':'department',p.id);else if(p)showGreeting(p.type,p.id,el);});listen(el,'blur',()=>{const p=identityFor(el);if(p){leavePerson(p.type,p.id);if(['post','team','node'].includes(p.type))clearPost();}});
-    listen(el,'click',e=>{e.stopPropagation();if(e.detail!==0&&performance.now()<suppressClickUntil)return;const p=identityFor(el);if(p){feedback(p.type,p.id,'press',el);if(e.detail===0){clearSelectionTimer();select(p.type,p.id);}else queueSelection(p.type,p.id,e.detail);}else choose();});listen(el,'dblclick',e=>{e.preventDefault();e.stopPropagation();const p=identityFor(el);if(p)focusObject(p.type,p.id);});labels.append(el);return el;}
+    listen(el,'pointerenter',()=>{const p=identityFor(el);if(!p)return;if(['agent','human','employee'].includes(p.type))showGreeting(p.type,p.id,el);else if(p.type==='bulletin')showBulletin(p.id);else if(p.type==='post')showPost(postsById.get(p.id));else if(p.type==='team'||p.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===p.id))showRegion(p.type==='team'?'team':'department',p.id);else{clearPost();clearGreeting();feedback(p.type,p.id,'hover',el);}});
+    listen(el,'pointerleave',()=>{const p=identityFor(el);if(p){if(p.type==='bulletin'&&document.activeElement!==el)onLeaveBulletin(p.id);leavePerson(p.type,p.id);if(['post','team','node'].includes(p.type))clearPost();}});listen(el,'focus',()=>{const p=identityFor(el);if(p?.type==='bulletin')showBulletin(p.id);else if(p?.type==='post')showPost(postsById.get(p.id));else if(p?.type==='team'||p?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===p.id))showRegion(p.type==='team'?'team':'department',p.id);else if(p)showGreeting(p.type,p.id,el);});listen(el,'blur',()=>{const p=identityFor(el);if(p){if(p.type==='bulletin'&&!el.matches?.(':hover'))onLeaveBulletin(p.id);leavePerson(p.type,p.id);if(['post','team','node'].includes(p.type))clearPost();}});
+    listen(el,'click',e=>{e.stopPropagation();if(e.detail!==0&&performance.now()<suppressClickUntil)return;const p=identityFor(el);if(p){feedback(p.type,p.id,'press',el);if(e.detail===0){clearSelectionTimer();select(p.type,p.id);}else if(p.type==='bulletin'){clearSelectionTimer();select(p.type,p.id);}else queueSelection(p.type,p.id,e.detail);}else choose();});listen(el,'dblclick',e=>{e.preventDefault();e.stopPropagation();const p=identityFor(el);if(p)focusObject(p.type,p.id);});labels.append(el);return el;}
   function select(type,id,notify=true){
+    if(type==='bulletin'){clearSelectionTimer();onLeaveBulletin();if(notify)onSelectBulletin(id);return;}
     if(type==='team'){focusTeam(id);return;}
     if(type==='post'){const seat=postsById.get(id);if(!seat)return;showPost(seat);if(notify){const point=layout.seatGeometry(id);onSelectSeat(id,{x:point.x,y:point.y,nodeId:seat.departmentId});}return;}
     if(type==='node')selectedNode=id;else if(id)selectedNode=null;
@@ -194,8 +196,15 @@ export function mountScene3D(container,{
   for(const area of[OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER]){
     const el=document.createElement('div');el.className='office3d-room-label office3d-area-label';el.dataset.area=area.id;el.setAttribute('role','img');el.setAttribute('aria-label',area.title);el.setAttribute('title',area.title);el.style.pointerEvents='auto';el.style.cursor='grab';const title=document.createElement('strong');title.textContent=area.title;el.append(title);labels.append(el);sceneryLabels.set(area.id,el);listen(el,'pointerdown',event=>onDown(event));listen(el,'contextmenu',event=>event.preventDefault());
   }
-  const bulletinButton=button('office3d-room-label office3d-bulletin-label',OFFICE_BULLETIN_AREA.title,()=>select('node','bulletin'));bulletinButton.dataset.node='bulletin';bulletinButton.setAttribute('title',OFFICE_BULLETIN_AREA.title);const bulletinTitle=document.createElement('strong');bulletinTitle.textContent=OFFICE_BULLETIN_AREA.title;bulletinButton.append(bulletinTitle);nodeButtons.set('bulletin',bulletinButton);
-  const bulletinPick=new THREE.Group();bulletinPick.position.set(OFFICE_BULLETIN_AREA.board.x,0,OFFICE_BULLETIN_AREA.board.y);addPick(bulletinPick,'node','bulletin',0,37,0,OFFICE_BULLETIN_AREA.board.w/24,66/52,OFFICE_BULLETIN_AREA.board.h/24);scene.add(bulletinPick);
+  const bulletinButton=document.createElement('div');bulletinButton.className='office3d-room-label office3d-bulletin-label';bulletinButton.setAttribute('aria-label',OFFICE_BULLETIN_AREA.title);bulletinButton.style.pointerEvents='none';const bulletinTitle=document.createElement('strong');bulletinTitle.textContent=OFFICE_BULLETIN_AREA.title;bulletinButton.append(bulletinTitle);labels.append(bulletinButton);nodeButtons.set('bulletin',bulletinButton);
+  const bulletinButtons=new Map();
+  function showBulletin(id){
+    if(destroyed||document.hidden||drag||touches.size)return;const tile=bulletinTile(OFFICE_BULLETIN_AREA,id)?.world;if(!tile)return;clearPost();clearGreeting();const at=project({x:tile.x,y:tile.y},tile.height+tile.h/2),rect=canvas.getBoundingClientRect();if(at)onHoverBulletin(id,{x:rect.left+at.x*rect.width/width,y:rect.top+at.y*rect.height/height});
+  }
+  for(const item of BULLETIN_SECTIONS){
+    const tile=bulletinTile(OFFICE_BULLETIN_AREA,item.id).world,el=button('office3d-bulletin-section',item.title,()=>select('bulletin',item.id));el.dataset.bulletin=item.id;el.dataset.bulletinSection=item.id;el.setAttribute('aria-haspopup','dialog');el.style.color=item.accent;el.textContent=item.title;bulletinButtons.set(item.id,el);
+    const pick=new THREE.Group();pick.position.set(tile.x,tile.height,tile.y);addPick(pick,'bulletin',item.id,0,0,0,tile.w/24,tile.h/52,1.4/24);scene.add(pick);
+  }
   for(const room of OFFICE3D_ROOMS){const el=button('office3d-room-label',`查看${room.title}`,()=>select('node',room.id));el.dataset.node=room.id;el.setAttribute('title',room.title);const title=document.createElement('strong');title.textContent=room.title;const english=document.createElement('small');english.textContent=`${room.headcount} 个岗位`;el.append(title,english);roomButtons.set(room.id,el);}
   for(const team of teamsById.values()){
     const el=button('office3d-room-label office3d-team-label',`${team.title}，${team.staffCount} 名员工`,()=>focusTeam(team.id));el.dataset.team=team.id;el.setAttribute('title',`${team.title} · ${team.staffCount} 人`);
@@ -230,14 +239,14 @@ export function mountScene3D(container,{
   }
   rebuildActorInstances();
   const inScene=point=>{const at=project(point,20);return at?.visible&&at.x>=8&&at.x<=width-8&&at.y>=8&&at.y<=height-84;};
-  function staticIdlePeople(){const away=layout.awaySeatIds;return OFFICE_SEATS.filter(seat=>seat.primarySeat&&seat.occupantVisible&&layout.isSeatVisible(seat.id)&&!away.has(seat.id)).map(seat=>layout.seatGeometry(seat.id)).filter(inScene).map(seat=>({id:`post:${seat.id}`,seatId:seat.id,kind:'post',areaId:seat.departmentId,x:seat.x,y:seat.y,seated:true,canSip:false,busy:false}));}
+  function staticIdlePeople(){const away=layout.awaySeatIds;return OFFICE_SEATS.filter(seat=>seat.primarySeat&&seat.occupantVisible&&hoveredPost?.id!==seat.id&&layout.isSeatVisible(seat.id)&&!away.has(seat.id)).map(seat=>layout.seatGeometry(seat.id)).filter(inScene).map(seat=>({id:`post:${seat.id}`,seatId:seat.id,kind:'post',areaId:seat.departmentId,x:seat.x,y:seat.y,seated:true,canSip:false,busy:false}));}
   function idlePeople(){return [...actorList().filter(actor=>actor.root.visible&&inScene(actor.point)).map(actor=>({id:actor.root.userData.actorId,kind:actor.identity.virtual?'virtual':'human',areaId:OFFICE3D_ROOMS.find(room=>actor.point.x>=room.x&&actor.point.x<=room.x+room.w&&actor.point.y>=room.z&&actor.point.y<=room.z+room.d)?.id||'shared',x:actor.point.x,y:actor.point.y,seated:actor.target.seated,busy:actor.greetingActive||actor.target.walking||actor.target.working||actor.target.carrying||actor.target.offering||actor.target.receiving||controller.queue.locked(actor.root.userData.actorId)})),...staticIdlePeople()];}
   if(ambientEnabled)ambient=mountOfficeAmbient({
     now:ambientNow,random:ambientRandom,
     getPeople:idlePeople,
-    isBlocked:()=>destroyed||contextLost||document.hidden||reducedMotion||!!greeting||!!hoveredPost||!!hoveredRegion||!!drag||!!nativeGesture||touches.size>0||viewTween.active||presenceMotion.busy||controller.activeCount>0||controller.pendingCount>0||!!latestState.humanApproval||['running','queued','waiting_approval'].includes(latestState.runStatus)||(latestState.agents||[]).some(agent=>agent.status==='working'),
+    isBlocked:()=>destroyed||!active||contextLost||document.hidden||reducedMotion||!!drag||!!nativeGesture||touches.size>0||viewTween.active,
     onStart:activity=>{for(const participant of activity.participants){const partner=activity.participants.find(person=>person.id===participant.partnerId)||null,options={duration:participant.duration||activity.duration,delay:participant.delay||0,startedAt:activity.startedAt};if(participant.kind==='post')layout.setIdlePose(participant.seatId,participant.pose,{...options,partner});else(agents.get(participant.id)||humans.get(participant.id))?.setAmbient(participant.pose,partner,options);}markDirty('ambient');},
-    onEnd:activity=>{layout.clearIdlePoses();for(const participant of activity.participants)(agents.get(participant.id)||humans.get(participant.id))?.clearAmbient();markDirty('ambient');},
+    onEnd:activity=>{for(const participant of activity.participants){if(participant.kind==='post')layout.clearIdlePose(participant.seatId);else(agents.get(participant.id)||humans.get(participant.id))?.clearAmbient();}markDirty('ambient');},
   });
 
   const approvalMarker=button('office3d-approval-marker','需要你审批',()=>select('human',latestState.approvalHumanId||'owner'));approvalMarker.textContent='!';approvalMarker.hidden=true;
@@ -330,7 +339,8 @@ export function mountScene3D(container,{
       if(!compactLabels&&text.length*(fontSize+.2)>limit&&departmentTitleBreaks[room.id])text=departmentTitleBreaks[room.id];
       if(el.firstChild.textContent!==text)el.firstChild.textContent=text;el.firstChild.style.fontSize=`${fontSize}px`;el.style.maxWidth=`${Math.round(limit)}px`;place(el,{x:room.label[0],y:room.label[1]},30);el.dataset.awaiting=String(!!latestState.humanApproval&&HUMAN_EMPLOYEES.find(h=>h.id===(latestState.approvalHumanId||'owner'))?.nodeId===room.id);
     }
-    for(const [id,el]of nodeButtons){if(id==='bulletin'){place(el,{x:OFFICE_BULLETIN_AREA.board.x,y:OFFICE_BULLETIN_AREA.board.y},77);el.firstChild.style.fontSize=compactLabels?'11px':'14px';el.hidden=false;continue;}const anchor=layout.nodeAnchors.get(id)||{x:NODE_META[id].x,y:8,z:NODE_META[id].y};place(el,{x:anchor.x,y:anchor.z,height:anchor.y+5});const node=nodeStatus(latestState.nodes,id),visible=fixedLabels.has(id)||selectedNode===id||node!=='online';el.dataset.showLabel=String(visible);el.dataset.status=node;el.hidden=!topologyVisible&&selectedNode!==id&&node==='online';}
+    for(const [id,el]of nodeButtons){if(id==='bulletin'){place(el,{x:OFFICE_BULLETIN_AREA.board.x,y:OFFICE_BULLETIN_AREA.board.y},89);el.firstChild.style.fontSize=compactLabels?'11px':'14px';el.hidden=false;continue;}const anchor=layout.nodeAnchors.get(id)||{x:NODE_META[id].x,y:8,z:NODE_META[id].y};place(el,{x:anchor.x,y:anchor.z,height:anchor.y+5});const node=nodeStatus(latestState.nodes,id),visible=fixedLabels.has(id)||selectedNode===id||node!=='online';el.dataset.showLabel=String(visible);el.dataset.status=node;el.hidden=!topologyVisible&&selectedNode!==id&&node==='online';}
+    for(const [id,el]of bulletinButtons){const tile=bulletinTile(OFFICE_BULLETIN_AREA,id).world,a=project({x:tile.x-tile.w/2,y:tile.y},tile.height),b=project({x:tile.x+tile.w/2,y:tile.y},tile.height),top=project({x:tile.x,y:tile.y},tile.height+tile.h/2),bottom=project({x:tile.x,y:tile.y},tile.height-tile.h/2),span=a&&b?Math.hypot(b.x-a.x,b.y-a.y):80,tileHeight=top&&bottom?Math.abs(bottom.y-top.y):18;place(el,{x:tile.x,y:tile.y},tile.height);el.style.width=`${clamp(span*.94,60,150)}px`;el.style.height=`${clamp(tileHeight*.82,12,26)}px`;el.style.fontSize=`${clamp(Math.min(span/9,tileHeight*.64),9,12)}px`;el.hidden=false;}
     for(const [id,el]of agentButtons){const actor=agents.get(id),data=(latestState.agents||[]).find?.(a=>a.id===id)||{};place(el,actor.point,actor.height*.56);const active=data.selected!==false&&(data.status==='working'||controller.queue.locked(id));el.dataset.active=String(active||selectedAgent===id);el.dataset.working=String(data.status==='working');el.setAttribute('aria-label',`${data.name||AGENT3D_HOMES[id].name}，${data.role||AGENT3D_HOMES[id].role}`);}
     for(const [id,el]of humanButtons){const actor=humans.get(id),approval=!!latestState.humanApproval&&id===(latestState.approvalHumanId||'owner');place(el,actor.point,actor.height*.56);el.dataset.active=String(approval||selectedHuman===id);el.dataset.awaiting=String(approval);el.hidden=presenceState.enabled;}
     for(const [id,el]of employeeButtons){const actor=actualPeople.get(id),entry=presenceMotion.entries.get(id);place(el,actor.point,actor.height*.56);el.dataset.active=String(selectedHuman===id||!!entry?.person.current);el.dataset.working='false';}
@@ -381,7 +391,7 @@ export function mountScene3D(container,{
     width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
     pendingResize=stats.resizes&&stats.width===width&&stats.height===height&&Math.abs(stats.pixelRatio-pixelRatio)<1e-8?null:{pixelRatio,width,height};setCamera();markDirty();}
   function renderFrame(time){
-    frame=0;if(destroyed||contextLost||document.hidden)return;
+    frame=0;if(destroyed||!active||contextLost||document.hidden)return;
     const wasBusy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;
     const actors=actorList(),interacting=!!drag||!!nativeGesture||touches.size>0||viewTween.active,urgent=wasBusy||actors.some(actor=>actor.hasUrgentMotion),ambientOnly=!interacting&&!urgent&&(layout.hasIdlePoses||actors.some(actor=>actor.ambientKind)||!!ambient?.active||renderDirty&&!urgentRenderDirty);
     const policy=scene3DFramePolicy(lastFrame,time,{reducedMotion,interacting,urgent,ambientOnly,force:forceFrame||!!pendingResize,dirty:urgentRenderDirty,busy:wasBusy||viewTween.active||layout.hasIdlePoses||actors.some(actor=>actor.isAnimating)||renderDirty});
@@ -397,9 +407,9 @@ export function mountScene3D(container,{
     for(const group of links.children){const a=nodeStatus(state.nodes,group.userData.a),b=nodeStatus(state.nodes,group.userData.b),status=[a,b].find(s=>s==='offline')||[a,b].find(s=>s==='warning')||[a,b].find(s=>s==='recovering')||'online';for(const line of group.children)line.material=linkMaterial(status);}
     controller.update(latestState);if(state.selectedNode!==undefined)select('node',state.selectedNode,false);if(state.selectedAgent!==undefined)select('agent',state.selectedAgent,false);markDirty();}
   function applyView(){setCamera();markDirty();onViewChange();}
-  function zoom(delta=.15){manualDetail=true;clearSelectionTimer();clearPost();const next=clamp(viewTween.target.scale+Number(delta||0),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});return next;}
-  function rotate(delta=Math.PI/8,tilt=0){clearSelectionTimer();clearPost();const next={...viewTween.target,azimuth:viewTween.target.azimuth+(Number(delta)||0),elevation:clamp(viewTween.target.elevation+(Number(tilt)||0),.42,1.28)};viewTween.start(next,{immediate:reducedMotion});return {azimuth:next.azimuth,elevation:next.elevation};}
-  function focusPoint(point,minimumScale=1.4,exactScale=false){if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;minimumScale=clamp(Number(minimumScale)||1.4,.72,6.5);clearPost();const diff=new THREE.Vector3(point.x-target.x,0,point.y-target.z);viewTween.start({scale:exactScale?minimumScale:Math.max(scale,minimumScale),panX:diff.dot(cameraFrame.right)-cameraFrame.centerX,panY:diff.dot(cameraFrame.up)-cameraFrame.centerY},{immediate:reducedMotion});return true;}
+  function zoom(delta=.15){onLeaveBulletin();manualDetail=true;clearSelectionTimer();clearPost();const next=clamp(viewTween.target.scale+Number(delta||0),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});return next;}
+  function rotate(delta=Math.PI/8,tilt=0){onLeaveBulletin();clearSelectionTimer();clearPost();const next={...viewTween.target,azimuth:viewTween.target.azimuth+(Number(delta)||0),elevation:clamp(viewTween.target.elevation+(Number(tilt)||0),.42,1.28)};viewTween.start(next,{immediate:reducedMotion});return {azimuth:next.azimuth,elevation:next.elevation};}
+  function focusPoint(point,minimumScale=1.4,exactScale=false){onLeaveBulletin();if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;minimumScale=clamp(Number(minimumScale)||1.4,.72,6.5);clearPost();const diff=new THREE.Vector3(point.x-target.x,0,point.y-target.z);viewTween.start({scale:exactScale?minimumScale:Math.max(scale,minimumScale),panX:diff.dot(cameraFrame.right)-cameraFrame.centerX,panY:diff.dot(cameraFrame.up)-cameraFrame.centerY},{immediate:reducedMotion});return true;}
   function focusRegion(region){
     const {right,up}=cameraFrame;let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
     for(const x of[-region.w/2,region.w/2])for(const z of[-region.h/2,region.h/2])for(const y of[0,60]){const corner=new THREE.Vector3(x,y,z),px=corner.dot(right),py=corner.dot(up);xMin=Math.min(xMin,px);xMax=Math.max(xMax,px);yMin=Math.min(yMin,py);yMax=Math.max(yMax,py);}
@@ -414,7 +424,7 @@ export function mountScene3D(container,{
   function pan(dx,dy){panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
   function sampleTouch(){const points=[...touches.values()],a=points[0],b=points[1];return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),angle:Math.atan2(b.y-a.y,b.x-a.x)}:null;}
   const onDown=(e,origin=null)=>{
-    if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;clearPost();clearGreeting();hoveredKey='';viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
+    if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;onLeaveBulletin();clearPost();clearGreeting();hoveredKey='';viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
     const point=logicalPointer(e);
     if(e.pointerType==='touch'){touches.set(e.pointerId,point);if(touches.size>1){touchGesture=sampleTouch();if(drag)drag.moved=true;canvas.setPointerCapture?.(e.pointerId);return;}}
     drag={id:e.pointerId,x:point.x,y:point.y,lastX:point.x,lastY:point.y,moved:false,mode:scene3DGestureMode(e),origin};ambient?.refresh();
@@ -422,7 +432,7 @@ export function mountScene3D(container,{
   const onMove=e=>{
     const point=logicalPointer(e);
     if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){pan(next.x-touchGesture.x,next.y-touchGesture.y);scale=clamp(scale*next.distance/touchGesture.distance,.72,6.5);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
-    if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){hoveredKey=key;if(hit?.type==='post')showPost(postsById.get(hit.id));else if(hit?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===hit.id))showRegion('department',hit.id);else if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearPost();clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(point.x-drag.x,point.y-drag.y)<5)return;
+    if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){onLeaveBulletin();hoveredKey=key;if(hit?.type==='bulletin')showBulletin(hit.id);else if(hit?.type==='post')showPost(postsById.get(hit.id));else if(hit?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===hit.id))showRegion('department',hit.id);else if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearPost();clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(point.x-drag.x,point.y-drag.y)<5)return;
     manualDetail=true;clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
     const dx=point.x-drag.lastX,dy=point.y-drag.lastY;
     if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);}
@@ -438,17 +448,17 @@ export function mountScene3D(container,{
     if(!active||active.id!==e.pointerId){if(multitouch)suppressClickUntil=performance.now()+200;return;}
     const moved=active.moved||multitouch;drag=null;wrapper.classList.remove('is-panning');ambient?.refresh();
     if(moved||e.button!==0){suppressClickUntil=performance.now()+180;return;}
-    const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit)queueSelection(hit.type,hit.id);else{const point=movePointAt(e);clearSelectionTimer();if(point)selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)onMovePoint(point);},350);}if(active.origin)suppressClickUntil=performance.now()+80;
+    const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit?.type==='bulletin')select(hit.type,hit.id);else if(hit)queueSelection(hit.type,hit.id);else{const point=movePointAt(e);clearSelectionTimer();if(point)selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)onMovePoint(point);},350);}if(active.origin)suppressClickUntil=performance.now()+80;
   };
   const onCancel=e=>{clearPost();clearGreeting();touches.delete(e.pointerId);touchGesture=null;if(drag?.id===e.pointerId)drag=null;wrapper.classList.remove('is-panning');ambient?.refresh();if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
   listen(canvas,'pointerdown',onDown);listen(canvas,'pointermove',onMove);listen(canvas,'pointerup',onUp);listen(canvas,'pointercancel',onCancel);listen(wrapper,'contextmenu',e=>e.preventDefault());
-  listen(canvas,'pointerleave',()=>{hoveredKey='';clearPost();clearGreeting();});
+  listen(canvas,'pointerleave',()=>{onLeaveBulletin();hoveredKey='';clearPost();clearGreeting();});
   listen(canvas,'dblclick',e=>{e.preventDefault();clearSelectionTimer();const hit=lastClickTarget&&performance.now()-lastClickTarget.time<400?lastClickTarget:pickAt(e);if(hit)focusObject(hit.type,hit.id);else resetView();});
   listen(wrapper,'keydown',e=>{
     const target=e.target;
     if(e.ctrlKey||e.metaKey||e.altKey||target!==wrapper&&!wrapper.contains?.(target)||target?.isContentEditable||target?.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"]),dialog,[role="dialog"],.erp-layer'))return;
     if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();rotate((e.key==='ArrowLeft'?1:-1)*Math.PI/12);}else if(e.key==='Home'){e.preventDefault();resetView();}else if(e.key?.toLowerCase()==='f'){
-      e.preventDefault();const focused=identityFor(target?.closest?.('[data-agent],[data-human],[data-employee],[data-post],[data-team],[data-node]')||target);
+      e.preventDefault();const focused=identityFor(target?.closest?.('[data-agent],[data-human],[data-employee],[data-post],[data-team],[data-bulletin],[data-node]')||target);
       if(focused)focusObject(focused.type,focused.id);else if(selectedAgent)focusObject('agent',selectedAgent);else if(selectedHuman)focusObject(actualPeople.has(selectedHuman)?'employee':'human',selectedHuman);else if(selectedNode)focusObject('node',selectedNode);
     }
   });
@@ -456,26 +466,51 @@ export function mountScene3D(container,{
   // events here as well, so the browser never zooms the entire office page.
   // Wheel deltas are scroll units, not transformed pointer coordinates: keep
   // pixel values unchanged, resolve lines to 16px and pages to logical height.
-  listen(wrapper,'wheel',e=>{e.preventDefault();manualDetail=true;clearPost();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
-  listen(wrapper,'gesturestart',e=>{e.preventDefault();forceFrame=true;manualDetail=true;clearPost();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
+  listen(wrapper,'wheel',e=>{onLeaveBulletin();e.preventDefault();manualDetail=true;clearPost();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
+  listen(wrapper,'gesturestart',e=>{onLeaveBulletin();e.preventDefault();forceFrame=true;manualDetail=true;clearPost();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
   listen(wrapper,'gesturechange',e=>{e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;const nextScale=Number(e.scale),rotation=Number(e.rotation);if(Number.isFinite(nextScale)&&nextScale>0)scale=clamp(nativeGesture.scale*nextScale,.72,6.5);if(Number.isFinite(rotation))azimuth=nativeGesture.azimuth-rotation*Math.PI/180;applyView();suppressClickUntil=performance.now()+200;},{passive:false});
   listen(wrapper,'gestureend',e=>{e.preventDefault();nativeGesture=null;ambient?.refresh();suppressClickUntil=performance.now()+180;},{passive:false});
   listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearPost();clearGreeting();if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;nativeGesture=null;clearSelectionTimer();});
   listen(canvas,'webglcontextlost',e=>{e.preventDefault();if(destroyed)return;clearPost();clearGreeting({redraw:false});contextLost=true;cancelAnimationFrame(frame);frame=0;controller.reset();const error=new Scene3DUnavailableError('3D 图形连接已中断，请切回 2D 视图');onUnavailable(error);container.dispatchEvent?.(new CustomEvent('scene3d-unavailable',{detail:error,bubbles:true}));});
-  listen(document,'visibilitychange',()=>{if(document.hidden){ambient?.refresh();clearPost();clearGreeting({redraw:false});hoveredKey='';nativeGesture=null;hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;resize();schedule();}});
+  listen(document,'visibilitychange',()=>{if(!active)return;if(document.hidden){ambient?.refresh();clearPost();clearGreeting({redraw:false});hoveredKey='';nativeGesture=null;hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;resize();schedule();}});
   const onPreference=event=>{reducedMotion=event.matches;if(reducedMotion)viewTween.finish();controller.setReducedMotion(reducedMotion);presenceMotion.setReducedMotion(reducedMotion);ambient?.refresh();markDirty();};motionPreference?.addEventListener?.('change',onPreference);
   scene.updateMatrixWorld(true);scene.matrixWorldAutoUpdate=false;
-  disposables.push(subscribeOrganizationOccupants(()=>{if(hoveredPost)showPost(hoveredPost);markDirty();}));
+  disposables.push(subscribeOrganizationOccupants(()=>{
+    // Hidden cached views do not render. Reconcile private DOM content now,
+    // rather than leaving the previous account's names inside inert overlays.
+    clearPost();postTitle.textContent='';postDepartment.textContent='';updateLabels();markDirty();
+  }));
   layout.root.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
   let densityQuery=null;
   const onDensityChange=()=>{watchDensity();resize();};
   function watchDensity(){densityQuery?.removeEventListener?.('change',onDensityChange);densityQuery=globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio||1}dppx)`);densityQuery?.addEventListener?.('change',onDensityChange);}
   if(globalThis.window?.addEventListener)listen(window,'resize',resize);
   const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);watchDensity();resize();update({animateEvents:false});
-  function resetView(){detailFocus=null;manualDetail=false;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
-  function prepare(){if(destroyed||contextLost||document.hidden)return;cancelAnimationFrame(frame);frame=0;lastFrame=0;renderFrame(performance.now());}
+  function resetView(){onLeaveBulletin();detailFocus=null;manualDetail=false;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
+  let prepared=false,preparing=null;
+  function prepare(){
+    if(destroyed||contextLost||document.hidden)return;
+    const render=()=>{if(destroyed||contextLost||document.hidden)return;resize();cancelAnimationFrame(frame);frame=0;lastFrame=0;draw(performance.now(),{delta:0,labelsChanged:true});};
+    if(!prepared&&renderer.compileAsync){
+      preparing??=Promise.resolve(renderer.compileAsync(scene,camera)).then(()=>{prepared=true;});
+      return preparing.then(render);
+    }
+    prepared=true;render();
+  }
+  function setActive(value){
+    if(destroyed||active===!!value)return;
+    active=!!value;
+    if(!active){
+      inactiveAt=hiddenAt??performance.now();hiddenAt=null;ambient?.pause();clearPost();clearGreeting({redraw:false});
+      hoveredKey='';drag=null;touches.clear();touchGesture=null;nativeGesture=null;wrapper.classList.remove('is-panning');clearSelectionTimer();
+      viewTween.cancel();cancelAnimationFrame(frame);frame=0;
+    }else{
+      if(inactiveAt!==null){const elapsed=performance.now()-inactiveAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed,{since:inactiveAt});}
+      inactiveAt=null;hiddenAt=document.hidden?performance.now():null;lastFrame=0;ambient?.resume();resize();markDirty();
+    }
+  }
   return {
-    update,prepare,setTopology(visible){topologyVisible=!!visible;links.visible=topologyVisible;wrapper.dataset.topology=String(topologyVisible);markDirty();},
+    update,prepare,setActive,setTopology(visible){topologyVisible=!!visible;links.visible=topologyVisible;wrapper.dataset.topology=String(topologyVisible);markDirty();},
     setSelectedNode(id){select('node',id,false);},setSelectedAgent(id){select('agent',id,false);},setSelectedHuman(id){select('human',id,false);},
     setPresence,getPresenceState:()=>presenceMotion.snapshot(),
     getHumanAnchor(id='owner'){const actor=humans.get(id);return actor?project(actor.point,actor.height*.55):null;},

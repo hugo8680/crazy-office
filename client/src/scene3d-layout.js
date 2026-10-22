@@ -1,3 +1,4 @@
+import {BULLETIN_SECTIONS,bulletinTile} from './bulletin-sections.mjs';
 import * as THREE from './vendor/three.module.js';
 
 import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
@@ -386,15 +387,12 @@ export function createOffice3DLayout(assets) {
   slab('#b8c7ac',publicArea.x+publicArea.w/2,-4,publicArea.y+publicArea.h/2,publicArea.w+8,8,publicArea.h+8);
   slab('#e1e8cf',publicArea.x+publicArea.w/2,.8,publicArea.y+publicArea.h/2,publicArea.w,1.2,publicArea.h);
   for(const side of[-1,1])round(c.woodDark,noticeBoard.x+side*noticeBoard.w*.43,19,noticeBoard.y,6,36,7);
-  round(c.woodDark,noticeBoard.x,37,noticeBoard.y,noticeBoard.w+6,66,9);
-  round(c.woodTop,noticeBoard.x,37,noticeBoard.y+4.8,noticeBoard.w,61,1);
-  round('#d8c79f',noticeBoard.x,37,noticeBoard.y+5.5,noticeBoard.w-12,51,.5);
-  // Blank pinned sheets are physical decoration. Actual notices are read from
-  // the ERP; neither announcements nor publishers are fabricated on the board.
-  for(let index=-2;index<=2;index++){
-    const px=noticeBoard.x+index*noticeBoard.w*.175,py=35+(index%2?2:-1);
-    round('#faf6e9',px,py,noticeBoard.y+6,noticeBoard.w*.137,33,.45);
-    ball(index%2?'#9baf83':c.copper,px,py+13,noticeBoard.y+6.5,1.5,1.5,.8);
+  round('#436757',noticeBoard.x,42,noticeBoard.y,noticeBoard.w+6,80,9);
+  for(const item of BULLETIN_SECTIONS){const tile=bulletinTile(publicArea,item.id).world;
+    round(item.paper,tile.x,tile.height,tile.y,tile.w,tile.h,.8);
+    // The colored inlay is geometry; the matching HTML label stays sharp at
+    // every pixel ratio without introducing four large canvas textures.
+    ball(item.accent,tile.x-tile.w/2+11,tile.height,tile.y+.65,2.4,2.4,.5);
   }
   for(const bench of publicArea.benches){
     slab(c.woodTop,bench.x,13,bench.y,bench.w,4,bench.h);
@@ -462,7 +460,7 @@ export function createOffice3DLayout(assets) {
   function clearIdlePoses(){let changed=0;for(const id of [...idlePoses.keys()])changed+=restoreIdlePose(id);return changed;}
   function setIdlePose(id,kind,{delay=0,duration=2400,partner=null,startedAt=null}={}){
     const seat=seatsById.get(id),parts=idlePartSets[kind];if(!seat||!seat.primarySeat||!seat.occupantVisible||!parts||away.has(primarySeatId(seat))||!isSeatVisible(id))return false;
-    if(!idlePoses.has(id)&&idlePoses.size>=6)return false;
+    if(!idlePoses.has(id)&&idlePoses.size>=8)return false;
     restoreIdlePose(id);const entries=(poseParts.get(id)||[]).filter(entry=>parts.has(entry.part)&&(entry.overview?!detailed.has(entry.groupId):detailed.has(entry.groupId)));if(!entries.length)return false;
     const wait=Math.max(0,Math.min(2500,Number(delay)||0));idlePoses.set(id,{kind,delay:wait,duration:Math.max(600,Math.min(4500,Number(duration)||2400)),partner,entries,started:Number.isFinite(startedAt)?startedAt+wait:null,seat:seatGeometry(id)});return true;
   }
@@ -475,11 +473,11 @@ export function createOffice3DLayout(assets) {
       let pitch=0,yaw=0,roll=0,bodyPitch=0,bodyRoll=0,shift=0,leftX=0,leftZ=0,leftElbow=0,leftWrist=0,rightX=0,rightZ=0,rightElbow=0;
       const look=partner?Math.max(-.55,Math.min(.55,Math.atan2(-(partner.x-x),-(partner.y-z)))):Math.sin(cycle)*.38;
       if(kind==='look')yaw=look*envelope;
-      else if(kind==='nod'){yaw=look*.5*envelope;pitch=-Math.sin(progress*Math.PI*4)*.13*envelope;}
-      else if(kind==='typing'){pitch=-.1*envelope;leftElbow=Math.sin(progress*Math.PI*16)*.035*envelope;rightElbow=Math.sin(progress*Math.PI*16+2)*.035*envelope;}
+      else if(kind==='nod'){yaw=look*.5*envelope;pitch=-Math.sin(progress*Math.PI*4)*.18*envelope;}
+      else if(kind==='typing'){pitch=-.1*envelope;leftElbow=Math.sin(progress*Math.PI*16)*.075*envelope;rightElbow=Math.sin(progress*Math.PI*16+2)*.075*envelope;}
       else if(kind==='wave'){yaw=look*envelope;leftX=.65*envelope;leftZ=-.85*envelope;leftElbow=.65*envelope;leftWrist=Math.sin(progress*Math.PI*10)*.17*envelope;}
       else if(kind==='stretch'){bodyPitch=.035*envelope;pitch=.08*envelope;leftX=rightX=.28*envelope;leftZ=-.65*envelope;rightZ=.65*envelope;leftElbow=rightElbow=-.25*envelope;}
-      else if(kind==='settle'){bodyRoll=Math.sin(cycle)*.027*envelope;shift=Math.sin(cycle)*.5*s*envelope;yaw=-Math.sin(cycle)*.08*envelope;}
+      else if(kind==='settle'){bodyRoll=Math.sin(cycle)*.045*envelope;shift=Math.sin(cycle)*.8*s*envelope;yaw=-Math.sin(cycle)*.08*envelope;}
       pivot(bodyPose,x,y+17*s,z-2*s,bodyPitch,0,bodyRoll);bodyPose.elements[12]+=shift;
       headPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x,y+32*s,z-2*s,pitch,yaw,roll));
       leftUpperPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x-6.3*s,y+29*s,z-2*s,leftX,0,leftZ));leftLowerPose.multiplyMatrices(leftUpperPose,pivot(pivotMatrix,x-6.3*s,y+24*s,z-11*s,leftElbow,0,leftWrist));
@@ -514,7 +512,7 @@ export function createOffice3DLayout(assets) {
   const seatsById=new Map(OFFICE_SEATS.map(seat=>[seat.id,seat]));
   const seatGeometry=id=>{const seat=seatsById.get(id);return seat?officeSeatForView(seat,{detail:detailed.has(seatGroupById.get(id))}):null;};
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
     get awaySeatIds(){return new Set(away);},

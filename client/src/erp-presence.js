@@ -39,8 +39,12 @@ export function createOfficePresenceMotion({onChange=()=>{},now=()=>performance.
     for(const id of entries.keys())if(!ids.has(id))entries.delete(id);
     for(const person of visible){
       const rank=ranks[person.nodeId]||0;ranks[person.nodeId]=rank+1;const target=person.point||presencePosition(person.nodeId,rank,counts[person.nodeId]);let entry=entries.get(person.id);
-      if(!entry){const seed=value.positions?.[person.id];entry={person,point:!reduced&&validPoint(seed)?{x:seed.x,y:seed.y}:{...target},target:{...target},motion:null,sample:null,lastTick:now()};entries.set(person.id,entry);if(!same(entry.point,target)&&!reduced){const route=routeBetweenPoints(entry.point,target);entry.motion={route,started:now(),duration:walkingDuration(route)};}}
-      else{entry.person=person;if(!same(entry.target,target)){entry.target={...target};entry.lastTick=now();if(reduced||same(entry.point,target)){entry.point={...target};entry.motion=null;entry.sample=null;}else{const route=routeBetweenPoints(entry.point,target);entry.motion={route,started:now(),duration:walkingDuration(route)};}}}
+      const seed=value.positions?.[person.id],stamp=now();
+      if(!entry||value.rebase===true){
+        if(!entry){entry={};entries.set(person.id,entry);}
+        Object.assign(entry,{person,point:!reduced&&validPoint(seed)?{x:seed.x,y:seed.y}:{...target},target:{...target},motion:null,sample:null,lastTick:stamp});
+        if(!same(entry.point,target)&&!reduced){const route=routeBetweenPoints(entry.point,target);entry.motion={route,started:stamp,duration:walkingDuration(route)};}
+      }else{entry.person=person;if(!same(entry.target,target)){entry.target={...target};entry.lastTick=stamp;if(reduced||same(entry.point,target)){entry.point={...target};entry.motion=null;entry.sample=null;}else{const route=routeBetweenPoints(entry.point,target);entry.motion={route,started:stamp,duration:walkingDuration(route)};}}}
     }
     return state;
   }
@@ -48,7 +52,14 @@ export function createOfficePresenceMotion({onChange=()=>{},now=()=>performance.
     get busy(){return [...entries.values()].some(e=>e.motion);},
     tick(time=now(),{isPaused=()=>false}={}){if(destroyed)return false;for(const [id,entry]of entries){const elapsed=Math.max(0,time-entry.lastTick);entry.lastTick=time;if(!entry.motion)continue;if(isPaused(id)){entry.motion.started+=elapsed;continue;}const m=entry.motion,sample=walkingSample(m.route,time-m.started,m.duration);entry.point={x:sample.x,y:sample.y};entry.sample=sample;if(sample.arrived)entry.motion=null;notify(entry);}return this.busy;},
     setReducedMotion(value){reduced=!!value;if(reduced)for(const entry of entries.values())if(entry.motion){entry.point={...entry.target};entry.motion=null;entry.sample=null;notify(entry);}},
-    shiftTime(ms){for(const entry of entries.values()){entry.lastTick+=Math.max(0,ms);if(entry.motion)entry.motion.started+=Math.max(0,ms);}},
+    shiftTime(ms,{since=-Infinity}={}){
+      const duration=Number.isFinite(Number(ms))?Math.max(0,Number(ms)):0,end=since+duration;
+      // A cached renderer may receive a fresh rebased route immediately before
+      // activation. Shift only the portion of each clock spent suspended; a
+      // newly created route must never inherit the previous view's idle time.
+      const suspendedAt=stamp=>Number.isFinite(since)?Math.max(0,end-Math.max(since,stamp)):duration;
+      for(const entry of entries.values()){entry.lastTick+=suspendedAt(entry.lastTick);if(entry.motion)entry.motion.started+=suspendedAt(entry.motion.started);}
+    },
     snapshot(){return{positions:Object.fromEntries([...entries].map(([id,e])=>[id,{...e.point}]))};},
     destroy(){destroyed=true;entries.clear();},
   };

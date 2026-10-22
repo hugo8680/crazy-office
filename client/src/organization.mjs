@@ -111,7 +111,8 @@ for (const spec of specs) {
         deskWidth,
         ...(post.role==='manager'&&spec.manager?{personId:spec.manager}:{}),
         ...(spec.id==='channels'&&post.role==='manager'?{primarySeat:false,label:'商务部经理兼任'}:{}),
-        ...(spec.id==='maintenance'&&post.role==='manager'?{primarySeat:false,label:'研发部兼任'}:{}),
+        ...(spec.id==='research'&&post.role==='staff'&&post.index===2?{primarySeat:false,label:'运维部经理兼任'}:{}),
+        ...(spec.id==='maintenance'&&post.role==='manager'?{label:'运维部经理'}:{}),
       }));
     }
   }
@@ -159,9 +160,9 @@ export function officeSeatsForView({zoom=1,focusedDepartmentId,focusedTeamId,det
 export const ORGANIZATION_DEPARTMENTS=freeze(departments);
 export const ORGANIZATION_PEOPLE=freeze([...new Map(seats.map(post=>[post.personId,{
   id:post.personId,role:post.role,
-  departmentIds:[...new Set(seats.filter(other=>other.personId===post.personId).map(other=>other.departmentId))],
+  departmentIds:[...new Set(seats.filter(other=>other.personId===post.personId).sort((a,b)=>Number(b.primarySeat)-Number(a.primarySeat)).map(other=>other.departmentId))],
   primarySeatId:seats.find(other=>other.personId===post.personId&&other.primarySeat).id,
-  seatIds:seats.filter(other=>other.personId===post.personId).map(other=>other.id),
+  seatIds:seats.filter(other=>other.personId===post.personId).sort((a,b)=>Number(b.primarySeat)-Number(a.primarySeat)).map(other=>other.id),
 }])).values()]);
 const peopleInRole=role=>ORGANIZATION_PEOPLE.filter(person=>person.role===role).length;
 export const ORGANIZATION_TOTALS=freeze({departments:departments.length,people:ORGANIZATION_PEOPLE.length,workplaces:seats.length,managers:peopleInRole('manager'),chairmen:peopleInRole('chairman'),heads:peopleInRole('head'),staff:peopleInRole('staff')});

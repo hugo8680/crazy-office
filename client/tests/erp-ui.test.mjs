@@ -280,3 +280,13 @@ test('a delayed public notice read cannot replace another business page or a lat
  let release;const pending=new Promise(resolve=>release=resolve);const h=harness(({path})=>path==='/api/erp/notices'?pending:undefined);
  try{const first=h.mounted.open('notices');await new Promise(resolve=>setImmediate(resolve));await h.mounted.open('projects');release({notices:[{id:'late',title:'过期页面内容',body:'旧公告'}],canPublish:true});await first;assert.equal(h.mounted.state.section,'projects');assert.doesNotMatch(h.root.innerHTML,/过期页面内容|旧公告/);}finally{h.cleanup();}
 });
+
+test('project report charts and detail table use the same accepted-work denominator when tasks are cancelled',()=>{
+ const facts=reportFacts({projects:[{id:'p'}],tasks:[{projectId:'p',status:'completed'},{projectId:'p',status:'accepted'},{projectId:'p',status:'submitted'},{projectId:'p',status:'cancelled'}]});
+ assert.equal(facts.projects[0].total,3);assert.equal(facts.projects[0].completed,2);assert.equal(facts.projects[0].cancelled,1);assert.equal(facts.projects[0].completion,67);
+});
+
+test('employee charts resolve names from the real users endpoint when snapshot has no users field',async()=>{
+ const h=harness(({path})=>path==='/api/erp/snapshot'?{currentUser:{id:'me',name:'管理员',roles:['admin']},projects:[{id:'p',name:'实际项目'}],tasks:[{id:'t',projectId:'p',assigneeId:'actual-employee',status:'completed'}]}:path==='/api/erp/users'?{users:[{id:'actual-employee',name:'李嘉明'}]}:undefined);
+ try{await h.mounted.open('reports');await h.click('report-tab',{tab:'performance'});assert.match(h.root.innerHTML,/李嘉明/);assert.doesNotMatch(h.root.innerHTML,/姓名未提供/);}finally{h.cleanup();}
+});
