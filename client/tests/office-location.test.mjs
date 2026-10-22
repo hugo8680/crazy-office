@@ -4,7 +4,7 @@ import {mountOfficeLocation} from '../src/office-location.js';
 import {OFFICE_SEATS} from '../src/organization.mjs';
 import {panelDom,deferred} from './fixtures/office-panel-dom.mjs';
 const own=OFFICE_SEATS.find(s=>s.departmentId==='business'&&s.primarySeat),other=OFFICE_SEATS.find(s=>s.departmentId==='business'&&s.id!==own.id&&s.primarySeat),foreign=OFFICE_SEATS.find(s=>s.departmentId==='finance');
-function harness(){const dom=panelDom(),calls=[],errors=[];let result=async()=>true,me={id:'me',name:'王敏',department:'商务部',nodeId:'business',appearanceKey:own.id,posture:'standing',x:1000,y:180},others=[];const presence={get self(){return me;},get people(){return[me,...others].filter(Boolean);},async sit(id){calls.push(['sit',id]);return result();},async stand(){calls.push(['stand']);return result();},async sitAt(point){calls.push(['sitAt',point]);return result();}},scene={getPresenceState(){return{positions:me?{[me.id]:{x:1001,y:181}}:{}};}},works=[];const ui=mountOfficeLocation({container:dom.container,presence,scene,onError:error=>errors.push(error),onWork:()=>works.push('desk')}),dialog=dom.container.children[0];return{...dom,ui,dialog,calls,errors,works,scene,person(value){me=value;},others(value){others=value;},respond(fn){result=fn;},click(action){const button=dialog.buttons.find(button=>button.dataset.location===action)||{dataset:{location:action},closest(){return this;}};return dialog.emit('click',button);},destroy(){ui.destroy();dom.restore();}};}
+function harness(){const dom=panelDom(),calls=[],errors=[],closes=[];let result=async()=>true,me={id:'me',name:'王敏',department:'商务部',nodeId:'business',appearanceKey:own.id,posture:'standing',x:1000,y:180},others=[];const presence={get self(){return me;},get people(){return[me,...others].filter(Boolean);},async sit(id){calls.push(['sit',id]);return result();},async stand(){calls.push(['stand']);return result();},async sitAt(point){calls.push(['sitAt',point]);return result();}},scene={getPresenceState(){return{positions:me?{[me.id]:{x:1001,y:181}}:{}};}},works=[];const ui=mountOfficeLocation({container:dom.container,presence,scene,onError:error=>errors.push(error),onClose:()=>closes.push(dialog.open),onWork:()=>works.push('desk')}),dialog=dom.container.children[0];return{...dom,ui,dialog,calls,errors,closes,works,scene,person(value){me=value;},others(value){others=value;},respond(fn){result=fn;},click(action){const button=dialog.buttons.find(button=>button.dataset.location===action)||{dataset:{location:action},closest(){return this;}};return dialog.emit('click',button);},destroy(){ui.destroy();dom.restore();}};}
 
 test('seat choices reflect actual occupancy and department access, and self sitting exposes stand instead of another reservation',async()=>{const h=harness();try{h.others([{id:'other',name:'<img src=x onerror=bad>',posture:'seated',seatId:other.id}]);h.ui.openSeat(other.id);assert.match(h.dialog.innerHTML,/&lt;img/);assert.doesNotMatch(h.dialog.innerHTML,/<img/);await h.click('sit-seat');assert.equal(h.calls.length,0);h.others([]);h.ui.openSeat(foreign.id);assert.match(h.dialog.innerHTML,/本部门/);await h.click('sit-seat');assert.equal(h.calls.length,0);h.ui.openSeat(own.id);await h.click('sit-seat');assert.deepEqual(h.calls,[['sit',own.id]]);assert.equal(h.ui.isOpen,false);h.person({id:'me',name:'王敏',department:'商务部',posture:'seated',seatId:own.id});h.ui.openSeat(own.id);assert.match(h.dialog.innerHTML,/已在此工位/);await h.click('stand');assert.deepEqual(h.calls.at(-1),['stand']);}finally{h.destroy();}});
 
@@ -15,3 +15,32 @@ test('free sitting uses the current rendered position, rejects unresolved coordi
 test('a late seat reservation cannot close a newer selection, and old errors remain silent after sign-out',async()=>{const h=harness(),slow=deferred();try{h.ui.openSeat(own.id);h.respond(()=>slow.promise);const pending=h.click('sit-seat');await h.click('close');assert.equal(h.ui.isOpen,false);h.ui.openSeat(other.id);slow.resolve(true);await pending;assert.equal(h.ui.isOpen,true);assert.match(h.dialog.innerHTML,/该位置空闲/);const failure=deferred();h.respond(()=>failure.promise);const old=h.click('sit-seat');h.ui.destroy();failure.reject(new Error('旧账户私密错误'));await old;assert.deepEqual(h.errors,[]);assert.equal(h.dialog.innerHTML,'');assert.equal(h.dialog.removed,true);}finally{h.destroy();}});
 
 test('server rejection leaves a retryable selection, work opens explicitly and anonymous use cannot show actions',async()=>{const h=harness();try{h.ui.openSeat(own.id);h.respond(async()=>false);await h.click('sit-seat');assert.equal(h.ui.isOpen,true);assert.equal(h.dialog.buttons.find(b=>b.dataset.location==='sit-seat').disabled,false);h.respond(async()=>true);await h.click('sit-seat');assert.equal(h.ui.isOpen,false);h.ui.openSelf();await h.click('work');assert.deepEqual(h.works,['desk']);assert.equal(h.ui.isOpen,false);h.person(null);assert.equal(h.ui.openSelf(),false);assert.match(h.errors.at(-1),/登录/);}finally{h.destroy();}});
+
+
+test('location callbacks fire only after one actual close, regardless of close entry point',async()=>{
+ const h=harness();try{
+  h.ui.close();assert.deepEqual(h.closes,[]);
+  for(const channel of ['api','button','escape','native','saved','work']){
+   h.ui.openSelf();
+   if(channel==='api')h.ui.close();
+   if(channel==='button')await h.click('close');
+   if(channel==='escape')await h.dialog.emit('cancel',h.dialog);
+   if(channel==='native'){h.dialog.close();await h.dialog.emit('close',h.dialog);}
+   if(channel==='saved')await h.click('sit-point');
+   if(channel==='work')await h.click('work');
+   assert.equal(h.ui.isOpen,false);assert.equal(h.closes.length,['api','button','escape','native','saved','work'].indexOf(channel)+1);
+   await h.dialog.emit('close',h.dialog);h.ui.close();assert.equal(h.closes.at(-1),false);
+  }
+  h.ui.openSelf();await h.dialog.emit('close',h.dialog);assert.equal(h.closes.length,6);
+  h.ui.destroy();await h.dialog.emit('close',h.dialog);assert.equal(h.closes.length,6);
+ }finally{h.destroy();}
+});
+
+test('native closure invalidates an old seat request without closing or notifying a new selection',async()=>{
+ const h=harness(),slow=deferred();try{
+  h.ui.openSeat(own.id);h.respond(()=>slow.promise);const pending=h.click('sit-seat');
+  h.dialog.close();await h.dialog.emit('close',h.dialog);assert.deepEqual(h.closes,[false]);
+  h.ui.openSeat(other.id);slow.resolve(true);await pending;assert.equal(h.ui.isOpen,true);assert.deepEqual(h.closes,[false]);
+  h.ui.destroy();assert.deepEqual(h.closes,[false]);
+ }finally{h.destroy();}
+});

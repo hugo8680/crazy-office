@@ -3,6 +3,7 @@ import {BULLETIN_SECTIONS,bulletinTile} from './bulletin-sections.mjs';
 import { HUMAN_EMPLOYEES } from './people.js';
 import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming, createViewTween } from './scene-motion.js';
 import {createOfficePresenceMotion} from './erp-presence.js';
+import {officeArea} from './office-navigation.mjs';
 import {greetingForPerson} from './person-greeting.mjs';
 import {mountOfficeAmbient} from './office-ambient.mjs';
 import {employeeAppearance,employeeAppearanceKey,employeeAppearanceStyle} from './employee-appearance.mjs';
@@ -21,7 +22,7 @@ const NETWORK_IDS=new Set(['internet','firewall','core','server','storage','ups'
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountScene(container, { onSelectNode = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
+export function mountScene(container, { onSelectNode = () => {}, onEnterArea = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
   const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], seated:[-26,-59,52,63], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35],empty_seat:[-26,-59,52,63] };
   const use = (name, x, y, scale = 1, extra = '') => {
@@ -321,7 +322,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectBulleti
     if (id && selected) setSelectedNode(null);
   }
 
-  for(const room of OFFICE_ROOMS)for(const team of room.teamZones){const element=teamElements.get(team.id);if(!element)continue;const select=event=>{event.stopPropagation();if(destroyed||performance.now()<suppressClickUntil)return;clearGreeting();focusedDepartmentId=room.id;focusedTeamId=team.id;focusRegion(team);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
+  for(const room of OFFICE_ROOMS)for(const team of room.teamZones){const element=teamElements.get(team.id);if(!element)continue;const select=event=>{event.stopPropagation();if(destroyed||performance.now()<suppressClickUntil)return;clearGreeting();focusedDepartmentId=room.id;focusedTeamId=team.id;focusRegion(team);onEnterArea(team.id);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
   nodeElements.forEach(el => {
     const id=el.dataset.node;if(id==='bulletin')return;
     el.addEventListener('click', (e) => {
@@ -824,6 +825,7 @@ export function mountScene(container, { onSelectNode = () => {}, onSelectBulleti
       if (!point) return false;focusedDepartmentId=null;focusedTeamId=null;
       animateView({panX:point.x-WORLD_CX,panY:point.y-WORLD_CY+52/scale});return true;
     },
+    focusArea(id){const area=officeArea(id);if(!area)return false;focusedDepartmentId=area.nodeId||OFFICE_ROOMS.find(room=>room.id===area.id)?.id||null;focusedTeamId=area.nodeId?area.id:null;focusRegion(area);return true;},
     focusNode(id) {
       const point=NODE_META[id];if(!point)return false;
       const room=OFFICE_ROOMS.find(room=>room.id===id);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mountBulletinCenter,safeBoardVideo,renderBoardMessages,renderTrainingRows,renderBoardMetrics,renderBoardPreview} from '../src/bulletin-center.js';
 import {panelDom,deferred,flush} from './fixtures/office-panel-dom.mjs';
 const state=()=>({dashboard:{metrics:[{label:'在办项目',value:3,unit:'项'}]},training:{canManage:true,entries:[]},video:{canManage:true,src:'/media/film.webm',title:'宣传片',version:2},messages:{canPost:true,items:[{id:'m1',authorName:'王敏',body:'已完成',version:3,canDelete:true}],hasMore:true,nextCursor:'m1'}});
-function harness(responder){const dom=panelDom(),calls=[],errors=[];let answer=responder||(()=>({board:state()})),blocked=false;const ui=mountBulletinCenter({...dom,request:async(path,method='GET',body)=>{calls.push({path,method,body});return answer({path,method,body});},session:{actor:{id:'me',name:'王敏'}},getSnapshot:()=>({projects:[{id:'p1',name:'研发项目',status:'active'}],documents:[{id:'d1',status:'draft',createdAt:new Date().toISOString()}]}),onError:message=>errors.push(message),isBlocked:()=>blocked,random:()=>0});const dialog=dom.container.children[0],tv=dom.chrome.children[0];return{...dom,ui,calls,errors,dialog,tv,respond(fn){answer=fn;},block(value){blocked=value;},form(kind){return dialog.forms.find(form=>form.dataset.bulletinForm===kind);},set(kind,values){const form=this.form(kind);for(const[name,value]of Object.entries(values)){const field=form.elements.find(field=>field.name===name);assert.ok(field,name);field.value=String(value);}return form;},click(action,data={}){const button=dialog.buttons.find(button=>button.dataset.bulletinAction===action&&(!data.id||button.dataset.id===data.id))||tv.buttons.find(button=>button.dataset.bulletinAction===action)||{dataset:{bulletinAction:action,...data},closest(){return this;}};return dialog.emit('click',button);},tab(section){return dialog.emit('click',{dataset:{bulletinTab:section},closest(){return this;}});},submit(form){return dialog.emit('submit',form);},destroy(){ui.destroy();dom.restore();}};}
+function harness(responder){const dom=panelDom(),calls=[],errors=[],closes=[];let answer=responder||(()=>({board:state()})),blocked=false;const ui=mountBulletinCenter({...dom,request:async(path,method='GET',body)=>{calls.push({path,method,body});return answer({path,method,body});},session:{actor:{id:'me',name:'王敏'}},getSnapshot:()=>({projects:[{id:'p1',name:'研发项目',status:'active'}],documents:[{id:'d1',status:'draft',createdAt:new Date().toISOString()}]}),onError:message=>errors.push(message),onClose:()=>closes.push(dialog.open),isBlocked:()=>blocked,random:()=>0});const dialog=dom.container.children[0],tv=dom.chrome.children[0];return{...dom,ui,calls,errors,closes,dialog,tv,respond(fn){answer=fn;},block(value){blocked=value;},form(kind){return dialog.forms.find(form=>form.dataset.bulletinForm===kind);},set(kind,values){const form=this.form(kind);for(const[name,value]of Object.entries(values)){const field=form.elements.find(field=>field.name===name);assert.ok(field,name);field.value=String(value);}return form;},click(action,data={}){const button=dialog.buttons.find(button=>button.dataset.bulletinAction===action&&(!data.id||button.dataset.id===data.id))||tv.buttons.find(button=>button.dataset.bulletinAction===action)||{dataset:{bulletinAction:action,...data},closest(){return this;}};return dialog.emit('click',button);},tab(section){return dialog.emit('click',{dataset:{bulletinTab:section},closest(){return this;}});},submit(form){return dialog.emit('submit',form);},destroy(){ui.destroy();dom.restore();}};}
 
 test('all board content is escaped and video URLs cannot create executable or credential-bearing markup',()=>{const attack='<img src=x onerror=alert(1)>';for(const html of[renderBoardMessages({items:[{id:'x" onclick="bad',authorName:attack,body:attack}]}),renderTrainingRows([{employeeName:attack,department:attack}]),renderBoardMetrics([{label:attack,value:2}])]){assert.doesNotMatch(html,/<img|onclick="bad/);assert.match(html,/&lt;img/);}for(const value of['javascript:alert(1)','http://insecure/video.mp4','https://user:password@example.test/a.mp4','/media/../secret.mp4'])assert.equal(safeBoardVideo(value),'');assert.equal(safeBoardVideo('/media/film.webm'),'/media/film.webm');});
 
@@ -73,3 +73,34 @@ test('hover previews stay next to their map panel under a scaled stage, and flip
 
 
 test('a late leave from a previous wall region cannot dismiss the newly hovered preview',async()=>{const h=harness(),slow=deferred();try{await h.ui.preview('training',{x:600,y:500});h.respond(()=>slow.promise);const pending=h.ui.preview('video',{x:600,y:550});h.ui.hidePreview('training');assert.equal(h.tv.hidden,false);assert.equal(h.tv.dataset.section,'video');slow.resolve({board:state()});await pending;assert.equal(h.tv.hidden,false);assert.match(h.tv.innerHTML,/宣传片/);h.ui.hidePreview('video');assert.equal(h.tv.hidden,true);await h.ui.preview('messages',{x:700,y:550});h.ui.hidePreview();assert.equal(h.tv.hidden,true,'camera/global leave still clears the current preview');}finally{h.destroy();}});
+
+
+test('board close callbacks follow the actual surface across API, button, Escape and native closing exactly once',async()=>{
+ const h=harness();try{
+  await h.ui.close();assert.deepEqual(h.closes,[]);
+  for(const channel of ['api','button','escape','native']){
+   await h.ui.open();assert.equal(h.ui.isOpen,true);
+   if(channel==='api')await h.ui.close();
+   if(channel==='button')await h.click('close');
+   if(channel==='escape')await h.dialog.emit('cancel',h.dialog);
+   if(channel==='native'){h.dialog.close();await h.dialog.emit('close',h.dialog);}
+   assert.equal(h.ui.isOpen,false);assert.equal(h.closes.length,['api','button','escape','native'].indexOf(channel)+1);
+   await h.dialog.emit('close',h.dialog);await h.ui.close();assert.equal(h.closes.at(-1),false);
+  }
+  await h.ui.open();await h.dialog.emit('close',h.dialog);assert.equal(h.closes.length,4,'a queued close from the previous display cannot close or notify the new surface');
+  h.ui.destroy();await h.dialog.emit('close',h.dialog);assert.equal(h.closes.length,4);
+ }finally{h.destroy();}
+});
+
+test('a delayed board fullscreen exit cannot close a reopened selection or notify after destruction',async()=>{
+ for(const destination of ['reopen','destroy']){
+  const h=harness(),slow=deferred();try{
+   await h.ui.open('video',{expanded:true});h.document.fullscreenElement=h.dialog;h.document.exitFullscreen=()=>slow.promise;
+   const pending=h.ui.close();
+   if(destination==='reopen')await h.ui.open('messages',{expanded:true});else h.ui.destroy();
+   h.document.fullscreenElement=null;slow.resolve();await pending;
+   assert.deepEqual(h.closes,[]);
+   if(destination==='reopen'){assert.equal(h.ui.isOpen,true);assert.equal(h.dialog.dataset.section,'messages');assert.equal(h.dialog.dataset.expanded,'true');await h.ui.close();assert.deepEqual(h.closes,[false]);}
+  }finally{h.destroy();}
+ }
+});

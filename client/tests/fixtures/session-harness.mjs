@@ -7,7 +7,7 @@ const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async
 // Run the production module with minimal DOM and transport adapters. Only the
 // HTTP response and browser surface are fakes; all state/validation is real JS.
 export function harness({session=null,fragment='',pathname='/',responder,reducedMotion=true}={}){
-  const elements=new Map(),requests=[],timers=new Map(),history=[],redirects=[],events={authenticated:[],signedOut:0,expired:0,changes:[]};let timer=0;
+  const elements=new Map(),requests=[],timers=new Map(),history=[],redirects=[],events={authenticated:[],signedOut:0,expired:0,changes:[],closed:0,closedWhileOpen:[]};let timer=0;
   const element=selector=>{
     if(elements.has(selector))return elements.get(selector);
     const node={hidden:false,disabled:false,value:'',textContent:'',dataset:{},attrs:new Map(),listeners:new Map(),focused:0,open:false,isConnected:true,innerHTML:'',
@@ -25,7 +25,7 @@ export function harness({session=null,fragment='',pathname='/',responder,reduced
     fetch:async(url,options)=>{requests.push({url,options});return responder?responder(url,options):response({session:session||{authenticated:false}});},
     console:{log(){throw Error('credential log');},error(){throw Error('credential log');}},localStorage:{setItem(){throw Error('credential persistence');}},sessionStorage:{setItem(){throw Error('credential persistence');}}};
   vm.createContext(scope);vm.runInContext(source.replace('export function mountSession','function mountSession'),scope,{filename:'session-ui.js'});
-  scope.options={container,requestRaw:scope.fetch,onAuthenticated:s=>events.authenticated.push(s),onSignedOut:()=>events.signedOut++,onSessionExpired:()=>events.expired++,onChange:s=>events.changes.push(s)};
+  scope.options={container,requestRaw:scope.fetch,onAuthenticated:s=>events.authenticated.push(s),onSignedOut:()=>events.signedOut++,onSessionExpired:()=>events.expired++,onChange:s=>events.changes.push(s),onClose:()=>{events.closed++;events.closedWhileOpen.push(dialog.open);}};
   const ui=vm.runInContext('mountSession(options)',scope);
   return {ui,dialog,element,events,requests,timers,history,redirects,scope,setResponder(fn){responder=fn;},
     login(username='lin',password=PASSWORD){element('#session-username').value=username;element('#session-password').value=password;return element('#session-login-form').listeners.get('submit')({preventDefault(){}});},

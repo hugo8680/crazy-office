@@ -27,10 +27,10 @@ export function renderBoardPreview(section,board={},snapshot={}){
   return '';
 }
 
-export function mountBulletinCenter({container,chrome,request,session,onError=()=>{},onOpenNotices=()=>{},isBlocked=()=>false,getSnapshot=()=>({}),document:doc=globalThis.document,random=Math.random,setTimer=globalThis.setTimeout,clearTimer=globalThis.clearTimeout}={}){
+export function mountBulletinCenter({container,chrome,request,session,onError=()=>{},onClose=()=>{},onOpenNotices=()=>{},isBlocked=()=>false,getSnapshot=()=>({}),document:doc=globalThis.document,random=Math.random,setTimer=globalThis.setTimeout,clearTimer=globalThis.clearTimeout}={}){
   const dialog=doc.createElement('dialog');dialog.className='bulletin-dialog';dialog.setAttribute('aria-label','信息公开栏');container.append(dialog);
   const previewElement=doc.createElement('aside');previewElement.className='bulletin-preview';previewElement.hidden=true;previewElement.setAttribute('role','tooltip');previewElement.setAttribute('aria-label','公开栏摘要');chrome.append(previewElement);
-  let board=null,section='dashboard',destroyed=false,epoch=0,loading=null,error='',busy=false,manage=false,people=[],previewTicket=0,previewSection=null,previewAnchor=null,draft='',trainingDraft={},videoDraft=null,videoSettingsOpen=false,previousFocus=null,expanded=false,nativeFullscreen=false,fullscreenTicket=0;
+  let board=null,section='dashboard',destroyed=false,epoch=0,loading=null,error='',busy=false,manage=false,people=[],previewTicket=0,previewSection=null,previewAnchor=null,draft='',trainingDraft={},videoDraft=null,videoSettingsOpen=false,previousFocus=null,expanded=false,nativeFullscreen=false,fullscreenTicket=0,surfaceOpen=false,surfaceGeneration=0;
   const mutationKeys=new Map();
   const actor=session?.actor||session?.user||{},key=()=>globalThis.crypto?.randomUUID?.()||`board-${Date.now()}-${Math.floor(random()*1e9)}`;
   const video=()=>dialog.querySelector('video');
@@ -93,8 +93,8 @@ export function mountBulletinCenter({container,chrome,request,session,onError=()
     paintPreview(renderBoardPreview(next,source,getSnapshot()));
   }
   async function open(next='dashboard',options={}){
-    if(destroyed)return;captureDrafts();hidePreview();previousFocus=doc.activeElement;section=tabs.some(t=>t[0]===next)?next:'dashboard';manage=false;error='';updateExpanded(options.expanded===true);render();
-    if(!dialog.open)try{dialog.showModal();}catch(err){if(!destroyed)onError(err?.message||'公开栏暂时无法打开');return;}await refresh();
+    if(destroyed)return;surfaceGeneration++;captureDrafts();hidePreview();if(!dialog.open)previousFocus=doc.activeElement;section=tabs.some(t=>t[0]===next)?next:'dashboard';manage=false;error='';updateExpanded(options.expanded===true);render();
+    if(!dialog.open)try{dialog.showModal();surfaceOpen=true;}catch(err){if(!destroyed)onError(err?.message||'公开栏暂时无法打开');return;}await refresh();
   }
   function updateExpanded(value){
     expanded=!!value;dialog.dataset.expanded=String(expanded);
@@ -116,9 +116,16 @@ export function mountBulletinCenter({container,chrome,request,session,onError=()
     if(destroyed||ticket!==fullscreenTicket||!expanded){await exitNative();return;}
     nativeFullscreen=doc.fullscreenElement===dialog;
   }
+  function didClose(){
+    if(destroyed||dialog.open||!surfaceOpen)return;
+    surfaceOpen=false;surfaceGeneration++;captureDrafts();pauseVideo();fullscreenTicket++;nativeFullscreen=false;updateExpanded(false);void exitNative();manage=false;
+    const focus=previousFocus;previousFocus=null;focus?.focus?.();
+    try{const result=onClose();result?.catch?.(()=>{});}catch{}
+  }
   async function close(){
+    if(destroyed||!dialog.open)return;const ticket=surfaceGeneration;
     captureDrafts();pauseVideo();fullscreenTicket++;nativeFullscreen=false;updateExpanded(false);await exitNative();
-    if(destroyed)return;dialog.close();manage=false;previousFocus?.focus?.();
+    if(destroyed||ticket!==surfaceGeneration||!dialog.open)return;dialog.close();didClose();
   }
   async function click(event){
     const target=event.target.closest('[data-bulletin-action],[data-bulletin-tab]');if(!target||destroyed)return;const ticket=epoch;
@@ -165,6 +172,6 @@ export function mountBulletinCenter({container,chrome,request,session,onError=()
   function visibility(){if(doc.hidden){hidePreview();pauseVideo();}}
   function focus(){if(isBlocked())hidePreview();}
   function cancel(event){event.preventDefault();void close();}
-  dialog.addEventListener('click',click);dialog.addEventListener('submit',submit);dialog.addEventListener('input',input);dialog.addEventListener('cancel',cancel);doc.addEventListener('visibilitychange',visibility);doc.addEventListener('focusin',focus);doc.addEventListener('fullscreenchange',fullscreenChanged);
-  return{open,close,refresh,preview,hidePreview,get isOpen(){return dialog.open;},destroy(){if(destroyed)return;destroyed=true;epoch++;fullscreenTicket++;nativeFullscreen=false;updateExpanded(false);void exitNative();hidePreview();pauseVideo();dialog.removeEventListener('click',click);dialog.removeEventListener('submit',submit);dialog.removeEventListener('input',input);dialog.removeEventListener('cancel',cancel);doc.removeEventListener('visibilitychange',visibility);doc.removeEventListener('focusin',focus);doc.removeEventListener('fullscreenchange',fullscreenChanged);dialog.close();dialog.innerHTML='';dialog.remove();previewElement.remove();board=null;people=[];draft='';trainingDraft={};videoDraft=null;mutationKeys.clear();}};
+  dialog.addEventListener('click',click);dialog.addEventListener('submit',submit);dialog.addEventListener('input',input);dialog.addEventListener('cancel',cancel);dialog.addEventListener('close',didClose);doc.addEventListener('visibilitychange',visibility);doc.addEventListener('focusin',focus);doc.addEventListener('fullscreenchange',fullscreenChanged);
+  return{open,close,refresh,preview,hidePreview,get isOpen(){return dialog.open;},destroy(){if(destroyed)return;destroyed=true;epoch++;fullscreenTicket++;nativeFullscreen=false;updateExpanded(false);void exitNative();hidePreview();pauseVideo();dialog.removeEventListener('click',click);dialog.removeEventListener('submit',submit);dialog.removeEventListener('input',input);dialog.removeEventListener('cancel',cancel);dialog.removeEventListener('close',didClose);doc.removeEventListener('visibilitychange',visibility);doc.removeEventListener('focusin',focus);doc.removeEventListener('fullscreenchange',fullscreenChanged);dialog.close();dialog.innerHTML='';dialog.remove();previewElement.remove();board=null;people=[];draft='';trainingDraft={};videoDraft=null;mutationKeys.clear();}};
 }

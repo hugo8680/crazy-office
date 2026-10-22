@@ -5,8 +5,8 @@ import { NODE_META } from '../src/scene.js';
 import { HUMAN_EMPLOYEES } from '../src/people.js';
 import { OFFICE3D_ROOMS, OFFICE3D_BOUNDS, OFFICE3D_CENTER, AGENT3D_HOMES, OFFICE3D_COLORS, createOffice3DAssets, createOffice3DLayout } from '../src/scene3d-layout.js';
 import { actorIdentity, createOffice3DActor, facingForHeading } from '../src/scene3d-actors.js';
-import { office3DFrustum, Scene3DUnavailableError, OFFICE3D_LINKS, scene3DFramePolicy, OFFICE3D_CAMERA_OFFSET, scene3DPixelRatio, scene3DGestureMode, mountScene3D } from '../src/scene3d.js';
-import { OFFICE_ROOMS, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_SEATS, OFFICE_OVERVIEW_SEATS, OFFICE_FITTINGS, OFFICE_LANDSCAPE, OFFICE_WORK_POSITIONS } from '../src/organization.mjs';
+import { office3DFrustum, office3DRegionView, Scene3DUnavailableError, OFFICE3D_LINKS, scene3DFramePolicy, OFFICE3D_CAMERA_OFFSET, scene3DPixelRatio, scene3DGestureMode, mountScene3D } from '../src/scene3d.js';
+import { OFFICE_ROOMS, OFFICE_SHARED_AREAS, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_SEATS, OFFICE_OVERVIEW_SEATS, OFFICE_FITTINGS, OFFICE_LANDSCAPE, OFFICE_WORK_POSITIONS } from '../src/organization.mjs';
 import { createScene3DMotion, desired3DPositions } from '../src/scene3d-motion.js';
 import { EMPLOYEE_WARDROBE, employeeAppearance } from '../src/employee-appearance.mjs';
 import { OFFICE_EXTERIOR } from '../src/office-environment.mjs';
@@ -87,6 +87,27 @@ test('orthographic fitting covers desktop, tablet and narrow viewports without i
   for(const aspect of[.35,.65,1,1.6,2.5,4]){const f=office3DFrustum(aspect);assert.ok(f.width>0&&f.height>0);assert.ok(Math.abs(f.width/f.height-aspect)<.0001);assert.ok(Math.abs(f.direction.length()-1)<.0001);assert.ok(Math.abs(f.up.dot(f.right))<.0001);}
   const error=new Scene3DUnavailableError('unavailable');assert.equal(error.code,'WEBGL_UNAVAILABLE');assert.ok(error instanceof Error);
   for(const [a,b]of OFFICE3D_LINKS){assert.ok(NODE_META[a]);assert.ok(NODE_META[b]);}
+});
+
+test('canonical region fitting keeps the full room, colleagues and roofline above the dock in portrait and wide screens',()=>{
+  const areas=[...OFFICE_ROOMS,...OFFICE_ROOMS.flatMap(room=>room.teamZones),...OFFICE_SHARED_AREAS,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER];
+  const canonicalAzimuth=Math.atan2(OFFICE3D_CAMERA_OFFSET[0],OFFICE3D_CAMERA_OFFSET[2]);
+  for(const [width,height]of[[390,844],[1024,768],[1440,900],[3840,2160]]){
+    const reserved=Math.min(100,Math.max(72,height*.095)),usable=height-reserved,frame=office3DFrustum(width/usable);
+    for(const area of areas){
+      const current=canonicalAzimuth+Math.PI*8+2.9,view=office3DRegionView(area,{width,height,azimuth:current});
+      assert.ok(view&&Object.values(view).every(Number.isFinite));assert.ok(Math.abs(view.azimuth-current)<=Math.PI,'auto focus takes the shortest turn, even after several manual orbits');assert.ok(Math.abs(Math.sin(view.azimuth-canonicalAzimuth))<1e-8);
+      let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
+      for(const x of[area.x-8,area.x+area.w+8])for(const y of[0,area.id==='data_center'?100:76])for(const z of[area.y-8,area.y+area.h+8]){
+        const point=new THREE.Vector3(x-OFFICE3D_CENTER.x,y-OFFICE3D_CENTER.y,z-OFFICE3D_CENTER.z),px=width/2+(point.dot(frame.right)-frame.centerX-view.panX)*view.scale/frame.width*width,py=usable/2-(point.dot(frame.up)-frame.centerY-view.panY)*view.scale/frame.height*usable;
+        xMin=Math.min(xMin,px);xMax=Math.max(xMax,px);yMin=Math.min(yMin,py);yMax=Math.max(yMax,py);
+        assert.ok(px>=19.99&&px<=width-19.99,`${area.id} horizontal crop at ${width} × ${height}: ${px}`);assert.ok(py>=19.99&&py<=usable-19.99,`${area.id} roofline or colleague cropped behind dock at ${width} × ${height}: ${py}`);
+      }
+      assert.ok(Math.max((xMax-xMin)/width,(yMax-yMin)/usable)>.48,`${area.id} is the main picture, not a tiny distant room`);
+      assert.ok(Math.abs((xMin+xMax)/2-width/2)<1e-6);assert.ok(Math.abs((yMin+yMax)/2-usable/2)<1e-6);
+    }
+  }
+  for(const invalid of[null,{}, {x:0,y:0,w:0,h:10},{x:0,y:NaN,w:10,h:10}])assert.equal(office3DRegionView(invalid),null);
 });
 
 test('management reviewer visits a shared-plan arrival slot without occupying the assistant or chairman post',()=>{
@@ -312,6 +333,51 @@ test('camera buttons and wheel ease through intermediate positions, retarget smo
  const f=mountedSceneFixture();try{f.frame();const baseline=f.api.getPerformanceStats();f.api.rotate(.6);assert.equal(f.api.getPerformanceStats().azimuth,baseline.azimuth);f.frame();f.frame();const middle=f.api.getPerformanceStats();assert.ok(middle.azimuth>baseline.azimuth&&middle.azimuth<baseline.azimuth+.6);f.api.rotate(.2);f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth-.8)<1e-8);assert.equal(f.api.getPerformanceStats().actorUpdates,baseline.actorUpdates);
   f.canvas.emit('wheel',{deltaY:120,deltaMode:0});f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale<1);f.canvas.emit('wheel',{deltaY:-120,deltaMode:0});f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().scale-1)<1e-8);f.api.resetView();f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth)<1e-8);assert.equal(f.api.getPerformanceStats().cameraMoving,false);assert.equal(f.api.getPerformanceStats().drawCalls,baseline.drawCalls);
  }finally{f.restore();}
+});
+
+test('every automatic focus restores the same slanted view, eases in both directions and remains directly interruptible',()=>{
+  const f=mountedSceneFixture({}, {clockedMotion:true});try{
+    f.frame();const baseline=f.api.getPerformanceStats(),allocations=f.allocations.length,targets=[
+      ()=>f.api.focusArea('business'),()=>f.api.focusArea('ai_data_team_2'),()=>f.api.focusArea('data_center'),()=>f.api.focusNode('server'),()=>f.api.focusHuman('owner'),()=>f.api.focusAgent('zhang'),()=>f.api.focusPoint({x:700,y:740},2.4),
+    ];
+    for(const focus of targets){
+      f.api.rotate(Math.PI*2+2.7,.2);f.drain();const before=f.api.getPerformanceStats();assert.equal(focus(),true);assert.equal(f.api.getPerformanceStats().scale,before.scale,'focus starts from the visible frame');assert.equal(f.api.getPerformanceStats().cameraMoving,true);
+      f.frame();f.frame();const middle=f.api.getPerformanceStats();assert.ok(Math.abs(middle.azimuth-before.azimuth)>.001);assert.ok(Math.abs(middle.azimuth-before.azimuth)<Math.PI);f.drain();const after=f.api.getPerformanceStats();
+      assert.ok(Math.abs(Math.sin(after.azimuth-baseline.azimuth))<1e-8);assert.ok(Math.abs(after.elevation-baseline.elevation)<1e-8);assert.ok(after.scale>=1.4);
+    }
+    const enlarged=f.api.getPerformanceStats();f.api.resetView();assert.equal(f.api.getPerformanceStats().scale,enlarged.scale);f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale>1&&f.api.getPerformanceStats().scale<enlarged.scale,'returning to overview also passes through a real zoom-out frame');f.drain();assert.equal(f.api.getPerformanceStats().scale,1);assert.equal(f.api.getPerformanceStats().panX,0);assert.equal(f.api.getPerformanceStats().panY,0);
+    f.api.focusArea('hr_admin');f.frame();f.frame();const inFlight=f.api.getPerformanceStats();f.canvas.emit('pointerdown',{button:0,clientX:500,clientY:400});f.canvas.emit('pointermove',{button:0,clientX:560,clientY:425});f.canvas.emit('pointerup',{button:0,clientX:560,clientY:425});f.drain();const interrupted=f.api.getPerformanceStats();assert.equal(interrupted.scale,inFlight.scale,'dragging takes control without finishing an obsolete auto zoom');assert.equal(interrupted.azimuth,inFlight.azimuth);assert.notEqual(interrupted.panX,inFlight.panX);assert.equal(interrupted.cameraMoving,false);assert.equal(f.allocations.length,allocations,'focus does not resize or rebuild GPU resources');
+    const safe=f.api.getPerformanceStats();assert.equal(f.api.focusArea('unknown-region'),false);assert.equal(f.api.focusPoint({x:NaN,y:3}),false);assert.equal(f.api.getPerformanceStats().scale,safe.scale);assert.equal(f.api.getPerformanceStats().cameraMoving,false);
+  }finally{f.restore();}
+});
+
+test('every office and public area shares focusArea while only user-selected AI teams request an employee visit',()=>{
+  const entered=[],f=mountedSceneFixture({onEnterArea:id=>entered.push(id)});try{
+    f.frame();const initial=f.api.getPerformanceStats();
+    for(const id of[...OFFICE_ROOMS.map(room=>room.id),...OFFICE_ROOMS.flatMap(room=>room.teamZones.map(team=>team.id)),...OFFICE_SHARED_AREAS.map(area=>area.id),'bulletin','convenience','recreation','data_center']){
+      assert.equal(f.api.focusArea(id),true,id);f.drain();const stats=f.api.getPerformanceStats();assert.ok(stats.scale>1,id);assert.ok(Math.abs(Math.sin(stats.azimuth-initial.azimuth))<1e-8);assert.equal(stats.elevation,initial.elevation);
+    }
+    assert.deepEqual(entered,[],'programmatic camera framing never moves the signed-in employee by itself');f.button('team','ai_data_team_3').emit('click',{detail:0});f.drain();assert.deepEqual(entered,['ai_data_team_3']);f.api.resetView();f.drain();assert.deepEqual(f.api.getPerformanceStats().detailGroups,[]);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+test('a focused room refits on a true viewport resize, while a manual camera stays under user control',()=>{
+  const f=mountedSceneFixture();try{
+    f.frame();f.api.focusArea('ai_data');f.drain();
+    for(const [width,height]of[[390,844],[1920,1080],[3840,2160]]){f.resize(width,height);f.drain();const actual=f.api.getPerformanceStats(),expected=office3DRegionView(OFFICE_ROOMS.find(room=>room.id==='ai_data'),{width,height,azimuth:actual.azimuth});for(const key of['scale','panX','panY','azimuth','elevation'])assert.ok(Math.abs(actual[key]-expected[key])<1e-8,`${key} preserves region framing after fullscreen/rotation`);}
+    f.api.rotate(.6,.12);f.drain();const user=f.api.getPerformanceStats();f.resize(1440,900);f.drain();const resized=f.api.getPerformanceStats();for(const key of['scale','panX','panY','azimuth','elevation'])assert.equal(resized[key],user[key],`${key} does not reset a manually adjusted camera`);assert.equal(f.pending.size,0);
+  }finally{f.restore();}
+});
+
+test('double-clicking a department or team enters that area instead of cancelling the employee visit with the first click timer',()=>{
+  const entered=[],selected=[],f=mountedSceneFixture({onEnterArea:id=>entered.push(id),onSelectNode:id=>selected.push(id)});try{
+    f.frame();
+    for(const [type,id]of[['node','business'],['team','ai_data_team_4']]){
+      const before=entered.length,label=f.button(type,id);label.emit('click',{detail:1});assert.equal(entered.length,before);label.emit('click',{detail:2});f.drain();assert.deepEqual(entered.slice(before),[id]);assert.deepEqual(selected,[],'the delayed first selection was replaced by an actual area visit');
+      label.emit('dblclick');f.drain();assert.equal(entered.at(-1),id,'a native double-click also carries the same visit intent');
+    }
+    const count=entered.length;f.api.focusArea('finance');f.drain();f.api.focusNode('business');f.drain();assert.equal(entered.length,count,'background framing stays presentation-only');assert.equal(f.pending.size,0);
+  }finally{f.restore();}
 });
 
 test('middle-button panning, capture loss and keyboard focus do not dispatch business actions',()=>{

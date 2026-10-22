@@ -147,3 +147,7 @@ test('pause adjustment shifts old routes fully and newly created routes only for
   motion.shiftTime(10000,{since:0});assert.equal(motion.entries.get('old').motion.started,10000);assert.equal(motion.entries.get('new').motion.started,10000);assert.equal(motion.entries.get('new').lastTick,10000);
  }finally{motion.destroy();}
 });
+
+test('an obsolete navigation waiting behind a heartbeat is skipped before the HTTP move is sent',async()=>{
+ let release;const f=heartbeatFixture(()=>new Promise(resolve=>release=resolve));try{await flush();let valid=true;const old=f.presence.movePoint(presencePosition('finance'),{shouldRun:()=>valid}),next=f.presence.movePoint(presencePosition('research'),{shouldRun:()=>true});valid=false;release({online:[person('me','hr_admin',{revision:1})]});await flush();assert.equal(f.calls.filter(([, ,body])=>body.operation==='move').length,1);assert.deepEqual({x:f.calls.at(-1)[2].x,y:f.calls.at(-1)[2].y},presencePosition('research'));release({online:[person('me','research',{revision:2})]});assert.equal(await old,false);assert.equal(await next,true);}finally{f.presence.destroy();}
+});

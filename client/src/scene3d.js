@@ -9,7 +9,7 @@ import { createOfficePresenceMotion } from './erp-presence.js';
 import { createViewTween } from './scene-motion.js';
 import { greetingForPerson } from './person-greeting.mjs';
 import { mountOfficeAmbient } from './office-ambient.mjs';
-import { OFFICE_SEATS, OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_DETAIL_ZOOM, officeSeatForView } from './organization.mjs';
+import { OFFICE_SEATS, OFFICE_WORLD, OFFICE_SHARED_AREAS, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_DETAIL_ZOOM, officeSeatForView } from './organization.mjs';
 import { selectOfficeNameLabels } from './person-labels.mjs';
 import { organizationOccupant, subscribeOrganizationOccupants } from './organization-occupants.mjs';
 
@@ -47,6 +47,24 @@ export function office3DFrustum(aspect=1.6,{azimuth=defaultAzimuth,elevation=def
   const height=Math.max(yMax-yMin,(xMax-xMin)/aspect)*Math.max(1.01,padding);return {width:height*aspect,height,direction,right,up,centerX:(xMin+xMax)/2,centerY:(yMin+yMax)/2};
 }
 
+// Focus uses the destination's viewing frame. Projecting into the frame before
+// a rotation can crop the room or leave it far off-centre after the turn.
+export function office3DRegionView(region,{width=1440,height=900,azimuth=defaultAzimuth}={}){
+  if(!region||![region.x,region.y,region.w,region.h].every(Number.isFinite)||region.w<=0||region.h<=0)return null;
+  width=Number.isFinite(Number(width))&&Number(width)>0?Number(width):1440;height=Number.isFinite(Number(height))&&Number(height)>0?Number(height):900;azimuth=Number.isFinite(azimuth)?azimuth:defaultAzimuth;
+  const reserved=Math.min(100,Math.max(72,height*.095)),usable=Math.max(1,height-reserved),frame=office3DFrustum(width/usable);
+  const gutter=Math.min(48,Math.max(20,width*.025)),verticalGutter=Math.min(40,Math.max(20,usable*.045));
+  let left=Infinity,right=-Infinity,bottom=Infinity,top=-Infinity;
+  const altitude=region.id==='data_center'?100:76;
+  for(const x of[region.x-8,region.x+region.w+8])for(const y of[0,altitude])for(const z of[region.y-8,region.y+region.h+8]){
+    const point=new THREE.Vector3(x-OFFICE3D_CENTER.x,y-OFFICE3D_CENTER.y,z-OFFICE3D_CENTER.z),px=point.dot(frame.right),py=point.dot(frame.up);
+    left=Math.min(left,px);right=Math.max(right,px);bottom=Math.min(bottom,py);top=Math.max(top,py);
+  }
+  const scale=clamp(Math.min(frame.width/(right-left)*Math.max(.1,1-gutter*2/width),frame.height/(top-bottom)*Math.max(.1,1-verticalGutter*2/usable)),.72,6.5);
+  const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));
+  return {scale,panX:(left+right)/2-frame.centerX,panY:(bottom+top)/2-frame.centerY,azimuth:bearing,elevation:defaultElevation};
+}
+
 export function scene3DFramePolicy(previous=0,current=0,{reducedMotion=false,interacting=false,urgent=false,ambientOnly=false,force=false,dirty=false,busy=true}={}) {
   const delta=previous?Math.min(100,Math.max(0,current-previous)):16;
   const interval=ambientOnly?1000/30:interacting||urgent?14:30;
@@ -62,7 +80,7 @@ export function scene3DPixelRatio(width,height,deviceRatio=1,{maxDimension=8192}
 export function scene3DGestureMode(event,touches=1){return touches>1?'touch':event.pointerType==='touch'||event.button===2?'orbit':'pan';}
 
 export function mountScene3D(container,{
-  onSelectNode=()=>{},onSelectBulletin=()=>{},onHoverBulletin=()=>{},onLeaveBulletin=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},
+  onSelectNode=()=>{},onSelectBulletin=()=>{},onHoverBulletin=()=>{},onLeaveBulletin=()=>{},onEnterArea=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},
   rendererFactory=options=>new THREE.WebGLRenderer(options),ambientEnabled=true,ambientRandom=Math.random,ambientNow=()=>performance.now(),
 }={}) {
   if(!container||!globalThis.document)throw new Scene3DUnavailableError('缺少 3D 显示容器');
@@ -97,7 +115,7 @@ export function mountScene3D(container,{
   const touches=new Map();let touchGesture=null,nativeGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
-  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false;
+  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false,focusedRegion=null;
   const actorList=()=>[...agents.values(),...humans.values()];
   const disposables=[];
   const schedule=()=>{if(!frame&&active&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
@@ -143,7 +161,13 @@ export function mountScene3D(container,{
   }
   function identityFor(el){for(const type of ['agent','human','employee','post','team','bulletin','node'])if(el?.dataset?.[type])return {type,id:el.dataset[type]};return null;}
   function clearSelectionTimer(){clearTimeout(selectionTimer);selectionTimer=null;pendingSelection=null;}
-  function focusObject(type,id){if(type==='bulletin')return select(type,id);if(type==='team')return focusTeam(id);clearSelectionTimer();select(type,id,false);feedback(type,id,'press');if(type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===id))return focusDepartment(id);const point=type==='post'?layout.seatGeometry(id):type==='agent'?agents.get(id)?.point:type==='human'||type==='employee'?humans.get(id)?.point:NODE_META[id];return focusPoint(point);}
+  function focusObject(type,id){
+    if(type==='bulletin')return select(type,id);
+    if(type==='team'){const focused=focusTeam(id);if(focused)onEnterArea(id);return focused;}
+    clearSelectionTimer();select(type,id,false);feedback(type,id,'press');
+    if(type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===id)){const focused=focusDepartment(id);if(focused)onEnterArea(id);return focused;}
+    const point=type==='post'?layout.seatGeometry(id):type==='agent'?agents.get(id)?.point:type==='human'||type==='employee'?humans.get(id)?.point:NODE_META[id];return focusPoint(point);
+  }
   function queueSelection(type,id,detail=1){
     if(pendingSelection?.type===type&&pendingSelection.id===id||detail>1){focusObject(type,id);return;}
     clearSelectionTimer();pendingSelection={type,id};feedback(type,id,'press');selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)select(type,id);},350);
@@ -155,7 +179,7 @@ export function mountScene3D(container,{
     listen(el,'click',e=>{e.stopPropagation();if(e.detail!==0&&performance.now()<suppressClickUntil)return;const p=identityFor(el);if(p){feedback(p.type,p.id,'press',el);if(e.detail===0){clearSelectionTimer();select(p.type,p.id);}else if(p.type==='bulletin'){clearSelectionTimer();select(p.type,p.id);}else queueSelection(p.type,p.id,e.detail);}else choose();});listen(el,'dblclick',e=>{e.preventDefault();e.stopPropagation();const p=identityFor(el);if(p)focusObject(p.type,p.id);});labels.append(el);return el;}
   function select(type,id,notify=true){
     if(type==='bulletin'){clearSelectionTimer();onLeaveBulletin();if(notify)onSelectBulletin(id);return;}
-    if(type==='team'){focusTeam(id);return;}
+    if(type==='team'){if(focusTeam(id)&&notify)onEnterArea(id);return;}
     if(type==='post'){const seat=postsById.get(id);if(!seat)return;showPost(seat);if(notify){const point=layout.seatGeometry(id);onSelectSeat(id,{x:point.x,y:point.y,nodeId:seat.departmentId});}return;}
     if(type==='node')selectedNode=id;else if(id)selectedNode=null;
     if(type==='agent')selectedAgent=id;else if(id)selectedAgent=null;
@@ -388,8 +412,9 @@ export function mountScene3D(container,{
     if(!Number.isFinite(nextWidth)||!Number.isFinite(nextHeight)||nextWidth<=0||nextHeight<=0)return;
     const nextRatio=scene3DPixelRatio(nextWidth,nextHeight,globalThis.devicePixelRatio||1,{maxDimension:maxBufferDimension});
     if((stats.resizes||pendingResize)&&width===nextWidth&&height===nextHeight&&Math.abs(pixelRatio-nextRatio)<1e-8)return;
-    width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
-    pendingResize=stats.resizes&&stats.width===width&&stats.height===height&&Math.abs(stats.pixelRatio-pixelRatio)<1e-8?null:{pixelRatio,width,height};setCamera();markDirty();}
+    const layoutChanged=width!==nextWidth||height!==nextHeight;width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
+    pendingResize=stats.resizes&&stats.width===width&&stats.height===height&&Math.abs(stats.pixelRatio-pixelRatio)<1e-8?null:{pixelRatio,width,height};
+    if(layoutChanged&&focusedRegion)viewTween.start(office3DRegionView(focusedRegion,{width,height,azimuth}),{immediate:true});else setCamera();markDirty();}
   function renderFrame(time){
     frame=0;if(destroyed||!active||contextLost||document.hidden)return;
     const wasBusy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;
@@ -407,21 +432,29 @@ export function mountScene3D(container,{
     for(const group of links.children){const a=nodeStatus(state.nodes,group.userData.a),b=nodeStatus(state.nodes,group.userData.b),status=[a,b].find(s=>s==='offline')||[a,b].find(s=>s==='warning')||[a,b].find(s=>s==='recovering')||'online';for(const line of group.children)line.material=linkMaterial(status);}
     controller.update(latestState);if(state.selectedNode!==undefined)select('node',state.selectedNode,false);if(state.selectedAgent!==undefined)select('agent',state.selectedAgent,false);markDirty();}
   function applyView(){setCamera();markDirty();onViewChange();}
-  function zoom(delta=.15){onLeaveBulletin();manualDetail=true;clearSelectionTimer();clearPost();const next=clamp(viewTween.target.scale+Number(delta||0),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});return next;}
-  function rotate(delta=Math.PI/8,tilt=0){onLeaveBulletin();clearSelectionTimer();clearPost();const next={...viewTween.target,azimuth:viewTween.target.azimuth+(Number(delta)||0),elevation:clamp(viewTween.target.elevation+(Number(tilt)||0),.42,1.28)};viewTween.start(next,{immediate:reducedMotion});return {azimuth:next.azimuth,elevation:next.elevation};}
-  function focusPoint(point,minimumScale=1.4,exactScale=false){onLeaveBulletin();if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;minimumScale=clamp(Number(minimumScale)||1.4,.72,6.5);clearPost();const diff=new THREE.Vector3(point.x-target.x,0,point.y-target.z);viewTween.start({scale:exactScale?minimumScale:Math.max(scale,minimumScale),panX:diff.dot(cameraFrame.right)-cameraFrame.centerX,panY:diff.dot(cameraFrame.up)-cameraFrame.centerY},{immediate:reducedMotion});return true;}
+  function zoom(delta=.15){onLeaveBulletin();focusedRegion=null;manualDetail=true;clearSelectionTimer();clearPost();const next=clamp(viewTween.target.scale+Number(delta||0),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});return next;}
+  function rotate(delta=Math.PI/8,tilt=0){onLeaveBulletin();focusedRegion=null;clearSelectionTimer();clearPost();const next={...viewTween.target,azimuth:viewTween.target.azimuth+(Number(delta)||0),elevation:clamp(viewTween.target.elevation+(Number(tilt)||0),.42,1.28)};viewTween.start(next,{immediate:reducedMotion});return {azimuth:next.azimuth,elevation:next.elevation};}
+  function focusPoint(point,minimumScale=1.4){
+    if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;
+    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();detailFocus=null;manualDetail=false;focusedRegion=null;
+    const frame=office3DFrustum(width/Math.max(1,height-Math.min(100,Math.max(72,height*.095)))),diff=new THREE.Vector3(point.x-target.x,(Number.isFinite(point.height)?point.height:28)-target.y,point.y-target.z);
+    const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));
+    viewTween.start({scale:clamp(Number(minimumScale)||1.4,.72,6.5),panX:diff.dot(frame.right)-frame.centerX,panY:diff.dot(frame.up)-frame.centerY,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});return true;
+  }
   function focusRegion(region){
-    const {right,up}=cameraFrame;let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
-    for(const x of[-region.w/2,region.w/2])for(const z of[-region.h/2,region.h/2])for(const y of[0,60]){const corner=new THREE.Vector3(x,y,z),px=corner.dot(right),py=corner.dot(up);xMin=Math.min(xMin,px);xMax=Math.max(xMax,px);yMin=Math.min(yMin,py);yMax=Math.max(yMax,py);}
-    const fit=clamp(Math.min(cameraFrame.width/(xMax-xMin+42),cameraFrame.height/(yMax-yMin+42)),1,6.5);
-    return focusPoint({x:region.x+region.w/2,y:region.y+region.h/2},fit,true);
+    const destination=office3DRegionView(region,{width,height,azimuth});if(!destination)return false;
+    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();focusedRegion=region;viewTween.start(destination,{immediate:reducedMotion});return true;
   }
   function focusTeam(id){const team=teamsById.get(id);if(!team)return false;detailFocus=id;manualDetail=false;clearSelectionTimer();return focusRegion(team);}
-  function focusDepartment(id){if(id==='bulletin'){detailFocus=null;manualDetail=false;return focusRegion(OFFICE_BULLETIN_AREA);}const room=OFFICE3D_ROOMS.find(room=>room.id===id);if(!room)return focusPoint(NODE_META[id]);detailFocus=id;manualDetail=false;return focusRegion(room);}
+  function focusArea(id){
+    const region=teamsById.get(id)||OFFICE3D_ROOMS.find(room=>room.id===id)||[OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER,...OFFICE_SHARED_AREAS].find(area=>area.id===id);
+    if(!region)return false;detailFocus=teamsById.has(id)||OFFICE3D_ROOMS.some(room=>room.id===id)?id:null;manualDetail=false;return focusRegion(region);
+  }
+  function focusDepartment(id){return focusArea(id)||focusPoint(NODE_META[id]);}
   // A viewport-compensating ancestor can scale the stage without changing its
   // layout. Camera/labels use layout pixels; pointer coordinates use its rect.
   function logicalPointer(event){const rect=canvas.getBoundingClientRect();return {x:(event.clientX-rect.left)*width/Math.max(1,rect.width),y:(event.clientY-rect.top)*height/Math.max(1,rect.height)};}
-  function pan(dx,dy){panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
+  function pan(dx,dy){focusedRegion=null;panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
   function sampleTouch(){const points=[...touches.values()],a=points[0],b=points[1];return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),angle:Math.atan2(b.y-a.y,b.x-a.x)}:null;}
   const onDown=(e,origin=null)=>{
     if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;onLeaveBulletin();clearPost();clearGreeting();hoveredKey='';viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
@@ -433,7 +466,7 @@ export function mountScene3D(container,{
     const point=logicalPointer(e);
     if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){pan(next.x-touchGesture.x,next.y-touchGesture.y);scale=clamp(scale*next.distance/touchGesture.distance,.72,6.5);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
     if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){onLeaveBulletin();hoveredKey=key;if(hit?.type==='bulletin')showBulletin(hit.id);else if(hit?.type==='post')showPost(postsById.get(hit.id));else if(hit?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===hit.id))showRegion('department',hit.id);else if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearPost();clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(point.x-drag.x,point.y-drag.y)<5)return;
-    manualDetail=true;clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
+    focusedRegion=null;manualDetail=true;clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
     const dx=point.x-drag.lastX,dy=point.y-drag.lastY;
     if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);}
     drag.lastX=point.x;drag.lastY=point.y;applyView();
@@ -466,8 +499,8 @@ export function mountScene3D(container,{
   // events here as well, so the browser never zooms the entire office page.
   // Wheel deltas are scroll units, not transformed pointer coordinates: keep
   // pixel values unchanged, resolve lines to 16px and pages to logical height.
-  listen(wrapper,'wheel',e=>{onLeaveBulletin();e.preventDefault();manualDetail=true;clearPost();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
-  listen(wrapper,'gesturestart',e=>{onLeaveBulletin();e.preventDefault();forceFrame=true;manualDetail=true;clearPost();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
+  listen(wrapper,'wheel',e=>{onLeaveBulletin();e.preventDefault();focusedRegion=null;manualDetail=true;clearPost();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
+  listen(wrapper,'gesturestart',e=>{onLeaveBulletin();e.preventDefault();focusedRegion=null;forceFrame=true;manualDetail=true;clearPost();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
   listen(wrapper,'gesturechange',e=>{e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;const nextScale=Number(e.scale),rotation=Number(e.rotation);if(Number.isFinite(nextScale)&&nextScale>0)scale=clamp(nativeGesture.scale*nextScale,.72,6.5);if(Number.isFinite(rotation))azimuth=nativeGesture.azimuth-rotation*Math.PI/180;applyView();suppressClickUntil=performance.now()+200;},{passive:false});
   listen(wrapper,'gestureend',e=>{e.preventDefault();nativeGesture=null;ambient?.refresh();suppressClickUntil=performance.now()+180;},{passive:false});
   listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearPost();clearGreeting();if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;nativeGesture=null;clearSelectionTimer();});
@@ -486,7 +519,7 @@ export function mountScene3D(container,{
   function watchDensity(){densityQuery?.removeEventListener?.('change',onDensityChange);densityQuery=globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio||1}dppx)`);densityQuery?.addEventListener?.('change',onDensityChange);}
   if(globalThis.window?.addEventListener)listen(window,'resize',resize);
   const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);watchDensity();resize();update({animateEvents:false});
-  function resetView(){onLeaveBulletin();detailFocus=null;manualDetail=false;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
+  function resetView(){onLeaveBulletin();detailFocus=null;manualDetail=false;focusedRegion=null;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
   let prepared=false,preparing=null;
   function prepare(){
     if(destroyed||contextLost||document.hidden)return;
@@ -516,9 +549,9 @@ export function mountScene3D(container,{
     getHumanAnchor(id='owner'){const actor=humans.get(id);return actor?project(actor.point,actor.height*.55):null;},
     getNodeAnchor(id){const anchor=layout.nodeAnchors.get(id),meta=NODE_META[id];return anchor?project({x:anchor.x,y:anchor.z,height:anchor.y+4}):meta?project(meta,10):null;},
     getAgentAnchor(id){const actor=agents.get(id);return actor?project(actor.point,actor.height*.55):null;},
-    focusHuman(id='owner',minimumScale=2.4){return focusPoint(humans.get(id)?.point,minimumScale);},focusPoint(point,minimumScale=2.4){if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;return focusPoint(point,minimumScale);},focusAgent(id){return focusPoint(agents.get(id)?.point);},focusNode(id){return focusDepartment(id);},
+    focusHuman(id='owner',minimumScale=2.4){return focusPoint(humans.get(id)?.point,minimumScale);},focusPoint(point,minimumScale=2.4){if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;return focusPoint(point,minimumScale);},focusAgent(id){return focusPoint(agents.get(id)?.point);},focusNode(id){return focusDepartment(id);},focusArea,
     getPostAnchor(id){const seat=layout.seatGeometry(id);if(!seat)return null;const anchor=project(seat,seat.scale*25);return anchor?{...anchor,visible:anchor.visible&&layout.isSeatVisible(id)}:null;},
-    zoom,rotate,resetView,fit:resetView,getPerformanceStats:()=>({...stats,azimuth,elevation,scale,scheduled:!!frame,cameraMoving:viewTween.active,people:actorList().length,nameLabels:Number(wrapper.dataset.nameLabels)||0,batches:actorBatches.size,ambientActive:ambient?.active?.type||null,detailGroups:layout.detailGroupIds,visibleWorkplaces:layout.visibleSeatIds.size,awayWorkplaces:layout.awaySeatIds.size,activeStaticPoses:layout.idlePoseSeatIds.length,activeStaticSeatIds:layout.idlePoseSeatIds,eligibleStaticPoses:staticIdlePeople().length,eligibleStaticSeatIds:staticIdlePeople().map(person=>person.seatId)}),
+    zoom,rotate,resetView,fit:resetView,getPerformanceStats:()=>({...stats,azimuth,elevation,scale,panX,panY,scheduled:!!frame,cameraMoving:viewTween.active,people:actorList().length,nameLabels:Number(wrapper.dataset.nameLabels)||0,batches:actorBatches.size,ambientActive:ambient?.active?.type||null,detailGroups:layout.detailGroupIds,visibleWorkplaces:layout.visibleSeatIds.size,awayWorkplaces:layout.awaySeatIds.size,activeStaticPoses:layout.idlePoseSeatIds.length,activeStaticSeatIds:layout.idlePoseSeatIds,eligibleStaticPoses:staticIdlePeople().length,eligibleStaticSeatIds:staticIdlePeople().map(person=>person.seatId)}),
     destroy(){if(destroyed)return;clearPost();clearGreeting({redraw:false});destroyed=true;ambient?.destroy();clearSelectionTimer();viewTween.cancel();cancelAnimationFrame(frame);frame=0;controller.destroy();presenceMotion.destroy();actualPeople.clear();employeeButtons.clear();resizeObserver.disconnect();densityQuery?.removeEventListener?.('change',onDensityChange);motionPreference?.removeEventListener?.('change',onPreference);disposables.splice(0).forEach(dispose=>dispose());scene.traverse(object=>{if(object.isInstancedMesh)object.dispose();});pickGeometry.dispose();pickMaterial.dispose();routeMaterial.dispose();linkMaterials.forEach(material=>material.dispose());assets.dispose();renderer.dispose();renderer.forceContextLoss?.();wrapper.remove();},
   };
 }

@@ -200,3 +200,50 @@ test('账户对话框具备原生焦点隔离和表单语义，没有模型、�
   assert.doesNotMatch(css,/text-shadow|filter\s*:|border-(?:left|right|top|bottom)\s*:/);
   assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);assert.match(css,/animation:none!important;transition:none!important/);assert.match(css,/@keyframes session-exit/);assert.match(css,/@keyframes session-content-enter/);
 });
+
+
+test('session close callbacks fire after actual API, button, Escape or native closure once per displayed surface',async()=>{
+ const h=harness({session:AUTH});await h.ui.ready;
+ assert.equal(h.ui.isOpen,false);h.ui.close();assert.equal(h.events.closed,0);
+ for(const channel of ['api','button','escape','native']){
+  h.ui.open();assert.equal(h.ui.isOpen,true);
+  if(channel==='api')h.ui.close();
+  if(channel==='button')h.click('close');
+  if(channel==='escape')h.escape();
+  if(channel==='native'){h.dialog.close();h.dialog.listeners.get('close')();}
+  assert.equal(h.ui.isOpen,false);assert.equal(h.events.closed,['api','button','escape','native'].indexOf(channel)+1);
+  h.dialog.listeners.get('close')();h.ui.close();
+ }
+ assert.deepEqual(h.events.closedWhileOpen,[false,false,false,false]);
+ h.ui.open();h.dialog.listeners.get('close')();assert.equal(h.events.closed,4,'an older queued close event does not notify an open surface');
+ h.destroy();assert.equal(h.events.closed,4);assert.equal(h.dialog.listeners.has('close'),false);
+});
+
+test('session callbacks wait for close animation and obsolete animation completions cannot close a reopened or destroyed surface',async()=>{
+ for(const destination of ['open','expired','destroy']){
+  const h=harness({reducedMotion:false});await h.ui.ready;
+  h.ui.close();const old=[...h.timers.values()].find(timer=>timer.delay===140).fn;
+  assert.equal(h.events.closed,0);assert.equal(h.ui.isOpen,true);
+  if(destination==='open')h.ui.open();
+  if(destination==='expired')h.ui.requireLogin('请重新登录。');
+  if(destination==='destroy')h.destroy();
+  old();assert.equal(h.events.closed,0);
+  if(destination!=='destroy'){assert.equal(h.ui.isOpen,true);h.ui.close();assert.equal(h.events.closed,0);h.runTimer(140);assert.equal(h.ui.isOpen,false);assert.equal(h.events.closed,1);h.dialog.listeners.get('close')();assert.equal(h.events.closed,1);h.destroy();}
+ }
+});
+
+test('successful login closes the real session surface once while a cancelled old login has no close notification',async()=>{
+ for(const reducedMotion of [true,false]){
+  const h=harness({reducedMotion});await h.ui.ready;h.setResponder(async()=>response({session:AUTH}));await h.login();
+  assert.equal(h.events.closed,reducedMotion?1:0);if(!reducedMotion)h.runTimer(140);
+  assert.equal(h.events.closed,1);assert.equal(h.ui.isOpen,false);assert.deepEqual(h.events.closedWhileOpen,[false]);h.destroy();assert.equal(h.events.closed,1);
+ }
+ const h=harness(),slow=deferred();await h.ui.ready;h.setResponder(()=>slow.promise);const pending=h.login();h.ui.requireLogin('请重新登录。');slow.resolve(response({session:AUTH}));await pending;
+ assert.equal(h.events.closed,0);assert.equal(h.ui.isOpen,true);h.destroy();assert.equal(h.events.closed,0);
+});
+
+test('native session closure clears a pending exit animation and never notifies a newer surface',async()=>{
+ const h=harness({reducedMotion:false});await h.ui.ready;h.ui.close();const old=[...h.timers.values()].find(timer=>timer.delay===140).fn;
+ h.dialog.close();h.dialog.listeners.get('close')();assert.equal(h.events.closed,1);assert.equal(h.timers.size,0);assert.equal(h.dialog.dataset.closing,undefined);
+ h.ui.open();old();h.dialog.listeners.get('close')();assert.equal(h.ui.isOpen,true);assert.equal(h.events.closed,1);h.destroy();
+});

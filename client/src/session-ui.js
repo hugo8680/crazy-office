@@ -2,7 +2,7 @@ const ROLE_NAMES = Object.freeze({admin:'管理员',manager:'负责人',procurem
 
 // requestRaw has the native fetch signature and returns a Response. The caller
 // receives public session data only; credentials are never retained or logged.
-export function mountSession({container=document.body,requestRaw=(...args)=>fetch(...args),onAuthenticated=()=>{},onSignedOut=()=>{},onSessionExpired=()=>{},onChange=()=>{}}={}) {
+export function mountSession({container=document.body,requestRaw=(...args)=>fetch(...args),onAuthenticated=()=>{},onSignedOut=()=>{},onSessionExpired=()=>{},onChange=()=>{},onClose=()=>{}}={}) {
   const dialog=document.createElement('dialog');
   dialog.className='session-dialog';
   dialog.dataset.view='login';
@@ -52,7 +52,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   const username=q('#session-username'),password=q('#session-password'),current=q('#session-current'),next=q('#session-new'),confirmation=q('#session-confirm');
   const invitationPassword=q('#session-invitation-password'),invitationConfirmation=q('#session-invitation-confirm');
   const pendingActions=[['login','login','进入办公室','正在进入'],['profile','signout','退出登录','正在退出'],['password','password','保存密码','正在保存'],['invitation','invitation','设置密码','正在保存']];
-  let session=null,mode='login',pending=false,destroyed=false,generation=0,expiryTimer=null,returnFocus=null,closeTimer=null,closing=false;
+  let session=null,mode='login',pending=false,destroyed=false,generation=0,expiryTimer=null,returnFocus=null,closeTimer=null,closing=false,surfaceOpen=false,surfaceGeneration=0,closeGeneration=0,restoreCloseFocus=true;
   const fragment=new URLSearchParams(window.location.hash.slice(1));
   const hasToken=fragment.has('token'),tokenValues=fragment.getAll('token');
   let invitationToken=tokenValues.length===1&&/^[A-Za-z0-9_-]{43}$/.test(tokenValues[0])?tokenValues[0]:'';
@@ -78,17 +78,23 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       q(`#session-${id}-spinner`).hidden=!active;
     }
   }
+  function didClose(){
+    if(destroyed||dialog.open||!surfaceOpen)return;
+    surfaceOpen=false;surfaceGeneration++;closeGeneration++;clearTimeout(closeTimer);closeTimer=null;closing=false;delete dialog.dataset.closing;clearPasswords();setPending(pending);
+    const focus=returnFocus;returnFocus=null;if(restoreCloseFocus&&focus?.isConnected)focus.focus();restoreCloseFocus=true;
+    notify(onClose);
+  }
   function cancelClose(){
-    if(!closing)return;
+    closeGeneration++;if(!closing)return;
     clearTimeout(closeTimer);closeTimer=null;closing=false;delete dialog.dataset.closing;setPending(pending);
   }
   function dismiss(restoreFocus=true){
     clearPasswords();
     if(!dialog.open||closing)return;
+    const ticket=++closeGeneration,surface=surfaceGeneration;restoreCloseFocus=restoreFocus;
     const finish=()=>{
-      closeTimer=null;dialog.close();closing=false;delete dialog.dataset.closing;setPending(pending);
-      if(restoreFocus&&returnFocus?.isConnected)returnFocus.focus();
-      returnFocus=null;
+      if(destroyed||ticket!==closeGeneration||surface!==surfaceGeneration||!dialog.open)return;
+      dialog.close();didClose();
     };
     if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches){finish();return;}
     closing=true;dialog.dataset.closing='true';setPending(pending);
@@ -130,7 +136,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       clearPasswords();
     }else if(notice)message('#session-message',notice);
     if(view==='login'&&!username.value)username.value=session?.username||'';
-    if(!dialog.open){returnFocus=document.activeElement;dialog.showModal();}
+    if(!dialog.open){returnFocus=document.activeElement;dialog.showModal();surfaceOpen=true;surfaceGeneration++;restoreCloseFocus=true;}
     const focus=view==='login'?(username.value?password:username):view==='password'?current:view==='invitation'?invitationPassword:q('.session-close');
     if(entering)focus.focus();
   }
@@ -245,12 +251,12 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   }
   function onCancel(event){event.preventDefault();if(!pending)close();}
   function onVisibility(){if(!destroyed&&!document.hidden&&session)void refresh();}
-  dialog.addEventListener('click',onClick);dialog.addEventListener('cancel',onCancel);
+  dialog.addEventListener('click',onClick);dialog.addEventListener('cancel',onCancel);dialog.addEventListener('close',didClose);
   login.addEventListener('submit',submitLogin);passwordForm.addEventListener('submit',submitPassword);invitationForm.addEventListener('submit',submitInvitation);
   document.addEventListener('visibilitychange',onVisibility);
   const ready=invitationToken?(show('invitation'),Promise.resolve(null)):invalidInvitation?(show('login','链接已失效，请联系管理员。'),Promise.resolve(null)):refresh();
-  return {ready,open,close,requireLogin,refresh,signOut,get session(){return session;},destroy(){
+  return {ready,open,close,requireLogin,refresh,signOut,get session(){return session;},get isOpen(){return dialog.open;},destroy(){
     if(destroyed)return;destroyed=true;generation++;invitationToken='';clearTimeout(expiryTimer);clearTimeout(closeTimer);closeTimer=null;for(const [controller,timeout] of controllers){clearTimeout(timeout);controller.abort();}controllers.clear();clearPasswords();
-    login.removeEventListener('submit',submitLogin);passwordForm.removeEventListener('submit',submitPassword);invitationForm.removeEventListener('submit',submitInvitation);dialog.removeEventListener('click',onClick);dialog.removeEventListener('cancel',onCancel);document.removeEventListener('visibilitychange',onVisibility);dialog.close();dialog.remove();session=null;
+    login.removeEventListener('submit',submitLogin);passwordForm.removeEventListener('submit',submitPassword);invitationForm.removeEventListener('submit',submitInvitation);dialog.removeEventListener('click',onClick);dialog.removeEventListener('cancel',onCancel);dialog.removeEventListener('close',didClose);document.removeEventListener('visibilitychange',onVisibility);dialog.close();dialog.remove();session=null;
   }};
 }

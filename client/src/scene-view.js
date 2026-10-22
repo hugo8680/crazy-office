@@ -157,7 +157,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
     const ticket = ++epoch;
     cancelWarmup();
     if (current?.valid && next === mode) {
-      pending = false; notify(); scheduleWarmup(); return mode;
+      pending = false;if(deferredFocus){const [method,args]=deferredFocus;deferredFocus=null;current.scene[method]?.(...args);}notify(); scheduleWarmup(); return mode;
     }
     pending = true; notify();
     let candidate;
@@ -183,6 +183,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
         pending = false;
         onError(error);
         if (!current?.valid && next !== '2d') return setMode('2d');
+        if(current?.valid&&deferredFocus){const [method,args]=deferredFocus;deferredFocus=null;current.scene[method]?.(...args);}
         notify();
       }
     }
@@ -202,7 +203,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
   });
   const focus = (method, args) => {
     if (disposed) return false;
-    if (!current?.valid) { deferredFocus = [method, args]; return false; }
+    if (!current?.valid||pending) { deferredFocus = [method, args]; return false; }
     return current.scene[method]?.(...args);
   };
   return {
@@ -227,8 +228,9 @@ export function createSceneViewController(container, callbacks = {}, options = {
     focusHuman: (...args) => focus('focusHuman', args),
     focusPoint: (...args) => focus('focusPoint', args),
     focusNode: (...args) => focus('focusNode', args),
+    focusArea: (...args) => focus('focusArea', args),
     focusAgent: (...args) => focus('focusAgent', args),
-    zoom: (...args) => invoke('zoom', ...args), resetView: () => invoke('resetView'),
+    zoom: (...args) => invoke('zoom', ...args), resetView: () => focus('resetView', []),
     rotate: (...args) => invoke('rotate', ...args),
     fit: () => current?.scene?.fit ? invoke('fit') : invoke('resetView'),
     getPerformanceStats: () => invoke('getPerformanceStats'),

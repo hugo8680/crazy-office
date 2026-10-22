@@ -87,7 +87,8 @@ export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},
     if(inflight)return inflight;
     const job=enqueue(heartbeat);inflight=job.finally(()=>{if(inflight===tracked)inflight=null;});const tracked=inflight;return tracked;
   }
-  function command(payload){return enqueue(async()=>{
+  function command(payload,{shouldRun=()=>true}={}){return enqueue(async()=>{
+    if(!shouldRun())return false;
     try{const me=self(),result=await request('/api/erp/presence','PUT',{...payload,...(Number.isSafeInteger(me?.revision)?{expectedRevision:me.revision}:{})});receive(result);return !destroyed;}
     catch(error){failed(error);if(!destroyed&&error?.status!==401){onError(error.message);await heartbeat();}return false;}
   }).then(value=>value===true);}
@@ -95,8 +96,8 @@ export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},
   function visibility(){if(doc?.hidden){schedule();return;}schedule();void refresh();}
   doc?.addEventListener?.('visibilitychange',visibility);publish();schedule();const ready=refresh();
   return{refresh,ready,
-    async moveTo(next){const id=presenceArea(next);if(!id||(!nodes.has(id)&&!['courtyard','recreation','convenience','data_center'].includes(id)))return false;const point=presencePosition(id);return command({operation:'move',nodeId:id,x:point.x,y:point.y});},
-    movePoint(point){if(!validPoint(point))return Promise.resolve(false);return command({operation:'move',x:point.x,y:point.y});},
+    async moveTo(next,options){const id=presenceArea(next);if(!id||(!nodes.has(id)&&!['courtyard','recreation','convenience','data_center'].includes(id)))return false;const point=presencePosition(id);return command({operation:'move',nodeId:id,x:point.x,y:point.y},options);},
+    movePoint(point,options){if(!validPoint(point))return Promise.resolve(false);return command({operation:'move',x:point.x,y:point.y},options);},
     sit(seatId){if(!OFFICE_SEATS.some(s=>s.id===seatId))return Promise.resolve(false);return command({operation:'sit',seatId});},
     sitAt(point){if(!validPoint(point)||point.x<20||point.y<20)return Promise.resolve(false);return command({operation:'sit',x:point.x,y:point.y});},
     stand(){return command({operation:'stand'});},

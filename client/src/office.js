@@ -7,6 +7,7 @@ import {mountErpPresence} from './erp-presence.js';
 import {mountSession} from './session-ui.js';
 import {mountBulletinCenter} from './bulletin-center.js';
 import {mountOfficeLocation} from './office-location.js';
+import {createOfficeNavigation} from './office-navigation.mjs';
 import {escapeHtml as e} from './erp-ui.mjs';
 import {mountWorkspaceViewport} from './workspace-viewport.mjs';
 import {CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver} from './workspace-state.mjs';
@@ -36,7 +37,7 @@ const updateMotionPreference=()=>{if(motionPreference?.matches)cancelSurfaceMoti
 motionPreference?.addEventListener?.('change',updateMotionPreference);
 let session=null,account=null,erp=null,presence=null,bulletin=null,locationMenu=null,snapshot={},section=null,sessionEpoch=0,toastTimer,receiptTimer,pollTimer;
 let preferredDocument=null,dockSignature='',viewSignature='',viewFocus=null;
-let pendingLoginLocation=false;
+let pendingLoginLocation=false,officeNavigation=null,returnTicket=0;
 const departmentIDs=new Set(ORGANIZATION_DEPARTMENTS.map(item=>item.id));
 const navigation=[['desk','工作台','grid'],['projects','项目','book'],['flows','单据','layers'],['inventory','进销存','server'],['people','人员','users'],['reports','报表','activity']];
 const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
@@ -45,9 +46,9 @@ const actor=()=>session?.actor||session?.user||{};
 function toast(message){clearTimeout(toastTimer);toastElement.textContent=message;toastElement.hidden=false;revealSurface(toastElement,'toast');toastTimer=setTimeout(()=>{toastElement.hidden=true;cancelSurfaceMotion(toastElement);},4500);}
 function cleanPrivateState(){
   cancelSurfaceMotions();
-  pendingLoginLocation=false;
+  pendingLoginLocation=false;officeNavigation?.reset();returnTicket++;
   sessionEpoch++;setOrganizationOccupants([]);bulletin?.destroy();bulletin=null;locationMenu?.destroy();locationMenu=null;erp?.destroy();erp=null;presence?.destroy();presence=null;session=null;snapshot={};section=null;preferredDocument=null;observer.reset();
-  clearTimeout(receiptTimer);clearTimeout(toastTimer);receipt.hidden=true;receipt.innerHTML='';toastElement.hidden=true;toastElement.textContent='';scene.setPresence({enabled:true,people:[],currentUserId:null});scene.update(sceneProjection());scene.setSelectedNode(null);scene.setSelectedAgent(null);renderDock();
+  clearTimeout(receiptTimer);clearTimeout(toastTimer);receipt.hidden=true;receipt.innerHTML='';toastElement.hidden=true;toastElement.textContent='';scene.setPresence({enabled:true,people:[],currentUserId:null});scene.update(sceneProjection());scene.setSelectedNode(null);scene.setSelectedAgent(null);scene.resetView();renderDock();
 }
 async function api(path,method='GET',body){
   const epoch=sessionEpoch;
@@ -115,26 +116,29 @@ function receiveSnapshot(value){
   }
 }
 const scene=createSceneViewController(document.querySelector('#office-scene'),{
-  onSelectNode:id=>{if(id==='bulletin'){void openBulletin();return;}if(departmentIDs.has(id)){scene.focusNode(id);return;}void openSection(ROOM_SECTIONS[id]||'desk');},
+  onSelectNode:id=>{if(id==='bulletin'){void openBulletin();return;}if(departmentIDs.has(id)){pendingLoginLocation=false;void officeNavigation?.enterArea(id);return;}void openSection(ROOM_SECTIONS[id]||'desk');},
+  onEnterArea:id=>{pendingLoginLocation=false;void officeNavigation?.enterArea(id);},
   onSelectBulletin:section=>{void openBulletin(section);},
   onHoverBulletin:(section,anchor)=>{if(isAuthenticated()&&!erp?.isOpen&&!locationMenu?.isOpen)void bulletin?.preview(section,anchor);},
   onLeaveBulletin:section=>bulletin?.hidePreview(section),
-  onMovePoint:point=>{if(requireAccount()&&!erp?.isOpen&&!bulletin?.isOpen)void presence?.movePoint(point);},
+  onMovePoint:point=>{pendingLoginLocation=false;void officeNavigation?.movePoint(point);},
   onSelectSeat:id=>{if(requireAccount()){erp?.close();bulletin?.hidePreview();locationMenu?.openSeat(id);}},
   onSelectAgent:id=>{if(!requireAccount())return;const document=crewDocument(snapshot,id);if(document)void openDocument(document.id);else void openSection(CREW.find(p=>p.id===id)?.section||'desk');},
   onSelectHuman:()=>void openSection('desk')
 },{mount2D:mountScene,initialMode:'3d',onChange:({mode})=>{lab.dataset.view=mode;renderDock();focusLoginLocation();},onError:()=>toast('3D 暂不可用，已切换为 2D。')});
+officeNavigation=createOfficeNavigation({scene,getPresence:()=>presence,requireAccount,isBlocked:()=>!!erp?.isOpen||!!bulletin?.isOpen||!!locationMenu?.isOpen||!!account?.isOpen});
+function returnToOffice(){const epoch=sessionEpoch,ticket=++returnTicket;void Promise.resolve().then(()=>{if(epoch!==sessionEpoch||ticket!==returnTicket||!isAuthenticated()||document.hidden)return;if(pendingLoginLocation)focusLoginLocation();else officeNavigation.restore();});}
 scene.setTopology(false);scene.setPresence({enabled:true,people:[],currentUserId:null});scene.update(sceneProjection());
-function focusLoginLocation(){if(pendingLoginLocation&&!scene.pending&&presence?.self){pendingLoginLocation=false;scene.focusHuman(presence.self.id,2.1);}}
+function focusLoginLocation(){if(pendingLoginLocation&&!scene.pending&&presence?.self&&officeNavigation.locateSelf())pendingLoginLocation=false;}
 async function startSession(next){
   const nextActor=next?.actor||next?.user;
   if(!nextActor?.id){cleanPrivateState();return;}
   if(isAuthenticated()&&actor().id===nextActor.id){session=next;erp?.updateSession(next);renderDock();return;}
   cleanPrivateState();session=next;pendingLoginLocation=true;
-  erp=mountErp({request:api,session,scene,container:businessFrame,onChange:({snapshot:value})=>receiveSnapshot(value),onNavigate:({section:nextSection,opened,documentId})=>{section=opened?nextSection:null;preferredDocument=documentId||null;renderDock();},onClose:()=>{scene.setSelectedNode(null);scene.setSelectedAgent(null);}});
+  erp=mountErp({request:api,session,scene,container:businessFrame,onChange:({snapshot:value})=>receiveSnapshot(value),onNavigate:({section:nextSection,opened,documentId})=>{section=opened?nextSection:null;preferredDocument=documentId||null;renderDock();},onClose:()=>{scene.setSelectedNode(null);scene.setSelectedAgent(null);returnToOffice();}});
   presence=mountErpPresence({scene,request:api,session,onError:toast,onSelectEmployee:person=>{if(!requireAccount())return;if(person.id===actor().id){bulletin?.hidePreview();locationMenu?.openSelf();}else void erp.openPerson(person.id);}});
-  locationMenu=mountOfficeLocation({container:lab,presence,scene,onWork:()=>void openSection('desk'),onError:toast});
-  bulletin=mountBulletinCenter({container:lab,chrome:document.querySelector('#workspace-chrome'),request:api,session,getSnapshot:()=>snapshot,onError:toast,onOpenNotices:()=>void openSection('notices'),isBlocked:()=>!!erp?.isOpen||!!locationMenu?.isOpen||!!document.querySelector('dialog[open]')});
+  locationMenu=mountOfficeLocation({container:lab,presence,scene,onWork:()=>void openSection('desk'),onError:toast,onClose:returnToOffice});
+  bulletin=mountBulletinCenter({container:lab,chrome:document.querySelector('#workspace-chrome'),request:api,session,getSnapshot:()=>snapshot,onError:toast,onClose:returnToOffice,onOpenNotices:()=>void openSection('notices'),isBlocked:()=>!!erp?.isOpen||!!locationMenu?.isOpen||!!document.querySelector('dialog[open]')});
   renderDock();
   const directoryEpoch=sessionEpoch;
   const results=await Promise.allSettled([erp.refresh(),api('/api/erp/organization')]);
@@ -152,7 +156,7 @@ async function handleOfficeClick(event){
     if(target.dataset.officeDocument)return await openDocument(target.dataset.officeDocument);
     if(target.dataset.officeView){bulletin?.hidePreview();return await scene.setMode(target.dataset.officeView);}
     switch(target.dataset.officeAction){
-      case 'home':erp?.close();void bulletin?.close();locationMenu?.close();break;
+      case 'home':erp?.close();void bulletin?.close();locationMenu?.close();pendingLoginLocation=false;officeNavigation.home();break;
       case 'account':bulletin?.hidePreview();account?.open();break;
       case 'fullscreen':await toggleFullscreen();break;
       case 'dismiss-receipt':receipt.hidden=true;break;
@@ -163,9 +167,9 @@ document.addEventListener('click',event=>{void handleOfficeClick(event);});
 document.addEventListener('fullscreenchange',renderDock);
 window.addEventListener('office:session-ended',()=>{cleanPrivateState();account?.requireLogin('请重新登录。');});
 renderDock();
-account=mountSession({container:lab,onAuthenticated:next=>{void startSession(next).catch(error=>{if(error.status!==401)toast('工作数据暂未载入，请重试。');});},onSignedOut:cleanPrivateState,onSessionExpired:cleanPrivateState,onChange:next=>{if(isAuthenticated()&&next?.actor?.id===actor().id){session=next;erp?.updateSession(next);renderDock();}}});
+account=mountSession({container:lab,onClose:returnToOffice,onAuthenticated:next=>{void startSession(next).catch(error=>{if(error.status!==401)toast('工作数据暂未载入，请重试。');});},onSignedOut:cleanPrivateState,onSessionExpired:cleanPrivateState,onChange:next=>{if(isAuthenticated()&&next?.actor?.id===actor().id){session=next;erp?.updateSession(next);renderDock();}}});
 await account.ready;
 // Reconcile while the business pane is closed; the pane owns its own visible polling.
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelSurfaceMotions();else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);bulletin?.destroy();locationMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);officeNavigation?.destroy();returnTicket++;bulletin?.destroy();locationMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});

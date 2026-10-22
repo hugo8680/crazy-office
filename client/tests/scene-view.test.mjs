@@ -14,7 +14,7 @@ function fixture(configure=()=>({})){
       setPresence(value){this.presence.push(value);},getPresenceState(){return {positions:this.positions||{}};},setActive(value){this.active=value;this.activeChanges.push(value);},
       prepare(){this.prepares++;assert.equal(layer.style.visibility,'hidden');assert.equal(this.active,false);},
       getNodeAnchor:()=>({x:1,y:2}),getAgentAnchor:()=>({x:3,y:4}),getHumanAnchor:()=>({x:5,y:6}),
-      focusNode(id){this.camera.node=id;return true;},focusAgent(id){this.camera.agent=id;return true;},focusHuman(id,zoom){this.camera={human:id,zoom};return true;},focusPoint(point){this.camera.point=point;return true;},
+      focusArea(id){this.camera.area=id;return true;},focusNode(id){this.camera.node=id;return true;},focusAgent(id){this.camera.agent=id;return true;},focusHuman(id,zoom){this.camera={human:id,zoom};return true;},focusPoint(point){this.camera.point=point;return true;},
       zoom(delta){this.camera.zoom+=delta;return this.camera.zoom;},resetView(){this.camera={zoom:1};},destroy(){this.destroyed++;this.active=false;}
     };scenes.push(scene);return scene;
   };}
@@ -125,4 +125,13 @@ test('idle prewarming constructs the secondary renderer once without exposing it
     await f.controller.ready;assert.equal(jobs.size,1);const warm=[...jobs.values()][0];jobs.clear();warm();await settle();assert.equal(f.scenes.length,2);assert.equal(f.scenes[0].active,true);assert.equal(f.scenes[1].active,false);assert.equal(f.scenes[1].prepares,1);assert.equal(f.layers[1].style.visibility,'hidden');
     await f.controller.setMode('3d');assert.equal(f.scenes.length,2);assert.equal(f.scenes[1].active,true);assert.equal(f.scenes[0].active,false);assert.equal(jobs.size,0);
   }finally{f.controller.destroy();globalThis.requestIdleCallback=previousIdle;globalThis.cancelIdleCallback=previousCancel;}
+});
+
+
+test('area navigation during view preparation applies only to the new view, while returning to the current view flushes the latest focus',async()=>{
+ const gate=deferred(),f=fixture(mount=>({load3D:()=>gate.promise.then(()=>({mountScene3D:mount('3d')}))}));try{const pending=f.controller.setMode('3d');f.controller.focusArea('finance');f.controller.focusArea('research');assert.equal(f.scenes[0].camera.area,undefined);gate.resolve();await pending;assert.equal(f.scenes[1].camera.area,'research');await f.controller.setMode('2d');const wait=deferred();f.scenes[1].prepare=()=>wait.promise;const switchAgain=f.controller.setMode('3d');await settle();f.controller.focusArea('business');await f.controller.setMode('2d');assert.equal(f.scenes[0].camera.area,'business');wait.resolve();await switchAgain;}finally{f.controller.destroy();}
+});
+test('sign-out replaces a deferred private office with overview, and failed switching still applies the latest overview',async()=>{
+ const gate=deferred(),f=fixture(mount=>({load3D:()=>gate.promise.then(()=>({mountScene3D:mount('3d')}))}));try{const pending=f.controller.setMode('3d');f.controller.focusArea('finance');f.controller.resetView();gate.resolve();await pending;assert.deepEqual(f.scenes[1].camera,{zoom:1});}finally{f.controller.destroy();}
+ const failure=deferred(),g=fixture(()=>({load3D:()=>failure.promise}));try{g.controller.focusNode('finance');const switching=g.controller.setMode('3d');g.controller.resetView();failure.reject(new Error('offline'));await switching;assert.deepEqual(g.scenes[0].camera,{zoom:1});}finally{g.controller.destroy();}
 });
