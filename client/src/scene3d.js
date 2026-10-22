@@ -59,7 +59,7 @@ export function scene3DPixelRatio(width,height,deviceRatio=1,{maxDimension=8192}
   width=positive(width,1);height=positive(height,1);maxDimension=positive(maxDimension,8192);
   return Math.min(positive(deviceRatio,1),2,Math.sqrt(9000000/(width*height)),maxDimension/width,maxDimension/height);
 }
-export function scene3DGestureMode(event,touches=1){return touches>1?'touch':event.button===1||event.button===2||event.shiftKey?'pan':'orbit';}
+export function scene3DGestureMode(event,touches=1){return touches>1?'touch':event.pointerType==='touch'||event.button===2?'orbit':'pan';}
 
 export function mountScene3D(container,{
   onSelectNode=()=>{},onSelectBulletin=()=>{},onHoverBulletin=()=>{},onLeaveBulletin=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},

@@ -166,7 +166,7 @@ test('a settled colleague skips unchanged poses, while a real move invalidates t
 });
 
 test('canvas input has distinct orbit and pan gestures and a bounded pixel budget',()=>{
-  assert.equal(scene3DGestureMode({button:0}), 'orbit');assert.equal(scene3DGestureMode({button:2}), 'pan');assert.equal(scene3DGestureMode({button:0,shiftKey:true}), 'pan');assert.equal(scene3DGestureMode({button:0},2),'touch');
+  assert.equal(scene3DGestureMode({button:0}), 'pan');assert.equal(scene3DGestureMode({button:1}), 'pan');assert.equal(scene3DGestureMode({button:2}), 'orbit');assert.equal(scene3DGestureMode({button:0,shiftKey:true}), 'pan');assert.equal(scene3DGestureMode({button:2,shiftKey:true}), 'orbit');assert.equal(scene3DGestureMode({button:0,pointerType:'touch'}),'orbit');assert.equal(scene3DGestureMode({button:0},2),'touch');
   assert.equal(scene3DPixelRatio(1440,900,2),2);assert.equal(scene3DPixelRatio(1920,1080,2),2);assert.equal(scene3DPixelRatio(3840,2160,1),1,'a 4K monitor is not rendered below its CSS resolution');
   for(const [width,height,device]of[[1440,900,2],[1920,1080,2],[3840,2160,2],[400,800,3],[7680,4320,3]]){const ratio=scene3DPixelRatio(width,height,device);assert.ok(ratio<=2&&ratio>0);assert.ok(width*height*ratio*ratio<=9000001);assert.ok(Math.max(width,height)*ratio<=8192);}
   assert.equal(scene3DPixelRatio(1920,1080,2,{maxDimension:2048}),2048/1920);assert.equal(scene3DPixelRatio(1440,900,.8),.8);
@@ -257,7 +257,7 @@ test('Safari gesture events cannot double-apply a two-pointer pinch',()=>{
 
 test('the mounted office stops rendering at rest and returns to idle after pointer rotation',()=>{
   const f=mountedSceneFixture();try{f.frame();assert.equal(f.pending.size,0);const initial=f.api.getPerformanceStats();assert.equal(initial.renders,1);assert.ok(initial.drawCalls<110,JSON.stringify(initial));assert.ok(initial.triangles<650000,JSON.stringify(initial));
-    const before=f.api.getNodeAnchor('server');f.canvas.emit('pointerdown',{clientX:900,clientY:400});f.canvas.emit('pointermove',{clientX:1010,clientY:440});f.frame();const after=f.api.getNodeAnchor('server');assert.ok(Math.abs(before.x-after.x)>20);assert.notEqual(f.api.getPerformanceStats().azimuth,initial.azimuth);f.canvas.emit('pointerup',{clientX:1010,clientY:440});f.frame();assert.equal(f.pending.size,0);
+    const before=f.api.getNodeAnchor('server');f.canvas.emit('pointerdown',{button:2,clientX:900,clientY:400});f.canvas.emit('pointermove',{button:2,clientX:1010,clientY:440});f.frame();const after=f.api.getNodeAnchor('server');assert.ok(Math.abs(before.x-after.x)>20);assert.notEqual(f.api.getPerformanceStats().azimuth,initial.azimuth);f.canvas.emit('pointerup',{button:2,clientX:1010,clientY:440});f.frame();assert.equal(f.pending.size,0);
     const settled=f.api.getPerformanceStats();assert.equal(settled.actorUpdates,initial.actorUpdates,'rotating the camera does not animate or upload static colleagues');assert.equal(settled.instanceUploads,initial.instanceUploads);
     f.api.resetView();assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.drain();assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)<.001);
   }finally{f.restore();}
@@ -278,9 +278,26 @@ test('a detailed forty-person team and twenty signed-in employees stay inside on
  const f=mountedSceneFixture();try{f.frame();f.api.setPresence({enabled:true,people:Array.from({length:20},(_,index)=>({id:`team-presence-${index}`,name:`同事${index}`,online:true,nodeId:'ai_data'}))});f.frame();f.button('team','ai_data_team_1').emit('click',{detail:0});f.drain();const statistics=f.api.getPerformanceStats();assert.deepEqual(statistics.detailGroups,['ai_data_team_1']);assert.ok(statistics.triangles<1000000,JSON.stringify(statistics));assert.ok(statistics.drawCalls<95,JSON.stringify(statistics));assert.ok(statistics.visibleWorkplaces<OFFICE_SEATS.length/2);assert.equal(f.pending.size,0);if(process.env.OFFICE_SCENE_BENCH==='1')console.log(JSON.stringify({detailedTeamAndTwentyEmployees:statistics}));}finally{f.restore();}
 });
 
+test('left drags translate the camera while right drags orbit from canvas and object labels without opening business actions',()=>{
+ for(const origin of ['canvas','agent','room','bulletin']){
+  const selected=[],moved=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id),onSelectAgent:id=>selected.push(id),onSelectBulletin:id=>selected.push(id),onMovePoint:point=>moved.push(point)},{clockedMotion:true});
+  try{
+   f.frame();const target=origin==='canvas'?f.canvas:origin==='agent'?f.button('agent','zhang'):origin==='room'?f.button('node','meeting'):f.button('bulletinSection','dashboard');assert.ok(target,origin);
+   const initial=f.api.getPerformanceStats(),before=['server','finance'].map(id=>f.api.getNodeAnchor(id));
+   target.emit('pointerdown',{button:0,clientX:600,clientY:350});f.canvas.emit('pointermove',{button:0,clientX:710,clientY:390});f.canvas.emit('pointerup',{button:0,clientX:710,clientY:390});f.drain();
+   const panned=f.api.getPerformanceStats();assert.equal(panned.azimuth,initial.azimuth);assert.equal(panned.elevation,initial.elevation);assert.equal(panned.scale,initial.scale);
+   for(const [i,id]of ['server','finance'].entries()){const after=f.api.getNodeAnchor(id);assert.ok(Math.abs(after.x-before[i].x-110)<1e-6,origin+' horizontal pan');assert.ok(Math.abs(after.y-before[i].y-40)<1e-6,origin+' vertical pan');}
+   target.emit('pointerdown',{button:2,shiftKey:true,clientX:600,clientY:350});f.canvas.emit('pointermove',{button:2,shiftKey:true,clientX:710,clientY:390});f.canvas.emit('pointerup',{button:2,clientX:710,clientY:390});f.drain();
+   const rotated=f.api.getPerformanceStats();assert.notEqual(rotated.azimuth,panned.azimuth);assert.notEqual(rotated.elevation,panned.elevation);assert.equal(rotated.scale,panned.scale);assert.equal(target.emit('contextmenu').defaultPrevented,true);
+   target.emit('pointerdown',{button:2,clientX:710,clientY:390});f.canvas.emit('pointerup',{button:2,clientX:710,clientY:390});f.drain();assert.deepEqual(selected,[]);assert.deepEqual(moved,[]);assert.equal(f.canvas.captured.size,0);assert.equal(f.pending.size,0);
+   const agent=f.button('agent','zhang');agent.emit('pointerdown',{button:0,clientX:700,clientY:380});f.canvas.emit('pointerup',{button:0,clientX:702,clientY:381});f.drain();assert.deepEqual(selected,['zhang'],'a small left click still opens the intended colleague');
+  }finally{f.restore();}
+ }
+});
+
 test('pan, pinch and twist stay independent of object selection and settle after release',()=>{
   const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id),onSelectAgent:id=>selected.push(id),onSelectHuman:id=>selected.push(id)});try{f.frame();const initial=f.api.getPerformanceStats(),before=f.api.getNodeAnchor('server');
-    f.canvas.emit('pointerdown',{button:2,clientX:800,clientY:300});f.canvas.emit('pointermove',{button:2,clientX:890,clientY:320});f.frame();assert.equal(f.api.getPerformanceStats().azimuth,initial.azimuth);assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)>60);f.canvas.emit('pointerup',{button:2,clientX:890,clientY:320});f.frame();assert.deepEqual(selected,[]);
+    f.canvas.emit('pointerdown',{button:0,clientX:800,clientY:300});f.canvas.emit('pointermove',{button:0,clientX:890,clientY:320});f.frame();assert.equal(f.api.getPerformanceStats().azimuth,initial.azimuth);assert.ok(Math.abs(f.api.getNodeAnchor('server').x-before.x)>60);f.canvas.emit('pointerup',{button:0,clientX:890,clientY:320});f.frame();assert.deepEqual(selected,[]);
     f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,clientX:600,clientY:400});f.canvas.emit('pointermove',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.frame();const gesture=f.api.getPerformanceStats();assert.ok(gesture.scale>1.4);assert.notEqual(gesture.azimuth,initial.azimuth);f.canvas.emit('pointerup',{pointerType:'touch',pointerId:2,clientX:700,clientY:450});f.canvas.emit('pointerup',{pointerType:'touch',pointerId:1,clientX:400,clientY:400});f.frame();assert.equal(f.pending.size,0);assert.deepEqual(selected,[]);f.api.rotate(Math.PI/4);f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-gesture.azimuth-Math.PI/4)<1e-8);
   }finally{f.restore();}
 });
