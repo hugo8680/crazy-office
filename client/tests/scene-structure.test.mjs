@@ -348,7 +348,7 @@ test('compact courtyard scenes render landscape, shared meeting furniture and ev
 test('compact workplace hit regions stay within their row so neighboring desks do not steal hover or clicks',()=>{
   const f=sceneFixture();
   try {
-    for(const displayed of [OFFICE_SEATS,OFFICE_OVERVIEW_SEATS]){
+    for(const displayed of [OFFICE_SEATS,OFFICE_OVERVIEW_SEATS,...OFFICE_ROOMS.find(room=>room.id==='ai_data').teamZones.map(team=>officeSeatsForView({focusedTeamId:team.id}))]){
       const boxes=new Map(displayed.map(seat=>{const art=renderOrganizationPositionContents(seat,{use:()=>'',seated:()=>''}),match=art.match(/<rect class="cnl-position-hit" x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/);return [seat.id,{x:Number(match[1]),y:Number(match[2]),w:Number(match[3]),h:Number(match[4])}];}));
       assert.equal(boxes.size,displayed.length);
       for(const room of OFFICE_ROOMS){
@@ -399,12 +399,12 @@ test('overview and focused detail switch both artwork geometry and hit regions w
     const posts=f.groups.get('[data-position]'),visible=()=>posts.filter(post=>post.dataset.visible==='true'),visibleIds=()=>visible().map(post=>post.dataset.position).sort();
     assert.deepEqual(visibleIds(),OFFICE_OVERVIEW_SEATS.map(post=>post.id).sort());
     const room=OFFICE_ROOMS.find(room=>room.id==='ai_data'),team=room.teamZones[0],overview=OFFICE_OVERVIEW_SEATS.find(post=>post.teamId===team.id&&post.role==='staff'),element=posts.find(post=>post.dataset.position===overview.id),full=OFFICE_SEATS.find(post=>post.id===overview.id);
-    assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));assert.equal(overview.desk.w,50);
+    assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));assert.equal(overview.desk.w,64);
     f.scene.focusNode('ai_data');f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length,'department overview does not unfold all 200 AI employees');
     f.groups.get('[data-team]').find(el=>el.dataset.team===team.id).listeners.get('click')({stopPropagation(){}});f.drain();
-    assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===team.id).length,41);
+    assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===team.id).length,6);
     assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===room.teamZones[1].id).length,4);
-    assert.ok(element.innerHTML.includes(`translate(${full.desk.x-full.desk.w/2} ${full.desk.y-full.desk.h/2})`));assert.equal(full.desk.w,14);
+    assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));assert.equal(full.desk.w,14,'canonical roster coordinates remain unchanged');
     f.scene.zoom(-10);f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length,'zooming back out collapses the previous team rather than keeping tiny desks on the overview');assert.equal(f.svg.dataset.focusTeam,'');
     f.scene.resetView();f.drain();assert.deepEqual(visibleIds(),OFFICE_OVERVIEW_SEATS.map(post=>post.id).sort());assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));
     for(const el of posts){const shown=el.dataset.visible==='true';assert.equal(el.attrs['aria-hidden'],String(!shown));assert.equal(el.attrs.tabindex,shown?'0':'-1');assert.equal(el.style.display,shown?'':'none');}
@@ -517,7 +517,7 @@ test('online movement replaces the corresponding static occupant while retaining
 });
 
 test('presence replacement survives directory updates and detail expansion without rebuilding the map or changing unrelated occupants',()=>{
- const f=sceneFixture({}, {frames:true}),seat=OFFICE_SEATS.find(item=>item.departmentId==='ai_data'&&item.teamId==='ai_data_team_1'&&item.primarySeat&&!item.overviewVisible);try{
+ const f=sceneFixture({}, {frames:true}),seat=OFFICE_SEATS.find(item=>item.departmentId==='ai_data'&&item.teamId==='ai_data_team_1'&&item.detailGeometry&&!item.overviewVisible);try{
   const position=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id),unrelated=f.groups.get('[data-position]').find(el=>el.dataset.position==='finance_manager_001');
   f.scene.setPresence({enabled:true,people:[{...onlinePerson('research'),id:'actual-research-colleague',appearanceKey:seat.id}]});assert.equal(position.props['--position-person-display'],'none');assert.equal(unrelated.props['--position-person-display'],'block');
   f.groups.get('[data-team]').find(team=>team.dataset.team===seat.teamId).listeners.get('click')({stopPropagation(){}});f.drain();assert.equal(position.dataset.visible,'true');assert.match(position.innerHTML,/cnl-position-person/);assert.equal(position.props['--position-person-display'],'none');

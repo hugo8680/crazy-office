@@ -327,18 +327,20 @@ export function createOffice3DLayout(assets) {
     }
     if(seat.occupantVisible)seatedPost(seat,index);
   }
-  const seatGroups=new Map(),seatGroupById=new Map(),overviewSeatIds=new Set();
+  const seatGroups=new Map(),seatGroupById=new Map(),overviewSeatIds=new Set(),detailSeatIds=new Set();
   for(const room of OFFICE3D_ROOMS){
     const sections=room.teamZones.length?[{...room,id:room.id,seats:room.seats.filter(seat=>!seat.teamId)},...room.teamZones]:[room];
     for(const section of sections){
       const sectionSeats=section.seats||[],sectionIds=new Set(sectionSeats.map(seat=>seat.id)),explicit=(section.overviewSeatIds||sectionSeats.filter(seat=>seat.overviewVisible).map(seat=>seat.id)).filter(id=>sectionIds.has(id));
       const representatives=explicit.length?explicit:sectionSeats.filter(seat=>seat.role!=='staff').concat(sectionSeats.filter(seat=>seat.role==='staff').slice(0,3)).map(seat=>seat.id);
-      const info={id:section.id,region:section,seatIds:sectionSeats.map(seat=>seat.id),overviewSeatIds:representatives};seatGroups.set(section.id,info);representatives.forEach(id=>overviewSeatIds.add(id));
+      const detailIds=(section.detailSeatIds||sectionSeats.map(seat=>seat.id)).filter(id=>sectionIds.has(id));
+      const info={id:section.id,region:section,seatIds:detailIds,overviewSeatIds:representatives};seatGroups.set(section.id,info);representatives.forEach(id=>overviewSeatIds.add(id));detailIds.forEach(id=>detailSeatIds.add(id));
       sectionSeats.forEach(seat=>seatGroupById.set(seat.id,section.id));
     }
   }
   OFFICE_SEATS.forEach((seat,index)=>{
-    const key=seatGroupById.get(seat.id);if(!detailBatches.has(key))detailBatches.set(key,new Map());activeSeatId=seat.id;activeBatches=detailBatches.get(key);workstation(seat,index);
+    const key=seatGroupById.get(seat.id);activeSeatId=seat.id;
+    if(detailSeatIds.has(seat.id)){if(!detailBatches.has(key))detailBatches.set(key,new Map());activeBatches=detailBatches.get(key);workstation(officeSeatForView(seat,{detail:true}),index);}
     if(overviewSeatIds.has(seat.id)){activeBatches=overviewBatches;workstation(officeSeatForView(seat),index);}
   });
   activeSeatId=null;activeBatches=batches;
@@ -508,9 +510,11 @@ export function createOffice3DLayout(assets) {
     }
     detailed=next;return true;
   }
-  const isSeatVisible=id=>detailed.has(seatGroupById.get(id))||overviewSeatIds.has(id)&&!detailed.has(seatGroupById.get(id));
+  const isSeatVisible=id=>detailed.has(seatGroupById.get(id))?detailSeatIds.has(id):overviewSeatIds.has(id);
   const seatsById=new Map(OFFICE_SEATS.map(seat=>[seat.id,seat]));
-  const seatGeometry=id=>{const seat=seatsById.get(id);return seat?officeSeatForView(seat,{detail:detailed.has(seatGroupById.get(id))}):null;};
+  // Hidden posts retain their logical coordinates for real presence. They are
+  // never pickable or painted as a compact grid by the scene renderer.
+  const seatGeometry=id=>{const seat=seatsById.get(id);return seat&&isSeatVisible(id)?officeSeatForView(seat,{detail:detailed.has(seatGroupById.get(id))}):seat||null;};
   root.userData.statistics=statistics;
   return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},

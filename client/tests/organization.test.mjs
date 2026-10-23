@@ -206,7 +206,7 @@ test('overview uses readable representative geometry while preserving exact full
     assert.equal(visible.length,4);assert.equal(team.overviewSeatIds.length,4);
     assert.equal(visible.filter(post=>post.role==='head').length,1);
     for(const post of visible){
-      assert.ok(post.scale>=.58);assert.equal(post.desk.w,50);assert.equal(post.desk.h,26);
+      assert.equal(post.scale,.72);assert.equal(post.desk.w,64);assert.equal(post.desk.h,28);
       assert.ok(post.x>team.x&&post.x<team.x+team.w&&post.y>team.y&&post.y<team.y+team.h);
       const full=OFFICE_SEATS.find(item=>item.id===post.id);
       assert.equal(full.personId,post.personId);assert.equal(full.role,post.role);assert.equal(full.desk.w,14);
@@ -220,14 +220,30 @@ test('detail is scoped to a selected department or team and never unfolds all tw
   assert.equal(officeSeatsForView({zoom:20,detailDepartmentId:'ai_data'}).length,OFFICE_OVERVIEW_SEATS.length);
   const team=roomForDepartment('ai_data').teamZones[0];
   const focused=officeSeatsForView({focusedTeamId:team.id});
-  assert.equal(focused.filter(post=>post.teamId===team.id).length,41);
-  assert.equal(focused.filter(post=>post.teamId===team.id&&post.role==='staff').length,40);
+  assert.equal(focused.filter(post=>post.teamId===team.id).length,6);
+  assert.equal(focused.filter(post=>post.teamId===team.id&&post.role==='staff').length,5);
+  assert.equal(team.seats.length,41,'representative geometry preserves every real employee');
+  assert.deepEqual(focused.filter(post=>post.teamId===team.id).map(post=>post.id).sort(),[...team.detailSeatIds].sort());
+  for(const post of focused.filter(post=>post.teamId===team.id)){assert.equal(post.scale,.72);assert.equal(post.desk.w,64);assert.equal(post.desk.h,28);}
   assert.equal(focused.filter(post=>post.departmentId==='ai_data'&&post.teamId!==team.id).length,17);
   assert.equal(officeSeatsForView({zoom:OFFICE_DETAIL_ZOOM-.01,detailTeamId:team.id}).length,OFFICE_OVERVIEW_SEATS.length);
   assert.equal(officeSeatsForView({zoom:OFFICE_DETAIL_ZOOM,detailTeamId:team.id}).length,focused.length);
   const research=officeSeatsForView({focusedDepartmentId:'research'});
   assert.equal(research.filter(post=>post.departmentId==='research').length,9);
   for(const post of research.filter(post=>post.departmentId==='research'))assert.equal(post,OFFICE_SEATS.find(item=>item.id===post.id));
+});
+
+test('crowded team samples stay stable across redraws, camera changes and both view levels',()=>{
+  for(const team of roomForDepartment('ai_data').teamZones){
+    const overview=()=>officeSeatsForView().filter(post=>post.teamId===team.id);
+    const detail=()=>officeSeatsForView({focusedTeamId:team.id}).filter(post=>post.teamId===team.id);
+    const initialOverview=overview().map(post=>post.id),initialDetail=detail().map(post=>post.id);
+    assert.equal(new Set(team.detailSeatIds).size,6);
+    assert.ok(team.overviewSeatIds.every(id=>team.detailSeatIds.includes(id)));
+    for(let i=0;i<20;i++){officeSeatsForView({focusedTeamId:`ai_data_team_${i%5+1}`,zoom:i+1});assert.deepEqual(overview().map(post=>post.id),initialOverview);assert.deepEqual(detail().map(post=>post.id),initialDetail);}
+    for(const post of overview()){const expanded=detail().find(item=>item.id===post.id);assert.deepEqual(post.desk,expanded.desk);assert.equal(post.scale,expanded.scale);}
+    for(const post of detail())for(const other of detail())if(post.id!==other.id)assert.ok(Math.abs(post.x-other.x)>=(post.desk.w+other.desk.w)/2||Math.abs(post.desk.y-other.desk.y)>=(post.desk.h+other.desk.h)/2,'normal desks must not overlap');
+  }
 });
 
 test('readable overview desks do not intersect other visible desks, furniture, landscape or common walking lanes',()=>{

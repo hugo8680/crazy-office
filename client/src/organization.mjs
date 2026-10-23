@@ -124,18 +124,28 @@ for (const spec of specs) {
   departments.push({id:spec.id,name:spec.name,title:spec.name,managerPersonId:spec.manager||`${spec.id}_manager_001`,headcount:members.length,roleCounts,members,teams:teamZones.map(team=>({id:team.id,name:team.title,headPersonId:team.headPersonId,staffCount:team.staffCount,memberPersonIds:team.seats.map(post=>post.personId)}))});
 }
 
-// Every ordinary department shows its entire roster. The 206-person AI floor
-// alone uses representatives until a specific team is opened.
+// Sample once per page, shared by both renderers. Logical seats remain intact;
+// the crowded floor uses a small set of full-size, stable representatives.
+function sampleTeamSeats(team) {
+  const staff=team.seats.filter(post=>post.role!=='head');
+  for(let i=staff.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[staff[i],staff[j]]=[staff[j],staff[i]];}
+  return [team.seats.find(post=>post.role==='head'),...staff.slice(0,5)];
+}
 for(const room of rooms) {
   const visible=new Set();
   if(room.id==='ai_data') {
-    visible.add(room.seats.find(post=>post.role==='manager').id);
+    const manager=room.seats.find(post=>post.role==='manager');
+    visible.add(manager.id);
+    manager.overviewGeometry={x:manager.x,y:manager.desk.y+24,scale:.72,desk:{...manager.desk,w:64,h:28}};
+    manager.detailGeometry=manager.overviewGeometry;
     for(const team of room.teamZones) {
-      team.overviewSeatIds=[team.seats[0],team.seats[1],team.seats[8],team.seats[40]].map(post=>post.id);
-      for(const [index,id]of team.overviewSeatIds.entries()){
-        visible.add(id);
-        const post=team.seats.find(item=>item.id===id),x=team.x+(index%2?45:115),deskY=team.y+(index<2?45:95);
-        post.overviewGeometry={x,y:deskY+24,scale:.58,desk:{x,y:deskY,w:50,h:26}};
+      const selected=sampleTeamSeats(team);
+      team.detailSeatIds=selected.map(post=>post.id);
+      team.overviewSeatIds=team.detailSeatIds.slice(0,4);
+      for(const [index,post]of selected.entries()){
+        const x=team.x+(index%2?120:40),deskY=team.y+16+Math.floor(index/2)*44;
+        post.detailGeometry={x,y:deskY+24,scale:.72,desk:{x,y:deskY,w:64,h:28}};
+        if(index<4){visible.add(post.id);post.overviewGeometry=post.detailGeometry;}
       }
     }
   } else {
@@ -148,14 +158,17 @@ for(const room of rooms) {
 
 export const OFFICE_ROOMS=freeze(rooms);
 export const OFFICE_SEATS=freeze(seats);
-export function officeSeatForView(post,{detail=false}={}) {return detail||!post.overviewGeometry?post:Object.freeze({...post,...post.overviewGeometry});}
+export function officeSeatForView(post,{detail=false}={}) {
+  const geometry=detail?post.detailGeometry:post.overviewGeometry;
+  return geometry?Object.freeze({...post,...geometry}):post;
+}
 export const OFFICE_OVERVIEW_SEATS=freeze(seats.filter(post=>post.overviewVisible).map(post=>officeSeatForView(post)));
 export const OFFICE_DETAIL_ZOOM=2.4;
 export function officeSeatsForView({zoom=1,focusedDepartmentId,focusedTeamId,detailDepartmentId,detailTeamId}={}) {
   const team=focusedTeamId||(zoom>=OFFICE_DETAIL_ZOOM?detailTeamId:null);
   const department=canonicalDepartmentId(focusedDepartmentId||(zoom>=OFFICE_DETAIL_ZOOM?detailDepartmentId:null));
   const detail=post=>team?post.teamId===team:department&&department!=='ai_data'&&post.departmentId===department;
-  return OFFICE_SEATS.filter(post=>post.overviewVisible||detail(post)).map(post=>officeSeatForView(post,{detail:!!detail(post)}));
+  return OFFICE_SEATS.filter(post=>post.overviewVisible||(detail(post)&&(!post.teamId||post.detailGeometry))).map(post=>officeSeatForView(post,{detail:!!detail(post)}));
 }
 export const ORGANIZATION_DEPARTMENTS=freeze(departments);
 export const ORGANIZATION_PEOPLE=freeze([...new Map(seats.map(post=>[post.personId,{
