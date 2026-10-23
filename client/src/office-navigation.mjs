@@ -1,4 +1,4 @@
-import {OFFICE_ROOMS,OFFICE_SHARED_AREAS,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER,canonicalDepartmentId} from './organization.mjs';
+import {OFFICE_ROOMS,OFFICE_SHARED_AREAS,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER,canonicalDepartmentId,officePointInTeam} from './organization.mjs';
 import {presencePosition} from './erp-presence.js';
 
 const contains=(area,point)=>point&&Number.isFinite(point.x)&&Number.isFinite(point.y)&&point.x>=area.x&&point.x<=area.x+area.w&&point.y>=area.y&&point.y<=area.y+area.h;
@@ -21,7 +21,7 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
  function enterArea(id,{point,frame=true}={}){
   const area=officeArea(id);if(destroyed||!area||isBlocked()||!requireAccount())return Promise.resolve(false);
   const presence=getPresence();if(!presence)return Promise.resolve(false);
-  const destination=point?validPoint(point)?{x:point.x,y:point.y}:null:area.nodeId?{x:area.x+area.w/2,y:area.y+area.h+4}:presencePosition(area.id);
+  const destination=point?validPoint(point)?{x:point.x,y:point.y}:null:area.nodeId?{x:area.x+area.w/2,y:area.y+area.h-4}:presencePosition(area.id);
   if(!destination)return Promise.resolve(false);
   const key=area.id+':'+destination.x+':'+destination.y;
   if(pending?.key===key&&pending.presence===presence)return pending.promise;
@@ -37,7 +37,7 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
   pending={key,presence,ticket,promise};return promise;
  }
  return{enterArea,
-  movePoint(point){if(!validPoint(point))return Promise.resolve(false);const id=officeAreaAt(point)?.id;return enterArea(id,{point,frame:id!==currentArea});},
+  movePoint(point){if(!validPoint(point))return Promise.resolve(false);const id=point.teamId&&officePointInTeam(point,point.teamId,{margin:0})?point.teamId:officeAreaAt(point)?.id;return enterArea(id,{point,frame:id!==currentArea});},
   locateSelf(){const presence=getPresence(),me=presence?.self;if(destroyed||!me||isBlocked())return false;++revision;pending=null;currentArea=(validPoint(me)?officeAreaAt(me):officeArea(me.nodeId||me.department))?.id||null;return restore();},
   restore,
   home(){if(destroyed)return;++revision;pending=null;currentArea=null;focus(null);},

@@ -9,13 +9,13 @@ function fixture(configure=()=>({})){
   const doc={createElement:()=>({style:{},dataset:{},attrs:{},setAttribute(name,value){this.attrs[name]=value;},remove(){this.removed=true;},ownerDocument:doc})};
   const container={ownerDocument:doc,append:layer=>layers.push(layer)};
   function mount(mode){return (layer,callbacks)=>{
-    const scene={mode,layer,callbacks,states:[],presence:[],selected:{},activeChanges:[],destroyed:0,prepares:0,camera:{zoom:1},
+    const scene={mode,layer,callbacks,states:[],presence:[],selected:{},activeChanges:[],destroyed:0,prepares:0,camera:{zoom:1},localTeam:null,scopeCalls:[],
       update(value){this.states.push(value);},setTopology(value){this.topology=value;},setSelectedNode(value){this.selected.node=value;},setSelectedAgent(value){this.selected.agent=value;},setSelectedHuman(value){this.selected.human=value;},
       setPresence(value){this.presence.push(value);},getPresenceState(){return {positions:this.positions||{}};},setActive(value){this.active=value;this.activeChanges.push(value);},
       prepare(){this.prepares++;assert.equal(layer.style.visibility,'hidden');assert.equal(this.active,false);},
       getNodeAnchor:()=>({x:1,y:2}),getAgentAnchor:()=>({x:3,y:4}),getHumanAnchor:()=>({x:5,y:6}),
-      focusArea(id){this.camera.area=id;return true;},focusNode(id){this.camera.node=id;return true;},focusAgent(id){this.camera.agent=id;return true;},focusHuman(id,zoom){this.camera={human:id,zoom};return true;},focusPoint(point){this.camera.point=point;return true;},
-      zoom(delta){this.camera.zoom+=delta;return this.camera.zoom;},resetView(){this.camera={zoom:1};},destroy(){this.destroyed++;this.active=false;}
+      getLocalTeamId(){return this.localTeam;},focusArea(id){this.localTeam=id.startsWith('ai_data_team_')?id:null;this.scopeCalls.push(['focusArea',id]);this.camera.area=id;return true;},focusNode(id){this.camera.node=id;return true;},focusAgent(id){this.camera.agent=id;return true;},focusHuman(id,zoom){this.camera={human:id,zoom};return true;},focusPoint(point){this.camera.point=point;return true;},
+      zoom(delta){this.camera.zoom+=delta;return this.camera.zoom;},resetView(){this.localTeam=null;this.scopeCalls.push(['resetView']);this.camera={zoom:1};},destroy(){this.destroyed++;this.active=false;}
     };scenes.push(scene);return scene;
   };}
   const options={initialMode:'2d',warmup:false,mount2D:mount('2d'),load3D:async()=>({mountScene3D:mount('3d')}),onChange:value=>changes.push(value),onError:error=>errors.push(error),...configure(mount)};
@@ -134,4 +134,38 @@ test('area navigation during view preparation applies only to the new view, whil
 test('sign-out replaces a deferred private office with overview, and failed switching still applies the latest overview',async()=>{
  const gate=deferred(),f=fixture(mount=>({load3D:()=>gate.promise.then(()=>({mountScene3D:mount('3d')}))}));try{const pending=f.controller.setMode('3d');f.controller.focusArea('finance');f.controller.resetView();gate.resolve();await pending;assert.deepEqual(f.scenes[1].camera,{zoom:1});}finally{f.controller.destroy();}
  const failure=deferred(),g=fixture(()=>({load3D:()=>failure.promise}));try{g.controller.focusNode('finance');const switching=g.controller.setMode('3d');g.controller.resetView();failure.reject(new Error('offline'));await switching;assert.deepEqual(g.scenes[0].camera,{zoom:1});}finally{g.controller.destroy();}
+});
+
+test('local office follows 2D and 3D switches without refitting matching manual cameras',async()=>{
+ const f=fixture();try{
+  const plan=f.scenes[0];f.controller.focusArea('ai_data_team_1');f.controller.zoom(2);
+  await f.controller.setMode('3d');const model=f.scenes[1];assert.equal(model.localTeam,'ai_data_team_1');assert.deepEqual(model.scopeCalls,[['focusArea','ai_data_team_1']]);f.controller.zoom(4);
+  for(let index=0;index<3;index++){await f.controller.setMode('2d');assert.equal(plan.localTeam,'ai_data_team_1');assert.equal(plan.camera.zoom,3);await f.controller.setMode('3d');assert.equal(model.localTeam,'ai_data_team_1');assert.equal(model.camera.zoom,5);}
+  assert.deepEqual(plan.scopeCalls,[['focusArea','ai_data_team_1']]);assert.deepEqual(model.scopeCalls,[['focusArea','ai_data_team_1']]);
+  f.controller.focusArea('ai_data_team_2');await f.controller.setMode('2d');assert.equal(plan.localTeam,'ai_data_team_2');assert.deepEqual(plan.scopeCalls.at(-1),['focusArea','ai_data_team_2']);
+ }finally{f.controller.destroy();}
+});
+
+test('leaving a local office clears the cached secondary local office once and preserves overview cameras afterward',async()=>{
+ const f=fixture();try{
+  f.controller.focusArea('ai_data_team_1');await f.controller.setMode('3d');const [plan,model]=f.scenes;f.controller.resetView();f.controller.zoom(.7);
+  await f.controller.setMode('2d');assert.equal(plan.localTeam,null);assert.deepEqual(plan.scopeCalls.at(-1),['resetView']);f.controller.zoom(.4);const calls=plan.scopeCalls.length;
+  await f.controller.setMode('3d');assert.equal(model.localTeam,null);assert.equal(model.camera.zoom,1.7);await f.controller.setMode('2d');assert.equal(plan.camera.zoom,1.4);assert.equal(plan.scopeCalls.length,calls);
+ }finally{f.controller.destroy();}
+});
+
+test('a source local office change during asynchronous preparation is synchronized before reveal',async()=>{
+ const gate=deferred();let calls=0;const f=fixture(mount=>({load3D:async()=>({mountScene3D(layer,callbacks){const scene=mount('3d')(layer,callbacks);scene.prepare=()=>++calls===1?gate.promise:undefined;return scene;}})}));try{
+  f.controller.focusArea('ai_data_team_1');const pending=f.controller.setMode('3d');await settle();assert.equal(f.scenes[1].localTeam,'ai_data_team_1');
+  f.scenes[0].focusArea('ai_data_team_3');gate.resolve();await pending;assert.equal(calls,2);assert.equal(f.scenes[1].localTeam,'ai_data_team_3');assert.deepEqual(f.scenes[1].scopeCalls,[['focusArea','ai_data_team_1'],['focusArea','ai_data_team_3']]);
+ }finally{f.controller.destroy();}
+});
+
+test('latest deferred office navigation and sign-out take precedence over copied local scope',async()=>{
+ for(const reset of [false,true]){
+  const gate=deferred();const f=fixture(mount=>({load3D:async()=>({mountScene3D(layer,callbacks){const scene=mount('3d')(layer,callbacks);scene.prepare=()=>gate.promise;return scene;}})}));try{
+   f.controller.focusArea('ai_data_team_1');const pending=f.controller.setMode('3d');await settle();f.controller.focusArea('ai_data_team_2');if(reset)f.controller.resetView();gate.resolve();await pending;
+   assert.equal(f.scenes[1].localTeam,reset?null:'ai_data_team_2');assert.deepEqual(f.scenes[1].scopeCalls.at(-1),reset?['resetView']:['focusArea','ai_data_team_2']);
+  }finally{f.controller.destroy();}
+ }
 });

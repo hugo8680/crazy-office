@@ -8,7 +8,7 @@ import {employeeAppearance} from '../src/employee-appearance.mjs';
 import {OFFICE_CAMERA_LIMITS,officeWheelScale} from '../src/office-camera.mjs';
 import {BULLETIN_SECTIONS} from '../src/bulletin-sections.mjs';
 import {greetingForPerson} from '../src/person-greeting.mjs';
-import {OFFICE_WORLD,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_OVERVIEW_SEATS,officeSeatsForView,OFFICE_AGENT_HOMES,OFFICE_WORK_POSITIONS,departmentWorkPoint} from '../src/organization.mjs';
+import {OFFICE_WORLD,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_OVERVIEW_SEATS,officeSeatsForView,officeSeatForView,officeTeamDetail,officeDisplayPoint,officeCanonicalPoint,OFFICE_AGENT_HOMES,OFFICE_WORK_POSITIONS,departmentWorkPoint} from '../src/organization.mjs';
 const initialViewBox=`0 0 ${OFFICE_WORLD.width} ${OFFICE_WORLD.height}`;
 
 // A minimal SVG DOM records public scene interactions without a browser, model,
@@ -19,7 +19,7 @@ function sceneFixture(callbacks={},options={}) {
   let markup='',clock=1000,sequence=0;const ambientHistory=[];const layers=new Map(),groups=new Map(),preferenceListeners=new Set(),pending=new Map(),visibility=new Map(),documentListeners=new Map(),timers=new Map();
   class Element {
     constructor(){this.attrs={};this.writes=[];this.dataset=new Proxy({},{set:(target,key,value)=>{target[key]=value;if(key==='ambient')ambientHistory.push({element:this,pose:value,at:clock});return true;}});this.children=[];this.innerHTML='';this.classes=new Set();this.listeners=new Map();this.listenerOptions=new Map();this.captured=new Set();this.props={};this.animations=[];this.queries=new Map();this.style={setProperty:(k,v)=>this.props[k]=v};this.classList={add:(...xs)=>xs.forEach(x=>this.classes.add(x)),remove:(...xs)=>xs.forEach(x=>this.classes.delete(x)),toggle:(x,on)=>{if(on??!this.classes.has(x))this.classes.add(x);else this.classes.delete(x);},contains:x=>this.classes.has(x)};}
-    animate(frames,settings){const animation={frames,settings,cancel(){this.cancelled=true;}};this.animations.push(animation);return animation;}setAttribute(k,v){this.writes.push(k);this.attrs[k]=v;}getAttribute(k){return this.attrs[k]??null;}removeAttribute(k){delete this.attrs[k];}addEventListener(k,fn,options){this.listeners.set(k,fn);this.listenerOptions.set(k,options);}removeEventListener(k){this.listeners.delete(k);this.listenerOptions.delete(k);}setPointerCapture(id){this.captured.add(id);}hasPointerCapture(id){return this.captured.has(id);}releasePointerCapture(id){this.captured.delete(id);}append(el){el.parent=this;this.children.push(el);}remove(){if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);}querySelector(selector){if(!this.queries.has(selector))this.queries.set(selector,new Element());return this.queries.get(selector);}
+    animate(frames,settings){const animation={frames,settings,cancel(){this.cancelled=true;}};this.animations.push(animation);return animation;}setAttribute(k,v){this.writes.push(k);this.attrs[k]=v;}getAttribute(k){return this.attrs[k]??null;}removeAttribute(k){delete this.attrs[k];}addEventListener(k,fn,options){this.listeners.set(k,fn);this.listenerOptions.set(k,options);}removeEventListener(k){this.listeners.delete(k);this.listenerOptions.delete(k);}setPointerCapture(id){this.captured.add(id);}hasPointerCapture(id){return this.captured.has(id);}releasePointerCapture(id){this.captured.delete(id);}append(el){if(el.parent)el.parent.children=el.parent.children.filter(child=>child!==el);el.parent=this;this.children.push(el);}remove(){if(this.parent)this.parent.children=this.parent.children.filter(child=>child!==this);}querySelector(selector){if(!this.queries.has(selector))this.queries.set(selector,new Element());return this.queries.get(selector);}
   }
   const svg=new Element();
   const rect={left:0,top:0,width:1060,height:650,...options.rect};
@@ -29,7 +29,7 @@ function sceneFixture(callbacks={},options={}) {
   svg.querySelectorAll=selector=>{
     if(groups.has(selector))return groups.get(selector);
     const pattern=selector==='[data-node]'?/<g class="cnl-node" data-node="([^"]+)"/g:selector==='[data-team]'?/<g class="cnl-team-zone" data-team="([^"]+)"/g:selector==='[data-position]'?/<g class="cnl-position" data-position="([^"]+)"/g:selector==='[data-device]'?/<g class="cnl-device" data-device="([^"]+)"/g:selector==='[data-bulletin-section]'?/<g class="cnl-bulletin-section" data-bulletin-section="([^"]+)"/g:/<g class="cnl-link" data-a="([^"]+)" data-b="([^"]+)"/g;
-    const result=[...markup.matchAll(pattern)].map(m=>{const el=new Element();el.dataset[selector==='[data-node]'?'node':selector==='[data-device]'?'device':selector==='[data-position]'?'position':selector==='[data-team]'?'team':selector==='[data-bulletin-section]'?'bulletinSection':'a']=m[1];if(m[2])el.dataset.b=m[2];return el;});if(selector==='[data-node]'&&options.duplicateNodeId){const copy=new Element();copy.dataset.node=options.duplicateNodeId;result.push(copy);}groups.set(selector,result);return result;
+    const result=[...markup.matchAll(pattern)].map(m=>{const el=new Element();el.dataset[selector==='[data-node]'?'node':selector==='[data-device]'?'device':selector==='[data-position]'?'position':selector==='[data-team]'?'team':selector==='[data-bulletin-section]'?'bulletinSection':'a']=m[1];if(m[2])el.dataset.b=m[2];return el;});if(selector==='[data-node]'&&options.duplicateNodeId){const copy=new Element();copy.dataset.node=options.duplicateNodeId;result.push(copy);}if(selector==='[data-position]'){if(!layers.has('.cnl-campus-floor'))layers.set('.cnl-campus-floor',new Element());const parents=new Map();for(const el of result){const id=OFFICE_SEATS.find(seat=>seat.id===el.dataset.position)?.departmentId;if(!parents.has(id)){const parent=new Element();parent.dataset.department=id;parents.set(id,parent);layers.get('.cnl-campus-floor').append(parent);}parents.get(id).append(el);}}groups.set(selector,result);return result;
   };
   const preference={matches:options.reducedMotion===true,addEventListener:(_type,fn)=>preferenceListeners.add(fn),removeEventListener:(_type,fn)=>preferenceListeners.delete(fn)};
   const doc={hidden:false,createElementNS:()=>new Element(),addEventListener:(type,fn)=>{if(!documentListeners.has(type))documentListeners.set(type,new Set());documentListeners.get(type).add(fn);visibility.set(type,event=>{for(const listener of documentListeners.get(type)||[])listener(event);});},removeEventListener:(type,fn)=>{documentListeners.get(type)?.delete(fn);if(!documentListeners.get(type)?.size){documentListeners.delete(type);visibility.delete(type);}}};
@@ -319,8 +319,8 @@ test('AI subdivision focus reveals forty-seat teams without selecting ERP data a
   try {
     f.drain();const room=OFFICE_ROOMS.find(room=>room.id==='ai_data'),elements=f.groups.get('[data-team]');assert.equal(elements.length,5);
     for(const team of room.teamZones){
-      const element=elements.find(element=>element.dataset.team===team.id);element.listeners.get('click')({stopPropagation(){}});f.drain();
-      const [x,y,w,h]=f.svg.attrs.viewBox.split(' ').map(Number);assert.ok(x<team.x&&x+w>team.x+team.w);assert.ok(y<team.y&&y+h>team.y+team.h);assert.ok(sceneScale(f)>3);
+      f.scene.focusArea(team.id);f.drain();
+      const [x,y,w,h]=f.svg.attrs.viewBox.split(' ').map(Number);assert.ok(x<team.x&&x+w>team.x+team.w);assert.ok(y<team.y&&y+h>team.y+team.h);assert.ok(sceneScale(f)>1);
     }
     assert.deepEqual(selected,[]);f.scene.focusNode('ai_data');f.drain();assert.ok(sceneScale(f)<2);f.scene.resetView();f.drain();assert.equal(f.svg.attrs.viewBox,initialViewBox);
   }finally{f.destroy();}
@@ -402,9 +402,9 @@ test('overview and focused detail switch both artwork geometry and hit regions w
     assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));assert.equal(overview.desk.w,64);
     f.scene.focusNode('ai_data');f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length,'department overview does not unfold all 200 AI employees');
     f.groups.get('[data-team]').find(el=>el.dataset.team===team.id).listeners.get('click')({stopPropagation(){}});f.drain();
-    assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===team.id).length,6);
-    assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===room.teamZones[1].id).length,4);
-    assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));assert.equal(full.desk.w,14,'canonical roster coordinates remain unchanged');
+    assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===team.id).length,41);
+    assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===room.teamZones[1].id).length,0);
+    const expanded=officeSeatForView(full,{detail:true});assert.ok(element.innerHTML.includes(`translate(${expanded.desk.x-expanded.desk.w/2} ${expanded.desk.y-expanded.desk.h/2})`));assert.equal(full.desk.w,14,'canonical roster coordinates remain unchanged');
     f.scene.zoom(-10);f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length,'zooming back out collapses the previous team rather than keeping tiny desks on the overview');assert.equal(f.svg.dataset.focusTeam,'');
     f.scene.resetView();f.drain();assert.deepEqual(visibleIds(),OFFICE_OVERVIEW_SEATS.map(post=>post.id).sort());assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));
     for(const el of posts){const shown=el.dataset.visible==='true';assert.equal(el.attrs['aria-hidden'],String(!shown));assert.equal(el.attrs.tabindex,shown?'0':'-1');assert.equal(el.style.display,shown?'':'none');}
@@ -416,7 +416,7 @@ test('Home and blank map double-click restore overview while object double-click
   const actions=[],f=sceneFixture({onSelectHuman:id=>actions.push(id),onSelectNode:id=>actions.push(id)}, {frames:true});
   try {
     f.scene.zoom(100);f.drain();almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);f.input('keydown',{key:'Home'});f.drain();almost(sceneScale(f),1);
-    const team=f.groups.get('[data-team]')[0];team.listeners.get('click')({stopPropagation(){}});f.drain();assert.ok(sceneScale(f)>4.5);assert.ok(f.svg.dataset.focusTeam);
+    const team=f.groups.get('[data-team]')[0];team.listeners.get('click')({stopPropagation(){}});f.drain();assert.ok(sceneScale(f)>1);assert.ok(f.svg.dataset.focusTeam);
     const element=f.groups.get('[data-position]').find(el=>el.dataset.visible==='true'),before=f.svg.attrs.viewBox;
     f.input('dblclick',{target:eventTarget(element)});assert.equal(f.svg.attrs.viewBox,before);assert.deepEqual(actions,[]);
     assert.equal(f.input('dblclick').defaultPrevented,true);f.drain();assert.equal(f.svg.attrs.viewBox,initialViewBox);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));assert.equal(f.svg.dataset.focusTeam,'');
@@ -696,5 +696,36 @@ test('reversing 2D wheel or zoom mid-animation changes direction from the visibl
 });
 
 test('2D semantic zoom expands only the selected team and restores representatives when returning to the overview',()=>{
- const f=sceneFixture({}, {frames:true});try{f.drain();const overview=Number(f.svg.dataset.visiblePosts);f.scene.focusArea('ai_data_team_1');f.drain();assert.ok(Number(f.svg.dataset.visiblePosts)>overview);f.scene.zoom(.5);f.drain();assert.ok(Number(f.svg.dataset.visiblePosts)>overview);f.scene.focusArea('business');f.drain();assert.equal(f.svg.dataset.focusTeam,'');assert.equal(Number(f.svg.dataset.visiblePosts),overview);f.scene.resetView();f.drain();assert.equal(Number(f.svg.dataset.visiblePosts),overview);}finally{f.destroy();}
+ const f=sceneFixture({}, {frames:true});try{f.drain();const overview=Number(f.svg.dataset.visiblePosts);f.scene.focusArea('ai_data_team_1');f.drain();assert.equal(Number(f.svg.dataset.visiblePosts),41);f.scene.zoom(.5);f.drain();assert.equal(Number(f.svg.dataset.visiblePosts),41);f.scene.focusArea('business');f.drain();assert.equal(f.svg.dataset.focusTeam,'');assert.equal(Number(f.svg.dataset.visiblePosts),overview);f.scene.resetView();f.drain();assert.equal(Number(f.svg.dataset.visiblePosts),overview);}finally{f.destroy();}
+});
+
+test('2D team entry isolates one complete normal-size office and keeps original seat event identities',()=>{
+ const seats=[],actions=[],f=sceneFixture({onSelectSeat:(id,point)=>seats.push({id,point}),onSelectNode:id=>actions.push(id),onEnterArea:id=>actions.push(id),onSelectBulletin:id=>actions.push(id)},{frames:true});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_2'),posts=f.groups.get('[data-position]'),first=posts.find(el=>el.dataset.position===team.seats[1].id),originalParent=first.parent;
+  f.scene.focusArea(team.id);f.drain();assert.equal(f.svg.dataset.localTeam,team.id);assert.equal(f.svg.dataset.visiblePosts,'41');assert.equal(f.layers.get('.cnl-campus-floor').style.display,'none');assert.equal(f.layers.get('.cnl-local-floor').style.display,'');assert.match(f.layers.get('.cnl-local-floor').innerHTML,/40 名员工/);assert.equal(first.parent,f.layers.get('.cnl-local-seats'));
+  for(const post of officeSeatsForView({focusedTeamId:team.id})){assert.equal(post.scale,.72);assert.equal(post.desk.w,64);assert.equal(post.desk.h,28);const at=f.screen(post);assert.ok(at.x>0&&at.x<1060&&at.y>0&&at.y<650,post.id+' fits the active office');}
+  first.listeners.get('click')({stopPropagation(){},target:{closest:()=>null}});assert.deepEqual(seats,[{id:team.seats[1].id,point:{x:team.seats[1].x,y:team.seats[1].y,nodeId:'ai_data'}}]);
+  f.groups.get('[data-node]').find(el=>el.dataset.node==='finance').listeners.get('click')({stopPropagation(){}});f.groups.get('[data-team]')[0].listeners.get('click')({stopPropagation(){}});f.groups.get('[data-bulletin-section]')[0].listeners.get('click')({stopPropagation(){}});assert.deepEqual(actions,[]);
+  f.scene.resetView();f.drain();assert.equal(f.svg.dataset.localTeam,'');assert.equal(f.layers.get('.cnl-campus-floor').style.display,'');assert.equal(first.parent,originalParent);assert.equal(f.groups.get('[data-position]').find(el=>el.dataset.position===first.dataset.position),first,'existing handlers survive scope changes');
+ }finally{f.destroy();}
+});
+
+test('2D local people render through display projection while motion exchange and walking requests stay canonical',()=>{
+ const moves=[],f=sceneFixture({onMovePoint:p=>moves.push(p)},{frames:true,timers:true});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_1'),point={x:team.x+80,y:team.y+110},person={id:'local-me',name:'本部门员工',online:true,nodeId:'ai_data',x:point.x,y:point.y};
+  f.scene.setPresence({enabled:true,currentUserId:person.id,people:[person,{id:'other-room',name:'外部员工',online:true,nodeId:'finance',x:100,y:750}]});f.scene.focusArea(team.id);f.drain();
+  const el=f.layers.get('.cnl-presence-layer').children.find(el=>el.dataset.human===person.id),expected=officeDisplayPoint(point,team.id);assert.equal(el.attrs.transform,`translate(${expected.x} ${expected.y})`);assert.equal(el.style.display,'');assert.equal(f.layers.get('.cnl-presence-layer').children.find(el=>el.dataset.human==='other-room').style.display,'none');assert.deepEqual(f.scene.getPresenceState().positions[person.id],point);
+  const click=f.screen(expected);f.input('click',{clientX:click.x,clientY:click.y});f.advanceTimers(270);assert.equal(moves.length,1);almost(moves[0].x,point.x);almost(moves[0].y,point.y);assert.equal(moves[0].teamId,team.id);
+  const outside=f.screen({x:team.detailBounds.x-25,y:team.detailBounds.y});f.input('click',{clientX:outside.x,clientY:outside.y});f.advanceTimers(300);assert.equal(moves.length,1,'the surrounding hidden campus cannot receive local floor clicks');
+  f.scene.setActive(false);f.scene.setActive(true);f.drain();assert.deepEqual(f.scene.getPresenceState().positions[person.id],point);assert.equal(el.attrs.transform,`translate(${expected.x} ${expected.y})`);
+  f.scene.resetView();f.drain();assert.equal(el.attrs.transform,`translate(${point.x} ${point.y})`);assert.equal(f.layers.get('.cnl-presence-layer').children.find(el=>el.dataset.human==='other-room').style.display,'');
+ }finally{f.destroy();}
+});
+
+test('manual 2D inspection enters the complete local office once and exits only through an outward user zoom or Home',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_3');f.scene.focusPoint({x:team.x+team.w/2,y:team.y+team.h/2},3);f.drain();assert.equal(f.svg.dataset.localTeam||'','');f.scene.zoom(.1);f.drain();assert.equal(f.svg.dataset.localTeam,team.id);const fitted=sceneScale(f);assert.ok(fitted<2.4,'local fit is independent of the campus semantic zoom threshold');assert.equal(f.svg.dataset.visiblePosts,'41');
+  f.scene.zoom(1);f.drain();assert.ok(sceneScale(f)>fitted);assert.equal(f.svg.dataset.localTeam,team.id);f.input('pointerdown',{clientX:400,clientY:300});f.input('pointermove',{clientX:435,clientY:320});f.input('pointerup');f.drain();assert.equal(f.svg.dataset.localTeam,team.id);f.scene.setActive(false);f.scene.setActive(true);f.drain();assert.equal(f.svg.dataset.localTeam,team.id);
+  f.scene.zoom(-100);f.drain();assert.equal(f.svg.dataset.localTeam,'');assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));f.scene.focusArea(team.id);f.drain();f.input('keydown',{key:'Home'});f.drain();assert.equal(f.svg.dataset.localTeam,'');assert.equal(f.svg.attrs.viewBox,initialViewBox);
+ }finally{f.destroy();}
 });

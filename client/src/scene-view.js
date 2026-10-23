@@ -114,15 +114,27 @@ export function createSceneViewController(container, callbacks = {}, options = {
     applyPresence(entry, positions, true);
     entry.preparedVersion = version;
   }
+  const localScope = entry => entry?.valid && typeof entry.scene.getLocalTeamId === 'function'
+    ? entry.scene.getLocalTeamId() || null : undefined;
   async function prepare(entry) {
     // Snapshot restoration can race with a network result while an asynchronous
     // GPU preparation is in progress. Never reveal an older result or identity.
+    let source, scope;
     do {
       if (!entry.valid || disposed) return;
-      const positions = current?.valid ? current.scene.getPresenceState?.()?.positions : undefined;
+      source = current?.valid ? current : null;
+      scope = localScope(source);
+      const positions = source?.scene.getPresenceState?.()?.positions;
       restore(entry, positions);
+      // A local office is shared navigation context. Keep each renderer's own
+      // manual camera when that context matches; only fit on an actual change.
+      if (entry !== source && scope !== undefined && localScope(entry) !== undefined && localScope(entry) !== scope) {
+        if (scope) entry.scene.focusArea?.(scope);
+        else entry.scene.resetView?.();
+      }
       await entry.scene.prepare?.();
-    } while (!disposed && entry.valid && entry.preparedVersion !== version);
+    } while (!disposed && entry.valid && (entry.preparedVersion !== version
+      || source !== (current?.valid ? current : null) || scope !== localScope(current)));
   }
   function cancelWarmup() {
     if (warmHandle === null) return;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {OFFICE_WORLD,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_OVERVIEW_SEATS,OFFICE_DETAIL_ZOOM,officeSeatsForView,ORGANIZATION_DEPARTMENTS,ORGANIZATION_PEOPLE,ORGANIZATION_TOTALS,OFFICE_AGENT_HOMES,OFFICE_NODE_ANCHORS,OFFICE_WALKING_SEGMENTS,OFFICE_DATA_CENTER_WALKING_SEGMENTS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,canonicalDepartmentId,departmentById,roomForDepartment,departmentWorkPoint} from '../src/organization.mjs';
+import {OFFICE_WORLD,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_OVERVIEW_SEATS,OFFICE_DETAIL_ZOOM,officeSeatsForView,officeTeamDetail,officeDisplayPoint,officeCanonicalPoint,officePointInTeam,ORGANIZATION_DEPARTMENTS,ORGANIZATION_PEOPLE,ORGANIZATION_TOTALS,OFFICE_AGENT_HOMES,OFFICE_NODE_ANCHORS,OFFICE_WALKING_SEGMENTS,OFFICE_DATA_CENTER_WALKING_SEGMENTS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,canonicalDepartmentId,departmentById,roomForDepartment,departmentWorkPoint} from '../src/organization.mjs';
 
 test('organization has exact requested posts without inventing accounts',()=>{
   assert.equal(ORGANIZATION_DEPARTMENTS.length,12);
@@ -220,12 +220,12 @@ test('detail is scoped to a selected department or team and never unfolds all tw
   assert.equal(officeSeatsForView({zoom:20,detailDepartmentId:'ai_data'}).length,OFFICE_OVERVIEW_SEATS.length);
   const team=roomForDepartment('ai_data').teamZones[0];
   const focused=officeSeatsForView({focusedTeamId:team.id});
-  assert.equal(focused.filter(post=>post.teamId===team.id).length,6);
-  assert.equal(focused.filter(post=>post.teamId===team.id&&post.role==='staff').length,5);
+  assert.equal(focused.length,41);assert.equal(focused.filter(post=>post.teamId===team.id).length,41);
+  assert.equal(focused.filter(post=>post.teamId===team.id&&post.role==='staff').length,40);
   assert.equal(team.seats.length,41,'representative geometry preserves every real employee');
   assert.deepEqual(focused.filter(post=>post.teamId===team.id).map(post=>post.id).sort(),[...team.detailSeatIds].sort());
   for(const post of focused.filter(post=>post.teamId===team.id)){assert.equal(post.scale,.72);assert.equal(post.desk.w,64);assert.equal(post.desk.h,28);}
-  assert.equal(focused.filter(post=>post.departmentId==='ai_data'&&post.teamId!==team.id).length,17);
+  assert.equal(focused.filter(post=>post.teamId!==team.id).length,0,'local floor excludes the surrounding campus');
   assert.equal(officeSeatsForView({zoom:OFFICE_DETAIL_ZOOM-.01,detailTeamId:team.id}).length,OFFICE_OVERVIEW_SEATS.length);
   assert.equal(officeSeatsForView({zoom:OFFICE_DETAIL_ZOOM,detailTeamId:team.id}).length,focused.length);
   const research=officeSeatsForView({focusedDepartmentId:'research'});
@@ -238,10 +238,10 @@ test('crowded team samples stay stable across redraws, camera changes and both v
     const overview=()=>officeSeatsForView().filter(post=>post.teamId===team.id);
     const detail=()=>officeSeatsForView({focusedTeamId:team.id}).filter(post=>post.teamId===team.id);
     const initialOverview=overview().map(post=>post.id),initialDetail=detail().map(post=>post.id);
-    assert.equal(new Set(team.detailSeatIds).size,6);
+    assert.equal(new Set(team.detailSeatIds).size,41);
     assert.ok(team.overviewSeatIds.every(id=>team.detailSeatIds.includes(id)));
     for(let i=0;i<20;i++){officeSeatsForView({focusedTeamId:`ai_data_team_${i%5+1}`,zoom:i+1});assert.deepEqual(overview().map(post=>post.id),initialOverview);assert.deepEqual(detail().map(post=>post.id),initialDetail);}
-    for(const post of overview()){const expanded=detail().find(item=>item.id===post.id);assert.deepEqual(post.desk,expanded.desk);assert.equal(post.scale,expanded.scale);}
+    for(const post of overview()){const expanded=detail().find(item=>item.id===post.id);assert.notDeepEqual(post.desk,expanded.desk);assert.equal(post.scale,expanded.scale);assert.equal(post.personId,expanded.personId);}
     for(const post of detail())for(const other of detail())if(post.id!==other.id)assert.ok(Math.abs(post.x-other.x)>=(post.desk.w+other.desk.w)/2||Math.abs(post.desk.y-other.desk.y)>=(post.desk.h+other.desk.h)/2,'normal desks must not overlap');
   }
 });
@@ -298,4 +298,28 @@ test('convenience corner fits the courtyard and leaves the shared table and all 
       assert.equal(crosses,false,'convenience furnishing blocks walkway');
     }
   }
+});
+
+
+test('full team floor uses invertible display coordinates while canonical seats and campus footprints stay unchanged',()=>{
+  for(const room of OFFICE_ROOMS)for(const team of room.teamZones){
+    assert.equal(officeTeamDetail(team.id),team);assert.equal(team.w,160);assert.equal(team.h,130);
+    const bounds=team.detailBounds;
+    assert.equal(bounds.w,840);assert.equal(bounds.h,480);
+    for(const post of team.seats){
+      const shown=post.detailGeometry,projected=officeDisplayPoint(post,team.id),restored=officeCanonicalPoint(projected,team.id);
+      assert.ok(Math.abs(projected.x-shown.x)<1e-8&&Math.abs(projected.y-shown.y)<1e-8);
+      assert.ok(Math.abs(restored.x-post.x)<1e-8&&Math.abs(restored.y-post.y)<1e-8);
+      assert.equal(restored.id,post.id);assert.equal(restored.personId,post.personId);assert.equal(post.scale,.24);
+      assert.equal(officePointInTeam(post,team.id),true);
+      assert.ok(shown.desk.x-shown.desk.w/2>=bounds.x&&shown.desk.x+shown.desk.w/2<=bounds.x+bounds.w);
+      assert.ok(shown.desk.y-shown.desk.h/2>=bounds.y&&shown.y+5<=bounds.y+bounds.h);
+    }
+    const arrival={x:team.x+team.w/2,y:team.y+team.h-4};
+    assert.equal(officePointInTeam(arrival,team.id),true);
+    const shown=officeDisplayPoint(arrival,team.id);assert.ok(shown.x>bounds.x&&shown.x<bounds.x+bounds.w&&shown.y>bounds.y&&shown.y<bounds.y+bounds.h);
+    const point={x:team.x+8,y:team.y+82};assert.deepEqual(officeCanonicalPoint(officeDisplayPoint(point,team.id),team.id),point);
+  }
+  assert.equal(officeTeamDetail('missing'),null);assert.equal(officePointInTeam(null,'missing'),false);
+  const point={x:10,y:20};assert.equal(officeDisplayPoint(point,'missing'),point);assert.equal(officeCanonicalPoint(point,'missing'),point);
 });

@@ -1,7 +1,7 @@
 import {BULLETIN_SECTIONS,bulletinTile} from './bulletin-sections.mjs';
 import * as THREE from './vendor/three.module.js';
 
-import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
+import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, officeTeamDetail, officeDisplayPoint, officeCanonicalPoint, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
 import { employeeAppearance } from './employee-appearance.mjs';
 import { OFFICE_EXTERIOR } from './office-environment.mjs';
 
@@ -343,7 +343,20 @@ export function createOffice3DLayout(assets) {
     if(detailSeatIds.has(seat.id)){if(!detailBatches.has(key))detailBatches.set(key,new Map());activeBatches=detailBatches.get(key);workstation(officeSeatForView(seat,{detail:true}),index);}
     if(overviewSeatIds.has(seat.id)){activeBatches=overviewBatches;workstation(officeSeatForView(seat),index);}
   });
-  activeSeatId=null;activeBatches=batches;
+  // A full team is a separate local room. Its furniture uses display geometry;
+  // its employee identities and canonical presence coordinates stay unchanged.
+  activeSeatId=null;
+  for(const info of seatGroups.values()){
+    const bounds=info.region.detailBounds;if(!bounds)continue;
+    if(!detailBatches.has(info.id))detailBatches.set(info.id,new Map());activeBatches=detailBatches.get(info.id);
+    const x=bounds.x+bounds.w/2,z=bounds.y+bounds.h/2;
+    slab(c.foundation,x,-5,z,bounds.w+10,10,bounds.h+10);
+    slab('#d2e7db',x,.95,z,bounds.w,1.3,bounds.h);
+    for(let px=bounds.x+44;px<bounds.x+bounds.w;px+=88)box('#bdcfc2',px,1.66,z,.16,.1,bounds.h-3);
+    for(let pz=bounds.y+52;pz<bounds.y+bounds.h;pz+=58)box('#bdcfc2',x,1.66,pz,bounds.w-3,.1,.16);
+    wall(x,bounds.y,bounds.w,6);wall(bounds.x,z,6,bounds.h);wall(bounds.x+bounds.w,z,6,bounds.h);
+  }
+  activeBatches=batches;
   statistics.people=OFFICE_SEATS.filter(seat=>seat.occupantVisible).length;statistics.desks=OFFICE_SEATS.length;statistics.workplaces=OFFICE_SEATS.length;statistics.overviewPeople=OFFICE_SEATS.filter(seat=>overviewSeatIds.has(seat.id)&&seat.occupantVisible).length;
   const shop=OFFICE_CONVENIENCE_AREA;
   slab('#adc3a4',shop.x+shop.w/2,2.6,shop.y+shop.h/2,shop.w,1.7,shop.h);
@@ -451,7 +464,8 @@ export function createOffice3DLayout(assets) {
   emit(batches,root);
   const overviewRoot=new THREE.Group();overviewRoot.name='organization-overview';root.add(overviewRoot);emit(overviewBatches,overviewRoot);
   for(const [id,map]of detailBatches){const group=new THREE.Group();group.name=`organization-detail-${id}`;group.visible=false;root.add(group);seatGroups.get(id).root=group;emit(map,group);}
-  let detailed=new Set(),away=new Set();const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
+  let detailed=new Set(),away=new Set(),localTeamId=null;
+  const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
   for(const map of[overviewBatches,...detailBatches.values()])for(const batch of map.values())batch.bodyParts.forEach((part,index)=>{
     if(!part||part==='legs')return;const id=batch.owners[index];if(!poseParts.has(id))poseParts.set(id,[]);poseParts.get(id).push({batch,index,part,overview:map===overviewBatches,groupId:seatGroupById.get(id)});
   });
@@ -500,9 +514,11 @@ export function createOffice3DLayout(assets) {
     away=next;return true;
   }
   function setDetailGroups(ids=[]){
-    const next=new Set(ids.filter(id=>seatGroups.has(id)));if(next.size===detailed.size&&[...next].every(id=>detailed.has(id)))return false;
+    const requested=ids.filter(id=>seatGroups.has(id)),team=requested.find(id=>officeTeamDetail(id)),next=new Set(team?[team]:requested),nextLocal=team||null;
+    if(nextLocal===localTeamId&&next.size===detailed.size&&[...next].every(id=>detailed.has(id)))return false;
     clearIdlePoses();
-    const changed=new Set([...next,...detailed].filter(id=>next.has(id)!==detailed.has(id)));
+    const changed=new Set([...next,...detailed].filter(id=>next.has(id)!==detailed.has(id)));localTeamId=nextLocal;
+    for(const [child,visible]of campusVisibility)child.visible=!localTeamId&&visible;
     for(const info of seatGroups.values())info.root.visible=next.has(info.id);
     for(const batch of overviewBatches.values()){
       let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;batch.mesh.setMatrixAt(index,next.has(owner)||away.has(batch.bodyOwners[index])?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
@@ -510,13 +526,15 @@ export function createOffice3DLayout(assets) {
     }
     detailed=next;return true;
   }
-  const isSeatVisible=id=>detailed.has(seatGroupById.get(id))?detailSeatIds.has(id):overviewSeatIds.has(id);
+  const isSeatVisible=id=>localTeamId?seatGroupById.get(id)===localTeamId&&detailSeatIds.has(id):detailed.has(seatGroupById.get(id))?detailSeatIds.has(id):overviewSeatIds.has(id);
   const seatsById=new Map(OFFICE_SEATS.map(seat=>[seat.id,seat]));
   // Hidden posts retain their logical coordinates for real presence. They are
   // never pickable or painted as a compact grid by the scene renderer.
   const seatGeometry=id=>{const seat=seatsById.get(id);return seat&&isSeatVisible(id)?officeSeatForView(seat,{detail:detailed.has(seatGroupById.get(id))}):seat||null;};
+  function enterTeam(id){const team=officeTeamDetail(id);if(!team)return null;setDetailGroups([team.id]);return team;}
+  function exitTeam(){return localTeamId?setDetailGroups([]):false;}
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
     get awaySeatIds(){return new Set(away);},

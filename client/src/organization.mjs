@@ -124,12 +124,12 @@ for (const spec of specs) {
   departments.push({id:spec.id,name:spec.name,title:spec.name,managerPersonId:spec.manager||`${spec.id}_manager_001`,headcount:members.length,roleCounts,members,teams:teamZones.map(team=>({id:team.id,name:team.title,headPersonId:team.headPersonId,staffCount:team.staffCount,memberPersonIds:team.seats.map(post=>post.personId)}))});
 }
 
-// Sample once per page, shared by both renderers. Logical seats remain intact;
-// the crowded floor uses a small set of full-size, stable representatives.
+// The campus uses representatives. A team opens into its own full-size floor;
+// canonical positions remain the only coordinates sent to the server.
 function sampleTeamSeats(team) {
   const staff=team.seats.filter(post=>post.role!=='head');
   for(let i=staff.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[staff[i],staff[j]]=[staff[j],staff[i]];}
-  return [team.seats.find(post=>post.role==='head'),...staff.slice(0,5)];
+  return [team.seats.find(post=>post.role==='head'),...staff.slice(0,3)];
 }
 for(const room of rooms) {
   const visible=new Set();
@@ -140,12 +140,16 @@ for(const room of rooms) {
     manager.detailGeometry=manager.overviewGeometry;
     for(const team of room.teamZones) {
       const selected=sampleTeamSeats(team);
-      team.detailSeatIds=selected.map(post=>post.id);
-      team.overviewSeatIds=team.detailSeatIds.slice(0,4);
+      team.detailSeatIds=team.seats.map(post=>post.id);
+      team.overviewSeatIds=selected.map(post=>post.id);
+      team.detailBounds={id:team.id,title:team.title,x:team.x+team.w/2-420,y:team.y+team.h/2-240,w:840,h:480};
+      for(const post of team.seats){
+        const x=team.detailBounds.x+78+(post.x-team.x-12)*88/18,y=team.detailBounds.y+168+(post.y-team.y-52)*58/18;
+        post.detailGeometry={x,y,scale:.72,desk:{x,y:y-24,w:64,h:28}};
+      }
       for(const [index,post]of selected.entries()){
         const x=team.x+(index%2?120:40),deskY=team.y+16+Math.floor(index/2)*44;
-        post.detailGeometry={x,y:deskY+24,scale:.72,desk:{x,y:deskY,w:64,h:28}};
-        if(index<4){visible.add(post.id);post.overviewGeometry=post.detailGeometry;}
+        visible.add(post.id);post.overviewGeometry={x,y:deskY+24,scale:.72,desk:{x,y:deskY,w:64,h:28}};
       }
     }
   } else {
@@ -158,6 +162,20 @@ for(const room of rooms) {
 
 export const OFFICE_ROOMS=freeze(rooms);
 export const OFFICE_SEATS=freeze(seats);
+const detailTeams=new Map(rooms.flatMap(room=>room.teamZones).map(team=>[team.id,team]));
+export function officeTeamDetail(id){return detailTeams.get(id)||null;}
+export function officePointInTeam(point,teamId,{margin=8}={}){
+  const team=officeTeamDetail(teamId);
+  return !!team&&Number.isFinite(point?.x)&&Number.isFinite(point?.y)&&point.x>=team.x-margin&&point.x<=team.x+team.w+margin&&point.y>=team.y-margin&&point.y<=team.y+team.h+margin;
+}
+export function officeDisplayPoint(point,teamId){
+  const team=officeTeamDetail(teamId);if(!team||!point)return point;
+  return {...point,x:team.detailBounds.x+78+(point.x-team.x-12)*88/18,y:team.detailBounds.y+168+(point.y-team.y-52)*58/18};
+}
+export function officeCanonicalPoint(point,teamId){
+  const team=officeTeamDetail(teamId);if(!team||!point)return point;
+  return {...point,x:team.x+12+(point.x-team.detailBounds.x-78)*18/88,y:team.y+52+(point.y-team.detailBounds.y-168)*18/58};
+}
 export function officeSeatForView(post,{detail=false}={}) {
   const geometry=detail?post.detailGeometry:post.overviewGeometry;
   return geometry?Object.freeze({...post,...geometry}):post;
@@ -167,6 +185,7 @@ export const OFFICE_DETAIL_ZOOM=2.4;
 export function officeSeatsForView({zoom=1,focusedDepartmentId,focusedTeamId,detailDepartmentId,detailTeamId}={}) {
   const team=focusedTeamId||(zoom>=OFFICE_DETAIL_ZOOM?detailTeamId:null);
   const department=canonicalDepartmentId(focusedDepartmentId||(zoom>=OFFICE_DETAIL_ZOOM?detailDepartmentId:null));
+  if(officeTeamDetail(team))return OFFICE_SEATS.filter(post=>post.teamId===team).map(post=>officeSeatForView(post,{detail:true}));
   const detail=post=>team?post.teamId===team:department&&department!=='ai_data'&&post.departmentId===department;
   return OFFICE_SEATS.filter(post=>post.overviewVisible||(detail(post)&&(!post.teamId||post.detailGeometry))).map(post=>officeSeatForView(post,{detail:!!detail(post)}));
 }
