@@ -169,6 +169,14 @@ test('camera fitting and the reference-facing view use the same orthonormal dire
   }
 });
 
+test('overview, department focus, local team and reset share the gentler thirty-one degree view',()=>{
+ const f=mountedSceneFixture();try{
+  f.drain();assert.deepEqual(OFFICE3D_CAMERA_OFFSET,[-330,760,1200]);const baseline=f.api.getPerformanceStats(),degrees=baseline.elevation*180/Math.PI;assert.ok(degrees>31&&degrees<32);
+  for(const id of['business','ai_data_team_1','finance']){f.api.rotate(.8,.2);f.drain();f.api.focusArea(id);f.drain();const focused=f.api.getPerformanceStats();assert.ok(Math.abs(Math.sin(focused.azimuth-baseline.azimuth))<1e-8);assert.equal(focused.elevation,baseline.elevation);}
+  f.api.rotate(-.5,.15);f.drain();f.api.resetView();f.drain();assert.equal(f.api.getPerformanceStats().elevation,baseline.elevation);assert.equal(f.api.getPerformanceStats().scale,1);
+ }finally{f.restore();}
+});
+
 test('keyboard hands stay on desktop height for both detailed figure scales',()=>{
   const assets=createOffice3DAssets();try{for(const scale of[.98,1.12]){
     const actor=createOffice3DActor(assets,{id:'desk-contact'},{scale});actor.setPosition({x:145,y:263});actor.root.rotation.y=Math.PI;actor.setPose({seated:true,working:true});actor.animate(0,{reducedMotion:true});actor.root.updateMatrixWorld(true);const hand=new THREE.Vector3();actor.arms.right.hand.getWorldPosition(hand);assert.ok(hand.y>=26&&hand.y<=30,`scale ${scale} wrist y ${hand.y}`);
@@ -440,8 +448,7 @@ test('double-clicking a department or team enters that area instead of cancellin
   const entered=[],selected=[],f=mountedSceneFixture({onEnterArea:id=>entered.push(id),onSelectNode:id=>selected.push(id)});try{
     f.frame();
     for(const [type,id]of[['node','business'],['team','ai_data_team_4']]){
-      const before=entered.length,label=f.button(type,id);label.emit('click',{detail:1});assert.equal(entered.length,before);label.emit('click',{detail:2});f.drain();assert.deepEqual(entered.slice(before),[id]);assert.deepEqual(selected,[],'the delayed first selection was replaced by an actual area visit');
-      label.emit('dblclick');f.drain();assert.equal(entered.at(-1),id,'a native double-click also carries the same visit intent');
+      const before=entered.length,label=f.button(type,id);label.emit('click',{detail:1});assert.equal(entered.length,before+(type==='team'?1:0));label.emit('click',{detail:2});label.emit('dblclick');f.drain();assert.deepEqual(entered.slice(before),type==='team'?[id]:[id,id]);assert.deepEqual(selected,[],'an actual area visit replaces the delayed business selection');
     }
     const count=entered.length;f.api.focusArea('finance');f.drain();f.api.focusNode('business');f.drain();assert.equal(entered.length,count,'background framing stays presentation-only');assert.equal(f.pending.size,0);
   }finally{f.restore();}
@@ -815,5 +822,42 @@ test('local desk and floor selection send canonical coordinates rather than expa
  const seats=[],moves=[],f=mountedSceneFixture({onSelectSeat:(id,point)=>seats.push({id,point}),onMovePoint:point=>moves.push(point)});try{
   f.drain();const team=officeTeamDetail('ai_data_team_3'),seat=team.seats.find(post=>post.role==='staff');f.api.focusArea(team.id);f.drain();f.button('post',seat.id).emit('click',{detail:0});assert.deepEqual(seats,[{id:seat.id,point:{x:seat.x,y:seat.y,nodeId:'ai_data'}}]);
   const display={x:team.detailBounds.x+team.detailBounds.w/2,y:team.detailBounds.y+team.detailBounds.h-20},rawCanonical=officeCanonicalPoint(display,team.id),canonical={x:Math.max(team.x+1,Math.min(team.x+team.w-1,rawCanonical.x)),y:Math.max(team.y+1,Math.min(team.y+team.h-1,rawCanonical.y))},screen=cameraPixel(f,new THREE.Vector3(display.x,1.9,display.y));f.canvas.emit('pointerdown',{...f.client(screen.x,screen.y)});f.canvas.emit('pointerup',{...f.client(screen.x,screen.y)});f.drain();assert.equal(moves.length,1);assert.ok(Math.abs(moves[0].x-canonical.x)<1e-6&&Math.abs(moves[0].y-canonical.y)<1e-6);assert.equal(moves[0].nodeId,'ai_data');assert.equal(moves[0].teamId,team.id);assert.ok(moves[0].x>team.x&&moves[0].x<team.x+team.w&&moves[0].y>team.y&&moves[0].y<team.y+team.h,'floor padding never sends a point outside its real team');assert.equal(f.api.getPerformanceStats().localTeamId,team.id);
+ }finally{f.restore();}
+});
+
+test('overview AI people, desks and post labels enter their team instead of invoking seat business',()=>{
+ for(const origin of['person','desk','label','double-click']){const seats=[],entered=[],f=mountedSceneFixture({onSelectSeat:id=>seats.push(id),onEnterArea:id=>entered.push(id)});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_1'),post=OFFICE_SEATS.find(seat=>seat.id===team.overviewSeatIds[0]),geometry=officeSeatForView(post);
+  if(origin==='label')f.button('post',post.id).emit('click',{detail:0});else if(origin==='double-click'){f.button('post',post.id).emit('click',{detail:1});f.button('post',post.id).emit('click',{detail:2});f.button('post',post.id).emit('dblclick');}else{const world=origin==='person'?new THREE.Vector3(geometry.x,1.9+20*geometry.scale,geometry.y):new THREE.Vector3(geometry.desk.x,14*geometry.scale,geometry.desk.y),screen=cameraPixel(f,world);f.canvas.emit('pointerdown',f.client(screen.x,screen.y));f.canvas.emit('pointerup',f.client(screen.x,screen.y));}
+  f.drain();const actual=f.api.getPerformanceStats(),expected=office3DRegionView(team.detailBounds,{width:1440,height:900,azimuth:actual.azimuth});assert.equal(actual.localTeamId,team.id,origin);assert.equal(actual.visibleWorkplaces,41);assert.equal(actual.scale,expected.scale,'native dblclick cannot replace the complete team framing');assert.deepEqual(entered,[team.id],origin);assert.deepEqual(seats,[],'overview entry has no seat operation');
+  f.button('post',post.id).emit('click',{detail:0});assert.deepEqual(seats,[post.id],'inside a team, existing seat interaction remains available');
+ }finally{f.restore();}}
+});
+
+test('dragging an overview AI representative remains a camera gesture and never enters or selects its seat',()=>{
+ const seats=[],entered=[],f=mountedSceneFixture({onSelectSeat:id=>seats.push(id),onEnterArea:id=>entered.push(id)});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_1'),label=f.button('post',team.overviewSeatIds[0]),baseline=f.api.getPerformanceStats();label.emit('pointerdown',{button:0,...f.client(700,400)});f.canvas.emit('pointermove',{button:0,...f.client(760,425)});f.canvas.emit('pointerup',{button:0,...f.client(760,425)});f.drain();assert.equal(f.api.getPerformanceStats().localTeamId,null);assert.equal(f.api.getPerformanceStats().azimuth,baseline.azimuth);assert.notEqual(f.api.getPerformanceStats().panX,baseline.panX);assert.deepEqual(seats,[]);assert.deepEqual(entered,[]);
+ }finally{f.restore();}
+});
+
+test('a real canvas double-click enters once without the second press cancelling the unfinished team fit',()=>{
+ const entered=[],seats=[],f=mountedSceneFixture({onEnterArea:id=>entered.push(id),onSelectSeat:id=>seats.push(id)},{clockedMotion:true});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_1'),post=OFFICE_SEATS.find(seat=>seat.id===team.overviewSeatIds[0]),geometry=officeSeatForView(post),screen=cameraPixel(f,new THREE.Vector3(geometry.x,1.9+20*geometry.scale,geometry.y)),event=f.client(screen.x,screen.y);
+  f.canvas.emit('pointerdown',event);f.canvas.emit('pointerup',event);assert.deepEqual(entered,[team.id],'the first release starts entry immediately');f.frame(34);f.frame(34);assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.canvas.emit('pointerdown',event);f.canvas.emit('pointerup',event);f.canvas.emit('dblclick',event);f.drain();
+  const actual=f.api.getPerformanceStats(),expected=office3DRegionView(team.detailBounds,{width:1440,height:900,azimuth:actual.azimuth});assert.equal(actual.scale,expected.scale);assert.equal(actual.visibleWorkplaces,41);assert.deepEqual(entered,[team.id]);assert.deepEqual(seats,[]);
+ }finally{f.restore();}
+});
+
+test('pointer wheel, native pinch and touch pinch enter the pointed AI team only after the camera write completes',()=>{
+ for(const input of['wheel','native','touch']){const entered=[],f=mountedSceneFixture({onEnterArea:id=>entered.push(id)},{clockedMotion:true});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_3');f.api.zoom(1.2);f.drain();assert.equal(f.api.getPerformanceStats().localTeamId,null,'API zoom alone does not change navigation');const center=cameraPixel(f,new THREE.Vector3(team.x+team.w/2,1.9,team.y+team.h/2)),event=f.client(center.x,center.y);
+  if(input==='wheel')f.canvas.emit('wheel',{deltaY:-120,...event});else if(input==='native'){f.wrapper.emit('gesturestart',{scale:1,rotation:0,...event});f.wrapper.emit('gesturechange',{scale:1.2,rotation:0,...event});}else{f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:1,...f.client(center.x-60,center.y)});f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,...f.client(center.x+60,center.y)});f.canvas.emit('pointermove',{pointerType:'touch',pointerId:2,...f.client(center.x+90,center.y)});}
+  assert.equal(f.api.getPerformanceStats().localTeamId,null,'input does not reenter the camera write callback');f.drain();assert.deepEqual(entered,[team.id],input);const actual=f.api.getPerformanceStats(),expected=office3DRegionView(team.detailBounds,{width:1440,height:900,azimuth:actual.azimuth});assert.equal(actual.localTeamId,team.id);assert.equal(actual.visibleWorkplaces,41);assert.equal(actual.scale,expected.scale);assert.equal(f.canvas.captured.size,0,'old global touch anchors are released on entry');f.wrapper.emit('gestureend');f.api.zoom(.3);f.drain();assert.deepEqual(entered,[team.id],'continued local zoom does not reenter or reveal another team');
+ }finally{f.restore();}}
+});
+
+test('a high-zoom pan or automatic AI department focus does not enter a local team',()=>{
+ const entered=[],f=mountedSceneFixture({onEnterArea:id=>entered.push(id)});try{
+  f.drain();f.api.focusArea('ai_data');f.drain();assert.equal(f.api.getPerformanceStats().localTeamId,null);f.api.zoom(3);f.drain();assert.equal(f.api.getPerformanceStats().localTeamId,null);f.canvas.emit('pointerdown',f.client(700,400));f.canvas.emit('pointermove',f.client(760,425));f.canvas.emit('pointerup',f.client(760,425));f.drain();assert.equal(f.api.getPerformanceStats().localTeamId,null);assert.deepEqual(entered,[]);
  }finally{f.restore();}
 });

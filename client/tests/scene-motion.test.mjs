@@ -212,3 +212,9 @@ test('data center walks use its south door and the campus south corridor rather 
 test('data center internal lane routes stay between the six rack footprints without taking a shortcut through the office',()=>{
  const targets=[{x:-94,y:875},{x:-38,y:875},{x:-94,y:965},{x:-38,y:965},{x:-94,y:1058},{x:-38,y:1058}];for(const a of targets)for(const b of targets){const route=routeBetweenPoints(a,b);assert.ok(route.every(p=>p.x>=-155&&p.x<=25&&p.y>=810&&p.y<=1070));for(let index=1;index<route.length;index++){const p=route[index-1],q=route[index];for(const x of[-122,-66,-10])for(const y of[920,1006]){const horizontal=p.y===q.y,crosses=horizontal?p.y>y-17.5&&p.y<y+17.5&&Math.max(p.x,q.x)>x-17&&Math.min(p.x,q.x)<x+17:p.x>x-17&&p.x<x+17&&Math.max(p.y,q.y)>y-17.5&&Math.min(p.y,q.y)<y+17.5;assert.equal(crosses,false,`rack ${x},${y}`);}}}
 });
+
+test('automatic journeys ease at both ends while wheel motion uses a shorter responsive interval',()=>{
+ let value={x:0};const tween=createViewTween({read:()=>({...value}),write:next=>{value=next;}});
+ tween.start({x:100},{duration:520,easing:'smooth'});tween.tick(0);tween.tick(16);const first=value.x;assert.ok(first>0&&first<.1,'an automatic move should not lurch on its first frame');tween.tick(260);assert.ok(Math.abs(value.x-50)<1e-8);tween.tick(504);assert.ok(100-value.x<.1);tween.tick(520);assert.equal(value.x,100);assert.equal(tween.active,false);
+ tween.start({x:200},{duration:160});tween.tick(1000);tween.tick(1080);assert.ok(value.x>180,'wheel input responds before an automatic journey would reach halfway');tween.tick(1160);assert.equal(value.x,200);assert.equal(tween.active,false);
+});

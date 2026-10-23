@@ -18,6 +18,12 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
  let revision=0,currentArea=null,pending=null,destroyed=false;
  const focus=id=>id?(typeof scene.focusArea==='function'?scene.focusArea(id):scene.focusNode?.(id)):scene.resetView();
  function restore(){if(destroyed||isBlocked())return false;focus(currentArea);return true;}
+ function setContext(id){
+  if(destroyed)return false;
+  const next=id===null?null:officeArea(id)?.id;if(next===undefined)return false;
+  if(next===currentArea)return true;
+  ++revision;pending=null;currentArea=next;return true;
+ }
  function enterArea(id,{point,frame=true}={}){
   const area=officeArea(id);if(destroyed||!area||isBlocked()||!requireAccount())return Promise.resolve(false);
   const presence=getPresence();if(!presence)return Promise.resolve(false);
@@ -36,7 +42,7 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
   })().finally(()=>{if(pending?.ticket===ticket)pending=null;});
   pending={key,presence,ticket,promise};return promise;
  }
- return{enterArea,
+ return{enterArea,setContext,
   movePoint(point){if(!validPoint(point))return Promise.resolve(false);const id=point.teamId&&officePointInTeam(point,point.teamId,{margin:0})?point.teamId:officeAreaAt(point)?.id;return enterArea(id,{point,frame:id!==currentArea});},
   locateSelf(){const presence=getPresence(),me=presence?.self;if(destroyed||!me||isBlocked())return false;++revision;pending=null;currentArea=(validPoint(me)?officeAreaAt(me):officeArea(me.nodeId||me.department))?.id||null;return restore();},
   restore,

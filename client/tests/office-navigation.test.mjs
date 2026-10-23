@@ -5,7 +5,7 @@ import {OFFICE_ROOMS} from '../src/organization.mjs';
 import {presencePosition} from '../src/erp-presence.js';
 const deferred=()=>{let resolve;return {promise:new Promise(yes=>resolve=yes),get resolve(){return resolve;}};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(){const calls=[],moves=[],self={id:'me',...presencePosition('hr_admin')},presence={ready:Promise.resolve(),self,async movePoint(point,options){if(!options.shouldRun())return false;moves.push(point);Object.assign(self,point);return true;}};let owner=presence,allowed=true,blocked=false;const scene={focusArea:id=>calls.push(id),resetView:()=>calls.push('home')};const nav=createOfficeNavigation({scene,getPresence:()=>owner,requireAccount:()=>allowed,isBlocked:()=>blocked});return{nav,presence,self,calls,moves,setOwner:value=>owner=value,setAllowed:value=>allowed=value,setBlocked:value=>blocked=value};}
+function fixture(){const calls=[],moves=[],self={id:'me',...presencePosition('hr_admin')},presence={ready:Promise.resolve(),self,async movePoint(point,options){if(!options.shouldRun())return false;moves.push(point);Object.assign(self,point);return true;}};let owner=presence,allowed=true,blocked=false;const scene={focusArea:id=>calls.push(id),resetView:()=>calls.push('home')};const nav=createOfficeNavigation({scene,getPresence:()=>owner,requireAccount:()=>allowed,isBlocked:()=>blocked});return{nav,scene,presence,self,calls,moves,setOwner:value=>owner=value,setAllowed:value=>allowed=value,setBlocked:value=>blocked=value};}
 test('each department click sends one authenticated destination and focuses that office without changing business membership',async()=>{
  const f=fixture();for(const room of OFFICE_ROOMS){await f.nav.enterArea(room.id);assert.equal(f.calls.at(-1),room.id);assert.deepEqual({x:f.self.x,y:f.self.y},presencePosition(room.id));}assert.equal(f.self.id,'me');assert.equal(f.self.department,undefined);
 });
@@ -28,4 +28,21 @@ test('sign-out, identity replacement, blocked surfaces and invalid coordinates c
 
 test('walking inside an already framed office keeps the user zoom instead of fitting the same area again',async()=>{
  const f=fixture();await f.nav.enterArea('finance');const before=f.calls.length,room=officeArea('finance');await f.nav.movePoint({x:room.x+20,y:room.y+room.h-20});assert.equal(f.calls.length,before);assert.equal(f.moves.length,2);await f.nav.enterArea('finance');assert.equal(f.calls.at(-1),'finance','explicitly choosing the office still restores its framing');
+});
+
+test('manual overview and team context changes restore the visible place without sending a walk',async()=>{
+ const f=fixture();await f.nav.enterArea('ai_data_team_1');const moves=f.moves.length,calls=f.calls.length;
+ assert.equal(f.nav.setContext(null),true);assert.equal(f.nav.areaId,null);assert.equal(f.calls.length,calls,'context recording does not move the camera');f.nav.restore();assert.equal(f.calls.at(-1),'home');assert.equal(f.moves.length,moves);
+ assert.equal(f.nav.setContext('ai_data_team_2'),true);assert.equal(f.nav.areaId,'ai_data_team_2');f.nav.restore();assert.equal(f.calls.at(-1),'ai_data_team_2');assert.equal(f.moves.length,moves);
+ assert.equal(f.nav.setContext('unknown'),false);assert.equal(f.nav.areaId,'ai_data_team_2');f.nav.destroy();assert.equal(f.nav.setContext('finance'),false);assert.equal(f.nav.areaId,null);
+});
+
+test('a manual context change cancels an obsolete waiting destination without restoring the old area',async()=>{
+ for(const next of[null,'ai_data_team_2']){
+  const f=fixture(),wait=deferred();f.presence.ready=wait.promise;const pending=f.nav.enterArea('ai_data_team_1');assert.equal(f.nav.setContext(next),true);wait.resolve();assert.equal(await pending,false);assert.equal(f.nav.areaId,next);assert.deepEqual(f.moves,[]);f.nav.restore();assert.equal(f.calls.at(-1),next||'home');
+ }
+});
+
+test('a matching camera context callback cannot cancel its own authenticated navigation',async()=>{
+ const f=fixture(),wait=deferred();f.presence.ready=wait.promise;f.scene.focusArea=id=>{f.calls.push(id);f.nav.setContext(id);};const first=f.nav.enterArea('ai_data_team_1'),duplicate=f.nav.enterArea('ai_data_team_1');assert.equal(first,duplicate);assert.equal(f.nav.setContext('ai_data_team_1'),true);assert.equal(f.nav.setContext('unknown'),false);wait.resolve();assert.equal(await first,true);assert.equal(f.moves.length,1);assert.equal(f.nav.areaId,'ai_data_team_1');f.nav.restore();assert.equal(f.moves.length,1);
 });

@@ -23,7 +23,7 @@ const NETWORK_IDS=new Set(['internet','firewall','core','server','storage','ups'
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountScene(container, { onSelectNode = () => {}, onEnterArea = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
+export function mountScene(container, { onSelectNode = () => {}, onEnterArea = () => {}, onNavigationContext = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
   const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], seated:[-26,-59,52,63], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35],empty_seat:[-26,-59,52,63] };
   const use = (name, x, y, scale = 1, extra = '') => {
@@ -198,7 +198,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   const feedbackAnimations=new WeakMap();
   const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);if(wheelAnchor){panX=wheelAnchor.world.x-WORLD_CX-wheelAnchor.offsetX/scale;panY=wheelAnchor.world.y-WORLD_CY-wheelAnchor.offsetY/scale;}applyView();}});
   function beginManualCamera(kind){if(cameraOwner!==kind)stopCamera();cameraOwner=kind;focusedDepartmentId=null;focusedTeamId=null;}
-  function animateView(patch,anchor=null,{manual=false}={}){onLeaveBulletin();if(!manual)cameraOwner='automatic';if(!officeCameraChanged(viewTween.target,{...viewTween.target,...patch}))return viewTween.target;wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-WORLD_CX-panX)*scale,offsetY:(anchor.world.y-WORLD_CY-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion||!active});if(active&&viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
+  function animateView(patch,anchor=null,{manual=false}={}){onLeaveBulletin();if(!manual)cameraOwner='automatic';if(!officeCameraChanged(viewTween.target,{...viewTween.target,...patch}))return viewTween.target;wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-WORLD_CX-panX)*scale,offsetY:(anchor.world.y-WORLD_CY-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion||!active,duration:manual?160:520,easing:manual?'out':'smooth'});if(active&&viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
   function tickCamera(time){cameraMotionFrame=0;if(destroyed||!active||document.hidden)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
   function stopCamera(){wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
@@ -252,7 +252,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
       greetingAnimation=arm.animate(element.dataset.position?[{transform:'rotate(0deg)',offset:0},{transform:'rotate(-14deg)',offset:.2},{transform:'rotate(12deg)',offset:.4},{transform:'rotate(-12deg)',offset:.6},{transform:'rotate(10deg)',offset:.8},{transform:'rotate(0deg)',offset:1}]:[{transform:'rotate(0deg)',offset:0},{transform:'rotate(-130deg)',offset:.27},{transform:'rotate(-108deg)',offset:.4},{transform:'rotate(-143deg)',offset:.53},{transform:'rotate(-110deg)',offset:.66},{transform:'rotate(-134deg)',offset:.78},{transform:'rotate(0deg)',offset:1}],{duration:920,easing:'ease-in-out',iterations:1});
     }
   }
-  for(const [id,element]of positionElements){const select=event=>{event.stopPropagation();if(destroyed||element.dataset.visible==='false'||performance.now()<suppressClickUntil)return;cancelFloorClick();for(const [otherId,other]of positionElements){other.dataset.selected=String(otherId===id);other.setAttribute('aria-pressed',String(otherId===id));}const seat=displayedPositions.get(id)||ORGANIZATION_POSITION_META[id],personHit=event.target?.closest?.('.cnl-position-person');if(!personHit){const canonical=ORGANIZATION_POSITION_META[id];onSelectSeat(id,{x:canonical.x,y:canonical.y,nodeId:canonical.departmentId});};showGreeting(element);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
+  for(const [id,element]of positionElements){const select=event=>{event.stopPropagation();if(destroyed||element.dataset.visible==='false'||performance.now()<suppressClickUntil)return;cancelFloorClick();const teamId=ORGANIZATION_POSITION_META[id]?.teamId;if(!localTeamId&&teamId){suppressClickUntil=performance.now()+520;focusedDepartmentId='ai_data';focusedTeamId=teamId;focusRegion(officeTeamDetail(teamId));onEnterArea(teamId);return;}for(const [otherId,other]of positionElements){other.dataset.selected=String(otherId===id);other.setAttribute('aria-pressed',String(otherId===id));}const seat=displayedPositions.get(id)||ORGANIZATION_POSITION_META[id],personHit=event.target?.closest?.('.cnl-position-person');if(!personHit){const canonical=ORGANIZATION_POSITION_META[id];onSelectSeat(id,{x:canonical.x,y:canonical.y,nodeId:canonical.departmentId});};showGreeting(element);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>setPresencePoint(entry)});
   function renderPresencePerson(element,person,{sitting=false,size=.66,atSeat=false}={}){
     const signature=JSON.stringify([person.name,person.title,person.current,person.color,person.hair,person.posture,person.seatId,sitting,size,atSeat]);if(element.dataset.signature===signature)return;
@@ -606,7 +606,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     syncLegacyHumanVisibility();for(const entry of presenceMotion.entries.values())setPresencePoint(entry);ambient?.resume();
   }
   function focusRegion(region){
-    const team=officeTeamDetail(region.id);setLocalTeam(team?.id||null);if(team){focusedDepartmentId='ai_data';focusedTeamId=team.id;region=team.detailBounds;}
+    const team=officeTeamDetail(region.id);onNavigationContext(team?.id||region.id);setLocalTeam(team?.id||null);if(team){focusedDepartmentId='ai_data';focusedTeamId=team.id;region=team.detailBounds;}
     const nextScale=fitRegionScale(region);if(team)localFitScale=nextScale;
     animateView({scale:nextScale,panX:region.x+region.w/2-WORLD_CX,panY:region.y+region.h/2-WORLD_CY+32/nextScale});syncLevelOfDetail();
   }
@@ -624,7 +624,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   }
   const unsubscribeOccupants=subscribeOrganizationOccupants(()=>{if(!destroyed){syncLevelOfDetail();scheduleViewChange();}});
   function releaseDetailScope(nextScale){if(nextScale<OFFICE_DETAIL_ZOOM){focusedDepartmentId=null;focusedTeamId=null;}}
-  function resetOfficeView(){setLocalTeam(null);focusedDepartmentId=null;focusedTeamId=null;clearGreeting();animateView({scale:1,panX:0,panY:0});syncLevelOfDetail();}
+  function resetOfficeView(){onNavigationContext(null);setLocalTeam(null);focusedDepartmentId=null;focusedTeamId=null;clearGreeting();animateView({scale:1,panX:0,panY:0});syncLevelOfDetail();}
 
   function applyView() {
     const width = OFFICE_WORLD.width / scale;
@@ -680,8 +680,9 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     }
     const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-team], [data-employee], .cnl-human-approval');if(object&&!ROOM_IDS.has(object.dataset.node)&&!object.dataset.position)objectFeedback(object,true);
     if (e.button !== 0) return;
-    svg.focus?.({preventScroll:true});beginManualCamera('pan');
-    drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false };ambient?.refresh();
+    const deferControl=!!localTeamId&&cameraOwner==='automatic'&&performance.now()<suppressClickUntil;
+    svg.focus?.({preventScroll:true});if(!deferControl)beginManualCamera('pan');
+    drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false,deferControl };ambient?.refresh();
   };
   const onPointerMove = e => {
     if(destroyed)return;
@@ -691,7 +692,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     }
     if (!drag || drag.id !== e.pointerId) return;
     if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
-    if (!drag.moved) { focusedDepartmentId=null;focusedTeamId=null;drag.moved = true; svg.setPointerCapture(e.pointerId); svg.classList.add('is-panning'); }
+    if (!drag.moved) { if(drag.deferControl)beginManualCamera('pan');focusedDepartmentId=null;focusedTeamId=null;drag.moved = true; svg.setPointerCapture(e.pointerId); svg.classList.add('is-panning'); }
     const from = worldPoint(drag.lastX, drag.lastY), to = worldPoint(e.clientX, e.clientY);
     panX += from.x - to.x;
     panY += from.y - to.y;

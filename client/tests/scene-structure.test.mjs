@@ -729,3 +729,12 @@ test('manual 2D inspection enters the complete local office once and exits only 
   f.scene.zoom(-100);f.drain();assert.equal(f.svg.dataset.localTeam,'');assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));f.scene.focusArea(team.id);f.drain();f.input('keydown',{key:'Home'});f.drain();assert.equal(f.svg.dataset.localTeam,'');assert.equal(f.svg.attrs.viewBox,initialViewBox);
  }finally{f.destroy();}
 });
+
+test('overview representatives enter the whole 2D team immediately without selecting a workstation or interrupting on a second click',()=>{
+ const entered=[],seats=[],contexts=[],f=sceneFixture({onEnterArea:id=>entered.push(id),onSelectSeat:id=>seats.push(id),onNavigationContext:id=>contexts.push(id)},{frames:true});try{
+  f.drain();const team=officeTeamDetail('ai_data_team_2'),el=f.groups.get('[data-position]').find(el=>el.dataset.position===team.overviewSeatIds[1]);
+  el.listeners.get('click')({target:{closest:()=>null},stopPropagation(){}});assert.deepEqual(entered,[team.id]);assert.deepEqual(seats,[]);assert.equal(f.svg.dataset.localTeam,team.id);
+  f.frame();f.input('pointerdown');f.input('pointerup');el.listeners.get('click')({target:{closest:()=>null},stopPropagation(){}});f.drain();assert.deepEqual(entered,[team.id]);assert.deepEqual(seats,[]);assert.equal(Number(f.svg.dataset.visiblePosts),41);assert.ok(Math.abs(sceneScale(f)-OFFICE_WORLD.width/(team.detailBounds.w+90))<1e-8,'the second physical click cannot stop the full-region framing');
+  f.scene.resetView();f.drain();assert.equal(contexts.at(-1),null);const other=f.groups.get('[data-position]').find(el=>el.dataset.position===team.overviewSeatIds[0]);other.listeners.get('keydown')({key:'Enter',preventDefault(){},stopPropagation(){}});f.drain();assert.deepEqual(entered,[team.id,team.id]);assert.deepEqual(seats,[]);assert.equal(contexts.at(-1),team.id);
+ }finally{f.destroy();}
+});

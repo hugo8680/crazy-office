@@ -4,6 +4,7 @@ import * as THREE from './vendor/three.module.js';
 import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, officeTeamDetail, officeDisplayPoint, officeCanonicalPoint, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
 import { employeeAppearance } from './employee-appearance.mjs';
 import { OFFICE_EXTERIOR } from './office-environment.mjs';
+import {OFFICE_TEAM_MATERIALS,officeTeamInterior} from './office-team-interior.mjs';
 
 /* Architecture, seating and camera fitting share the organization's floor plan.
  * Workplaces are configured positions, separate from authenticated employees. */
@@ -351,9 +352,24 @@ export function createOffice3DLayout(assets) {
     if(!detailBatches.has(info.id))detailBatches.set(info.id,new Map());activeBatches=detailBatches.get(info.id);
     const x=bounds.x+bounds.w/2,z=bounds.y+bounds.h/2;
     slab(c.foundation,x,-5,z,bounds.w+10,10,bounds.h+10);
-    slab('#d2e7db',x,.95,z,bounds.w,1.3,bounds.h);
-    for(let px=bounds.x+44;px<bounds.x+bounds.w;px+=88)box('#bdcfc2',px,1.66,z,.16,.1,bounds.h-3);
-    for(let pz=bounds.y+52;pz<bounds.y+bounds.h;pz+=58)box('#bdcfc2',x,1.66,pz,bounds.w-3,.1,.16);
+    const finishes=OFFICE_TEAM_MATERIALS,interior=officeTeamInterior(info.region);
+    slab(finishes.floor,x,.95,z,bounds.w,1.3,bounds.h);
+    for(const island of interior.islands)slab(island.color,island.x,1.67,island.y,island.w,.1,island.h);
+    const headRug=interior.headRug;slab(finishes.headRug,headRug.x,1.67,headRug.y,headRug.w,.1,headRug.h);
+    const bench=interior.bench;
+    round(finishes.upholstery,bench.x,9,bench.y,bench.w,12,bench.h);round(finishes.upholstery,bench.x,19,bench.y-9,bench.w,14,5);
+    for(const side of[-1,1]){round(finishes.cushion,bench.x+side*35,16,bench.y+1,68,4,18);box(finishes.woodDark,bench.x+side*56,3,bench.y,5,4,16);}
+    const table=interior.table;round(finishes.woodTop,table.x,15,table.y,table.w,3,table.h);
+    for(const side of[-1,1])box(finishes.woodDark,table.x+side*14,8,table.y,3,12,14);
+    slab(finishes.paper,table.x-5,16.7,table.y,15,.4,10);
+    const cabinet=interior.cabinet;round(finishes.wood,cabinet.x,14,cabinet.y,cabinet.w,25,cabinet.h);round(finishes.woodTop,cabinet.x,27,cabinet.y,cabinet.w+1,1.6,cabinet.h+1);
+    for(const side of[-1,1]){round('#e5d5b6',cabinet.x+side*36.8,14,cabinet.y+9.3,70,21,.6);box(finishes.woodDark,cabinet.x+side*36.8,18,cabinet.y+9.7,12,.8,.4);}
+    slab(finishes.paper,cabinet.x-45,28,cabinet.y,20,.5,11);
+    for(const p of interior.plants){
+      cyl(finishes.pot,p.x,7,p.y,p.r,11);cyl('#b9b59b',p.x,12.7,p.y,p.r*.78,.6);
+      stem([p.x,12,p.y],[p.x,29,p.y],.55,finishes.darkLeaf);
+      for(const [dx,yy,dz,angle]of[[-4,24,1,-.45],[4,29,-1,.4],[0,34,0,0]])part('sphere',finishes.leaf,p.x+dx,yy,p.y+dz,3.3,7,2,0,0,angle);
+    }
     wall(x,bounds.y,bounds.w,6);wall(bounds.x,z,6,bounds.h);wall(bounds.x+bounds.w,z,6,bounds.h);
   }
   activeBatches=batches;

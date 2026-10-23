@@ -93,3 +93,22 @@ test('local team idle poses and presence replacement never reveal another team o
   assert.deepEqual([...owners(group)].sort(),[...team.detailSeatIds].sort());
  }finally{assets.dispose();}
 });
+
+test('shared quiet team finishes leave every desk and colleague footprint intact and stay under the existing instance budget',async()=>{
+ const {officeTeamInterior,OFFICE_TEAM_MATERIALS}=await import('../src/office-team-interior.mjs'),{renderOfficeTeamFloor}=await import('../src/scene-floor2d.mjs');
+ const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets);assert.ok(layout.statistics.staticInstances<19000,`instance count ${layout.statistics.staticInstances}`);
+  for(const team of ai.teamZones){
+   const original=team.seats.map(seat=>({x:seat.x,y:seat.y,detail:JSON.stringify(seat.detailGeometry)})),interior=officeTeamInterior(team),bounds=team.detailBounds;
+   assert.equal(interior.islands.length,4);assert.equal(interior.plants.length,2);
+   const furniture=[interior.bench,interior.table,interior.cabinet,...interior.plants.map(p=>({...p,w:p.r*2,h:p.r*2}))];
+   for(const item of furniture){
+    assert.ok(item.x-item.w/2>=bounds.x&&item.x+item.w/2<=bounds.x+bounds.w);assert.ok(item.y-item.h/2>=bounds.y&&item.y+item.h/2<=bounds.y+120,'all new fittings stay in the unused rear band');
+    for(const seat of team.seats){const shown=officeSeatForView(seat,{detail:true}),desk=shown.desk;assert.ok(item.x+item.w/2<=desk.x-desk.w/2||item.x-item.w/2>=desk.x+desk.w/2||item.y+item.h/2<=desk.y-desk.h/2||item.y-item.h/2>=desk.y+desk.h/2,`${team.id} decoration overlaps ${seat.id}`);assert.ok(Math.abs(item.x-shown.x)>item.w/2+6||Math.abs(item.y-shown.y)>item.h/2+6,'chairs keep clear of decorative furniture');}
+   }
+   const plantCalls=[],svg=renderOfficeTeamFloor(team,{uid:'proof',plant:(x,y,scale)=>{plantCalls.push({x,y,scale});return `<g data-proof-plant="${x},${y}"/>`;}});
+   assert.match(svg,new RegExp(`fill="${OFFICE_TEAM_MATERIALS.floor}"`));assert.equal((svg.match(/data-team-decoration="work-islands"/g)||[]).length,1);assert.match(svg,/data-team-decoration="bench"/);assert.match(svg,/data-team-decoration="table"/);assert.match(svg,/data-team-decoration="cabinet"/);assert.equal(plantCalls.length,2);assert.match(svg,/aria-hidden="true" pointer-events="none"/);
+   assert.doesNotMatch(svg,/filter=|shadow|glow|tabindex|data-erp-action|data-position/);assert.deepEqual(team.seats.map(seat=>({x:seat.x,y:seat.y,detail:JSON.stringify(seat.detailGeometry)})),original);
+  }
+ }finally{assets.dispose();}
+});

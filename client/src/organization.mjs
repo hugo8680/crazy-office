@@ -148,7 +148,7 @@ for(const room of rooms) {
         post.detailGeometry={x,y,scale:.72,desk:{x,y:y-24,w:64,h:28}};
       }
       for(const [index,post]of selected.entries()){
-        const x=team.x+(index%2?120:40),deskY=team.y+16+Math.floor(index/2)*44;
+        const x=team.x+(index%2?120:40),deskY=team.y+40+Math.floor(index/2)*52;
         visible.add(post.id);post.overviewGeometry={x,y:deskY+24,scale:.72,desk:{x,y:deskY,w:64,h:28}};
       }
     }

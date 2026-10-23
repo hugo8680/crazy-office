@@ -118,6 +118,7 @@ function receiveSnapshot(value){
 const scene=createSceneViewController(document.querySelector('#office-scene'),{
   onSelectNode:id=>{if(id==='bulletin'){void openBulletin();return;}if(departmentIDs.has(id)){pendingLoginLocation=false;void officeNavigation?.enterArea(id);return;}void openSection(ROOM_SECTIONS[id]||'desk');},
   onEnterArea:id=>{pendingLoginLocation=false;void officeNavigation?.enterArea(id);},
+  onNavigationContext:id=>officeNavigation?.setContext(id),
   onSelectBulletin:section=>{void openBulletin(section);},
   onHoverBulletin:(section,anchor)=>{if(isAuthenticated()&&!erp?.isOpen&&!locationMenu?.isOpen)void bulletin?.preview(section,anchor);},
   onLeaveBulletin:section=>bulletin?.hidePreview(section),

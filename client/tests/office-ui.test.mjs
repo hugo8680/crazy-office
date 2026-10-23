@@ -179,6 +179,21 @@ test('all twelve department areas focus the office without opening a maintenance
  }finally{h.cleanup();}
 });
 
+test('camera context callbacks keep close-to-office restoration in the visible overview or manually entered team',async()=>{
+ const h=await harness();try{
+  await h.login();h.scene.callbacks.onEnterArea('ai_data_team_1');await flush();const moves=h.currentPresence.points.length;
+  h.scene.callbacks.onNavigationContext(null);await h.click({officeSection:'desk'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['reset']);assert.equal(h.currentPresence.points.length,moves);
+  h.scene.callbacks.onNavigationContext('ai_data_team_2');await h.click({officeSection:'reports'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','ai_data_team_2']);assert.equal(h.currentPresence.points.length,moves,'manual framing and closing surfaces do not request another walk');
+ }finally{h.cleanup();}
+});
+
+test('automatic framing can report its matching context without cancelling the original walk',async()=>{
+ const h=await harness();try{
+  await h.login();h.scene.focusArea=function(id){this.viewCalls.push(['focusArea',id]);this.callbacks.onNavigationContext(id);return true;};const moves=h.currentPresence.points.length;
+  h.scene.callbacks.onEnterArea('finance');await flush();assert.equal(h.currentPresence.points.length,moves+1);await h.click({officeSection:'desk'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);assert.equal(h.currentPresence.points.length,moves+1);
+ }finally{h.cleanup();}
+});
+
 
 test('the physical board opens its real dashboard in the office without creating another dock section',async()=>{
  const h=await harness();try{await h.login();h.requests.length=0;h.scene.callbacks.onSelectNode('bulletin');await flush();assert.deepEqual(h.currentBulletin.opens,['dashboard']);assert.equal(h.currentBulletin.isOpen,true);assert.deepEqual(h.currentPresence.moves,[]);assert.doesNotMatch(h.element('#action-dock').innerHTML,/data-office-section="(?:notices|bulletin)"/);assert.deepEqual(h.requests.map(r=>r.path),['/api/erp/bulletin']);h.currentBulletin.options.onOpenNotices();await flush();assert.equal(h.currentErp.opens.at(-1).section,'notices');}finally{h.cleanup();}

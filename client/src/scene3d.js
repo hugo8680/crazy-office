@@ -23,7 +23,7 @@ const greetingFaces={
 export class Scene3DUnavailableError extends Error {
   constructor(message='当前设备无法创建 3D 画面',cause){super(message,{cause});this.name='Scene3DUnavailableError';this.code='WEBGL_UNAVAILABLE';}
 }
-export const OFFICE3D_CAMERA_OFFSET=Object.freeze([-330,1180,1200]);
+export const OFFICE3D_CAMERA_OFFSET=Object.freeze([-330,760,1200]);
 export const OFFICE3D_LINKS=Object.freeze([
   ['internet','firewall'],['firewall','core'],['core','server'],['core','storage'],['core','access'],['access','workstations'],['core','executive'],['access','meeting'],['access','reception'],['access','finance'],['access','investment'],['investment','general_office'],
 ]);
@@ -81,7 +81,7 @@ export function scene3DPixelRatio(width,height,deviceRatio=1,{maxDimension=8192}
 export function scene3DGestureMode(event,touches=1){return touches>1?'touch':event.pointerType==='touch'||event.button===2?'orbit':'pan';}
 
 export function mountScene3D(container,{
-  onSelectNode=()=>{},onSelectBulletin=()=>{},onHoverBulletin=()=>{},onLeaveBulletin=()=>{},onEnterArea=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},
+  onSelectNode=()=>{},onSelectBulletin=()=>{},onHoverBulletin=()=>{},onLeaveBulletin=()=>{},onEnterArea=()=>{},onNavigationContext=()=>{},onSelectSeat=()=>{},onMovePoint=()=>{},onSelectAgent=()=>{},onSelectHuman=()=>{},onDelivery=()=>{},onViewChange=()=>{},onUnavailable=()=>{},
   rendererFactory=options=>new THREE.WebGLRenderer(options),ambientEnabled=true,ambientRandom=Math.random,ambientNow=()=>performance.now(),
 }={}) {
   if(!container||!globalThis.document)throw new Scene3DUnavailableError('缺少 3D 显示容器');
@@ -116,7 +116,7 @@ export function mountScene3D(container,{
   const touches=new Map();let touchGesture=null,nativeGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
-  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false,focusedRegion=null,cameraMotionKind=null,motionAnchor=null;
+  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false,focusedRegion=null,cameraMotionKind=null,motionAnchor=null,teamZoomCandidate=null,overviewEnterGuardUntil=0;
   const actorList=()=>[...agents.values(),...humans.values()];
   const disposables=[];
   const schedule=()=>{if(!frame&&active&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
@@ -163,14 +163,21 @@ export function mountScene3D(container,{
   }
   function identityFor(el){for(const type of ['agent','human','employee','post','team','bulletin','node'])if(el?.dataset?.[type])return {type,id:el.dataset[type]};return null;}
   function clearSelectionTimer(){clearTimeout(selectionTimer);selectionTimer=null;pendingSelection=null;}
+  function overviewTeamForPost(id){const seat=postsById.get(id);return !layout.localTeamId&&seat?.teamId&&layout.isSeatVisible(id)?seat.teamId:null;}
+  const localEntryGuard=()=>!!layout.localTeamId&&performance.now()<overviewEnterGuardUntil;
+  function enterTeamFromInput(id){const fromOverview=!layout.localTeamId,focused=focusTeam(id);if(focused){if(fromOverview){overviewEnterGuardUntil=performance.now()+520;suppressClickUntil=Math.max(suppressClickUntil,overviewEnterGuardUntil);}onEnterArea(id);}return focused;}
   function focusObject(type,id){
     if(type==='bulletin')return select(type,id);
-    if(type==='team'){const focused=focusTeam(id);if(focused)onEnterArea(id);return focused;}
+    if(type==='team')return localEntryGuard()&&layout.localTeamId===id?true:enterTeamFromInput(id);
+    if(type==='post'&&localEntryGuard())return true;
+    const team=type==='post'?overviewTeamForPost(id):null;if(team)return enterTeamFromInput(team);
     clearSelectionTimer();select(type,id,false);feedback(type,id,'press');
     if(type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===id)){const focused=focusDepartment(id);if(focused)onEnterArea(id);return focused;}
     const point=type==='post'?layout.seatGeometry(id):type==='agent'?agents.get(id)?.point:type==='human'||type==='employee'?humans.get(id)?.point:NODE_META[id];return focusPoint(point);
   }
   function queueSelection(type,id,detail=1){
+    if(localEntryGuard()&&(type==='post'||type==='team'&&layout.localTeamId===id))return;
+    const team=type==='team'?id:type==='post'?overviewTeamForPost(id):null;if(team){clearSelectionTimer();enterTeamFromInput(team);return;}
     if(pendingSelection?.type===type&&pendingSelection.id===id||detail>1){focusObject(type,id);return;}
     clearSelectionTimer();pendingSelection={type,id};feedback(type,id,'press');selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)select(type,id);},350);
   }
@@ -181,8 +188,8 @@ export function mountScene3D(container,{
     listen(el,'click',e=>{e.stopPropagation();if(e.detail!==0&&performance.now()<suppressClickUntil)return;const p=identityFor(el);if(p){feedback(p.type,p.id,'press',el);if(e.detail===0){clearSelectionTimer();select(p.type,p.id);}else if(p.type==='bulletin'){clearSelectionTimer();select(p.type,p.id);}else queueSelection(p.type,p.id,e.detail);}else choose();});listen(el,'dblclick',e=>{e.preventDefault();e.stopPropagation();const p=identityFor(el);if(p)focusObject(p.type,p.id);});labels.append(el);return el;}
   function select(type,id,notify=true){
     if(type==='bulletin'){clearSelectionTimer();onLeaveBulletin();if(notify)onSelectBulletin(id);return;}
-    if(type==='team'){if(focusTeam(id)&&notify)onEnterArea(id);return;}
-    if(type==='post'){const seat=postsById.get(id),point=layout.seatGeometry(id);if(!seat||!point||!layout.isSeatVisible(id))return;showPost(seat);if(notify)onSelectSeat(id,{x:seat.x,y:seat.y,nodeId:seat.departmentId});return;}
+    if(type==='team'){if(notify)enterTeamFromInput(id);else focusTeam(id);return;}
+    if(type==='post'){const seat=postsById.get(id),point=layout.seatGeometry(id);if(!seat||!point||!layout.isSeatVisible(id))return;const team=overviewTeamForPost(id);if(team){if(notify)enterTeamFromInput(team);else focusTeam(team);return;}showPost(seat);if(notify)onSelectSeat(id,{x:seat.x,y:seat.y,nodeId:seat.departmentId});return;}
     if(type==='node')selectedNode=id;else if(id)selectedNode=null;
     if(type==='agent')selectedAgent=id;else if(id)selectedAgent=null;
     if(type==='human'||type==='employee')selectedHuman=id;else if(id)selectedHuman=null;
@@ -402,7 +409,7 @@ export function mountScene3D(container,{
     const selectedNames=selectOfficeNameLabels(unique,{width,height:height-78,fontSize:nameSize,gap:scale<1.65?4:3});
     for(const name of selectedNames){const el=nameTargets.get(name.id);el.style.fontSize=`${name.fontSize}px`;if(name.id.startsWith('post:')){el.style.left=`${name.x.toFixed(1)}px`;el.style.top=`${name.y.toFixed(1)}px`;el.style.transform='translate(-50%, -100%)';el.hidden=false;}else{const parent=el.parentNode,px=Number.parseFloat(parent.style.left),py=Number.parseFloat(parent.style.top);el.style.bottom='auto';el.style.top=`${name.y-py+23}px`;el.style.left=`${name.x-px+14}px`;el.dataset.showName='true';}}
     wrapper.dataset.nameLabels=String(selectedNames.length);
-    for(const [id,el]of teamLabels){const team=teamsById.get(id),text=compactLabels?team.title:`${team.title} · ${team.staffCount} 人`;el.hidden=!!local&&id!==local;if(el.firstChild.textContent!==text)el.firstChild.textContent=text;el.firstChild.style.fontSize=compactLabels?'11px':'14px';const area=local===id?team.detailBounds:team;place(el,{x:area.x+area.w*.28,y:area.y+14},local===id?35:12);}
+    for(const [id,el]of teamLabels){const team=teamsById.get(id),text=compactLabels?team.title:`${team.title} · ${team.staffCount} 人`;el.hidden=!!local&&id!==local;if(el.firstChild.textContent!==text)el.firstChild.textContent=text;el.firstChild.style.fontSize=compactLabels?'11px':'14px';const area=local===id?team.detailBounds:team;place(el,{x:area.x+area.w*.28,y:area.y+(local===id?14:-4)},local===id?35:30);}
     shopLabel.hidden=!!local;place(shopLabel,OFFICE_CONVENIENCE_AREA.anchor,12);shopTitle.style.fontSize=compactLabels?'11px':'14px';
     for(const area of[OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER]){const el=sceneryLabels.get(area.id);el.hidden=!!local;place(el,{x:area.x+area.w/2,y:area.id==='data_center'?area.y+18:area.y+7},area.id==='data_center'?35:8);el.firstChild.style.fontSize=compactLabels?'11px':'14px';}
     positionGreeting();positionPost();
@@ -438,7 +445,7 @@ export function mountScene3D(container,{
     const actors=actorList(),interacting=!!drag||!!nativeGesture||touches.size>0||viewTween.active,urgent=wasBusy||actors.some(actor=>actor.hasUrgentMotion),ambientOnly=!interacting&&!urgent&&(layout.hasIdlePoses||actors.some(actor=>actor.ambientKind)||!!ambient?.active||renderDirty&&!urgentRenderDirty);
     const policy=scene3DFramePolicy(lastFrame,time,{reducedMotion,interacting,urgent,ambientOnly,force:forceFrame||!!pendingResize,dirty:urgentRenderDirty,busy:wasBusy||viewTween.active||layout.hasIdlePoses||actors.some(actor=>actor.isAnimating)||renderDirty});
     if(!policy.render){if(policy.continue)schedule();return;}lastFrame=time;
-    viewTween.tick(time);if(layout.localTeamId&&cameraMotionKind!=='automatic'&&scale<office3DRegionView(officeTeamDetail(layout.localTeamId).detailBounds,{width,height,azimuth}).scale*.65)resetView();controller.tick(time);presenceMotion.tick(time,{isPaused:id=>controller.queue.locked(id)});updateRoutes();ambient?.refresh();
+    viewTween.tick(time);if(teamZoomCandidate&&!layout.localTeamId&&scale>=OFFICE_DETAIL_ZOOM){const id=teamZoomCandidate;teamZoomCandidate=null;resetInput();enterTeamFromInput(id);}if(layout.localTeamId&&cameraMotionKind!=='automatic'&&scale<office3DRegionView(officeTeamDetail(layout.localTeamId).detailBounds,{width,height,azimuth}).scale*.65)resetView();controller.tick(time);presenceMotion.tick(time,{isPaused:id=>controller.queue.locked(id)});updateRoutes();ambient?.refresh();
     const busy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;
     if(wasBusy&&!busy)for(const actor of actorList())actor.invalidate();
     draw(time,{busy,delta:policy.delta,labelsChanged:wasBusy});
@@ -450,7 +457,7 @@ export function mountScene3D(container,{
     controller.update(latestState);if(state.selectedNode!==undefined)select('node',state.selectedNode,false);if(state.selectedAgent!==undefined)select('agent',state.selectedAgent,false);markDirty();}
   function applyView(){setCamera();markDirty();onViewChange();}
   function takeCameraControl(kind){
-    onLeaveBulletin();focusedRegion=null;manualDetail=true;clearSelectionTimer();clearPost();
+    onLeaveBulletin();teamZoomCandidate=null;focusedRegion=null;manualDetail=true;clearSelectionTimer();clearPost();
     if(cameraMotionKind!==kind){viewTween.cancel();motionAnchor=null;}cameraMotionKind=kind;
   }
   function zoomBase(direction){
@@ -468,31 +475,37 @@ export function mountScene3D(container,{
     pointer.set(screen.x/width*2-1,1-screen.y/height*2);raycaster.setFromCamera(pointer,camera);const world=new THREE.Vector3();
     return raycaster.ray.intersectPlane(floorPlane,world)?{world,screen:{...screen}}:null;
   }
+  function stageTeamZoom(event,anchor,increasing){
+    teamZoomCandidate=null;if(layout.localTeamId||!increasing||!anchor)return;
+    const identity=identityFor(event?.target),postTeam=identity?.type==='post'?overviewTeamForPost(identity.id):null;
+    teamZoomCandidate=postTeam||(identity?.type==='team'&&teamsById.has(identity.id)?identity.id:null)||[...teamsById.values()].find(team=>officePointInTeam({x:anchor.world.x,y:anchor.world.z},team.id,{margin:0}))?.id||null;
+    if(teamZoomCandidate&&scale>=OFFICE_DETAIL_ZOOM)markDirty();
+  }
   function zoomTo(nextScale,anchor){
     const next={...viewState(),scale:clampOfficeScale(nextScale),...(anchor?anchoredPan(anchor,clampOfficeScale(nextScale)):null)};
     if(!officeCameraChanged(viewState(),next))return next.scale;
-    motionAnchor=anchor;viewTween.start(next,{immediate:reducedMotion});return next.scale;
+    motionAnchor=anchor;viewTween.start(next,{immediate:reducedMotion,duration:160});return next.scale;
   }
   function zoom(delta=.15){
-    const amount=Number(delta);if(!Number.isFinite(amount)||!amount)return scale;const base=zoomBase(amount),reserved=Math.min(100,Math.max(72,height*.095));
+    teamZoomCandidate=null;const amount=Number(delta);if(!Number.isFinite(amount)||!amount)return scale;const base=zoomBase(amount),reserved=Math.min(100,Math.max(72,height*.095));
     return zoomTo(clampOfficeScale(base+amount),anchorAt({x:width/2,y:(height-reserved)/2}));
   }
   function rotate(delta=Math.PI/8,tilt=0){
     takeCameraControl('rotate');const reserved=Math.min(100,Math.max(72,height*.095)),anchor=motionAnchor||anchorAt({x:width/2,y:(height-reserved)/2});
     const turn=Number.isFinite(Number(delta))?Number(delta):0,pitch=Number.isFinite(Number(tilt))?Number(tilt):0,next={...viewTween.target,azimuth:viewTween.target.azimuth+turn,elevation:clamp(viewTween.target.elevation+pitch,.42,1.28)};
     if(anchor)Object.assign(next,anchoredPan(anchor,next.scale,next.azimuth,next.elevation));
-    if(officeCameraChanged(viewState(),next)){motionAnchor=anchor;viewTween.start(next,{immediate:reducedMotion});}return {azimuth:next.azimuth,elevation:next.elevation};
+    if(officeCameraChanged(viewState(),next)){motionAnchor=anchor;viewTween.start(next,{immediate:reducedMotion,duration:220});}return {azimuth:next.azimuth,elevation:next.elevation};
   }
   function focusPoint(point,minimumScale=1.4){
     if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;
-    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();detailFocus=null;manualDetail=false;focusedRegion=null;cameraMotionKind='automatic';motionAnchor=null;
+    onLeaveBulletin();teamZoomCandidate=null;clearSelectionTimer();clearPost();clearGreeting();detailFocus=null;manualDetail=false;focusedRegion=null;cameraMotionKind='automatic';motionAnchor=null;
     const frame=office3DFrustum(width/Math.max(1,height-Math.min(100,Math.max(72,height*.095)))),diff=new THREE.Vector3(point.x-target.x,(Number.isFinite(point.height)?point.height:28)-target.y,point.y-target.z);
     const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));
-    viewTween.start({scale:clampOfficeScale(Number(minimumScale)||1.4,{automatic:true}),panX:diff.dot(frame.right)-frame.centerX,panY:diff.dot(frame.up)-frame.centerY,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});return true;
+    viewTween.start({scale:clampOfficeScale(Number(minimumScale)||1.4,{automatic:true}),panX:diff.dot(frame.right)-frame.centerX,panY:diff.dot(frame.up)-frame.centerY,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion||!active,duration:520,easing:'smooth'});return true;
   }
   function focusRegion(region){
     const destination=office3DRegionView(region,{width,height,azimuth});if(!destination)return false;
-    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();focusedRegion=region;cameraMotionKind='automatic';motionAnchor=null;viewTween.start(destination,{immediate:reducedMotion||!active});return true;
+    onNavigationContext(region.id);onLeaveBulletin();teamZoomCandidate=null;clearSelectionTimer();clearPost();clearGreeting();focusedRegion=region;cameraMotionKind='automatic';motionAnchor=null;viewTween.start(destination,{immediate:reducedMotion||!active,duration:520,easing:'smooth'});return true;
   }
   function refreshSceneContext(){
     const local=layout.localTeamId;wrapper.dataset.team=local||'';links.visible=topologyVisible&&!local;routes.visible=!local;
@@ -502,7 +515,7 @@ export function mountScene3D(container,{
     updatePostPicks();updateDeskPicks();clearPost();clearGreeting();labelsDirty=true;renderDirty=true;
   }
   function leaveTeam(){if(!layout.exitTeam())return false;refreshSceneContext();return true;}
-  function focusTeam(id){const team=officeTeamDetail(id);if(!team)return false;layout.enterTeam(id);detailFocus=id;manualDetail=false;clearSelectionTimer();refreshSceneContext();return focusRegion(team.detailBounds);}
+  function focusTeam(id){const team=officeTeamDetail(id);if(!team)return false;teamZoomCandidate=null;layout.enterTeam(id);detailFocus=id;manualDetail=false;clearSelectionTimer();refreshSceneContext();return focusRegion(team.detailBounds);}
   function focusArea(id){
     if(teamsById.has(id))return focusTeam(id);
     const region=teamsById.get(id)||OFFICE3D_ROOMS.find(room=>room.id===id)||[OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER,...OFFICE_SHARED_AREAS].find(area=>area.id===id);
@@ -516,17 +529,17 @@ export function mountScene3D(container,{
   function pan(dx,dy){focusedRegion=null;panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
   function sampleTouch(){const points=[...touches.values()],a=points[0],b=points[1];return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),angle:Math.atan2(b.y-a.y,b.x-a.x)}:null;}
   const onDown=(e,origin=null)=>{
-    if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;onLeaveBulletin();clearPost();clearGreeting();hoveredKey='';viewTween.cancel();motionAnchor=null;cameraMotionKind='pointer';wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
+    if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;onLeaveBulletin();clearPost();clearGreeting();hoveredKey='';teamZoomCandidate=null;const guarded=e.button===0&&localEntryGuard();if(!guarded){viewTween.cancel();motionAnchor=null;cameraMotionKind='pointer';}wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
     const point=logicalPointer(e);
     if(e.pointerType==='touch'){touches.set(e.pointerId,point);if(touches.size>1){touchGesture=sampleTouch();if(drag)drag.moved=true;canvas.setPointerCapture?.(e.pointerId);return;}}
     const mode=scene3DGestureMode(e),reserved=Math.min(100,Math.max(72,height*.095));
-    drag={id:e.pointerId,x:point.x,y:point.y,lastX:point.x,lastY:point.y,moved:false,mode,origin,orbitAnchor:mode==='orbit'?anchorAt({x:width/2,y:(height-reserved)/2}):null};ambient?.refresh();
+    drag={id:e.pointerId,x:point.x,y:point.y,lastX:point.x,lastY:point.y,moved:false,guarded,mode,origin,orbitAnchor:mode==='orbit'?anchorAt({x:width/2,y:(height-reserved)/2}):null};ambient?.refresh();
   };
   const onMove=e=>{
     const point=logicalPointer(e);
-    if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){focusedRegion=null;manualDetail=true;const anchor=anchorAt({x:touchGesture.x,y:touchGesture.y});scale=officePinchScale(scale,next.distance/touchGesture.distance);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));if(anchor){anchor.screen={x:next.x,y:next.y};({panX,panY}=anchoredPan(anchor,scale));}else pan(next.x-touchGesture.x,next.y-touchGesture.y);applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
+    if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){focusedRegion=null;manualDetail=true;if(drag?.guarded){viewTween.cancel();motionAnchor=null;drag.guarded=false;}cameraMotionKind='pointer';const anchor=anchorAt({x:touchGesture.x,y:touchGesture.y}),ratio=next.distance/touchGesture.distance;scale=officePinchScale(scale,ratio);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));if(anchor){anchor.screen={x:next.x,y:next.y};({panX,panY}=anchoredPan(anchor,scale));}else pan(next.x-touchGesture.x,next.y-touchGesture.y);applyView();stageTeamZoom(e,anchor,ratio>1);}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
     if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){onLeaveBulletin();hoveredKey=key;if(hit?.type==='bulletin')showBulletin(hit.id);else if(hit?.type==='post')showPost(postsById.get(hit.id));else if(hit?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===hit.id))showRegion('department',hit.id);else if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearPost();clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(point.x-drag.x,point.y-drag.y)<5)return;
-    focusedRegion=null;manualDetail=true;clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
+    if(drag.guarded){viewTween.cancel();motionAnchor=null;cameraMotionKind='pointer';drag.guarded=false;}teamZoomCandidate=null;focusedRegion=null;manualDetail=true;clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
     const dx=point.x-drag.lastX,dy=point.y-drag.lastY;
     if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);if(drag.orbitAnchor)({panX,panY}=anchoredPan(drag.orbitAnchor,scale));}
     drag.lastX=point.x;drag.lastY=point.y;applyView();
@@ -542,12 +555,12 @@ export function mountScene3D(container,{
     if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);
     if(!active||active.id!==e.pointerId){if(multitouch)suppressClickUntil=performance.now()+200;return;}
     const moved=active.moved||multitouch;drag=null;wrapper.classList.remove('is-panning');ambient?.refresh();
-    if(moved||e.button!==0){suppressClickUntil=performance.now()+180;return;}
-    const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit?.type==='bulletin')select(hit.type,hit.id);else if(hit)queueSelection(hit.type,hit.id);else{const point=movePointAt(e);clearSelectionTimer();if(point)selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)onMovePoint(point);},350);}if(active.origin)suppressClickUntil=performance.now()+80;
+    if(moved||e.button!==0||active.guarded){suppressClickUntil=Math.max(suppressClickUntil,performance.now()+180);return;}
+    const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit?.type==='bulletin')select(hit.type,hit.id);else if(hit)queueSelection(hit.type,hit.id);else{const point=movePointAt(e);clearSelectionTimer();if(point)selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)onMovePoint(point);},350);}if(active.origin)suppressClickUntil=Math.max(suppressClickUntil,performance.now()+80);
   };
   const onCancel=e=>{clearPost();clearGreeting();touches.delete(e.pointerId);touchGesture=null;if(drag?.id===e.pointerId)drag=null;wrapper.classList.remove('is-panning');ambient?.refresh();if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
   function resetInput(){
-    const captured=new Set([...touches.keys(),...(drag?[drag.id]:[])]);drag=null;touches.clear();touchGesture=null;nativeGesture=null;wrapper.classList.remove('is-panning');
+    const captured=new Set([...touches.keys(),...(drag?[drag.id]:[])]);teamZoomCandidate=null;drag=null;touches.clear();touchGesture=null;nativeGesture=null;wrapper.classList.remove('is-panning');
     for(const id of captured)if(canvas.hasPointerCapture?.(id))canvas.releasePointerCapture(id);
     suppressClickUntil=performance.now()+180;
   }
@@ -568,16 +581,16 @@ export function mountScene3D(container,{
   // pixel values unchanged, resolve lines to 16px and pages to logical height.
   listen(wrapper,'wheel',e=>{
     e.preventDefault();if(nativeGesture)return;const amount=Number(e.deltaY);if(!Number.isFinite(amount)||!amount)return;
-    const base=zoomBase(-amount),next=officeWheelScale(base,amount,e.deltaMode,height);zoomTo(next,anchorAt(gesturePointer(e)));
+    const base=zoomBase(-amount),next=officeWheelScale(base,amount,e.deltaMode,height),anchor=anchorAt(gesturePointer(e));zoomTo(next,anchor);stageTeamZoom(e,anchor,amount<0);
   },{passive:false});
   listen(wrapper,'gesturestart',e=>{e.preventDefault();takeCameraControl('native');clearGreeting();forceFrame=true;viewTween.cancel();motionAnchor=null;nativeGesture=touches.size>1?null:{lastScale:1,lastRotation:0,anchor:anchorAt(gesturePointer(e))};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
   listen(wrapper,'gesturechange',e=>{
     e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;
-    const nextScale=Number(e.scale),rotation=Number(e.rotation),before=viewState();
-    if(Number.isFinite(nextScale)&&nextScale>0){scale=officePinchScale(scale,nextScale/nativeGesture.lastScale);nativeGesture.lastScale=nextScale;}
+    const nextScale=Number(e.scale),rotation=Number(e.rotation),before=viewState(),ratio=Number.isFinite(nextScale)&&nextScale>0?nextScale/nativeGesture.lastScale:1;
+    if(Number.isFinite(nextScale)&&nextScale>0){scale=officePinchScale(scale,ratio);nativeGesture.lastScale=nextScale;}
     if(Number.isFinite(rotation)){azimuth-=(rotation-nativeGesture.lastRotation)*Math.PI/180;nativeGesture.lastRotation=rotation;}
     if(nativeGesture.anchor){if(Number.isFinite(e.clientX)&&Number.isFinite(e.clientY))nativeGesture.anchor.screen=logicalPointer(e);({panX,panY}=anchoredPan(nativeGesture.anchor,scale));}
-    if(officeCameraChanged(before,viewState()))applyView();suppressClickUntil=performance.now()+200;
+    if(officeCameraChanged(before,viewState()))applyView();stageTeamZoom(e,nativeGesture.anchor,ratio>1);suppressClickUntil=performance.now()+200;
   },{passive:false});
   listen(wrapper,'gestureend',e=>{e.preventDefault();nativeGesture=null;ambient?.refresh();suppressClickUntil=performance.now()+180;},{passive:false});
   listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearPost();clearGreeting();resetInput();ambient?.refresh();clearSelectionTimer();});
@@ -596,7 +609,7 @@ export function mountScene3D(container,{
   function watchDensity(){densityQuery?.removeEventListener?.('change',onDensityChange);densityQuery=globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio||1}dppx)`);densityQuery?.addEventListener?.('change',onDensityChange);}
   if(globalThis.window?.addEventListener)listen(window,'resize',resize);
   const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);watchDensity();resize();update({animateEvents:false});
-  function resetView(){onLeaveBulletin();leaveTeam();detailFocus=null;manualDetail=false;focusedRegion=null;cameraMotionKind='automatic';motionAnchor=null;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
+  function resetView(){onNavigationContext(null);onLeaveBulletin();teamZoomCandidate=null;overviewEnterGuardUntil=0;leaveTeam();detailFocus=null;manualDetail=false;focusedRegion=null;cameraMotionKind='automatic';motionAnchor=null;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion||!active,duration:520,easing:'smooth'});}
   let prepared=false,preparing=null;
   function prepare(){
     if(destroyed||contextLost||document.hidden)return;

@@ -41,16 +41,17 @@ const walkingPlans = new WeakMap();
 export function createViewTween({read,write,onStart=()=>{},duration=380}={}) {
   let current=null;
   return {
-    start(patch,{immediate=false}={}){
+    start(patch,{immediate=false,duration:transitionDuration=duration,easing='out'}={}){
       const from=read(),to={...from,...patch};
       if(Object.keys(to).some(key=>!Number.isFinite(to[key])))return from;
       if(immediate||Object.keys(to).every(key=>Math.abs(to[key]-from[key])<1e-7)){current=null;write(to);onStart();return to;}
       const sampledAt=current?.sampledAt??null;
-      current={from,to,started:sampledAt,sampledAt};onStart();return to;
+      const milliseconds=Number.isFinite(transitionDuration)?Math.max(80,Math.min(1500,transitionDuration)):duration;
+      current={from,to,started:sampledAt,sampledAt,duration:milliseconds,easing};onStart();return to;
     },
     tick(time){
       if(!current)return false;current.started??=time;current.sampledAt=time;
-      const progress=Math.max(0,Math.min(1,(time-current.started)/duration)),weight=1-Math.pow(1-progress,3);
+      const progress=Math.max(0,Math.min(1,(time-current.started)/current.duration)),weight=current.easing==='smooth'?progress*progress*progress*(10+progress*(-15+6*progress)):1-Math.pow(1-progress,3);
       write(Object.fromEntries(Object.entries(current.to).map(([key,to])=>[key,progress===1?to:current.from[key]+(to-current.from[key])*weight])));
       if(progress===1)current=null;return !!current;
     },
