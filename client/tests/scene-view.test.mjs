@@ -23,6 +23,21 @@ function fixture(configure=()=>({})){
   return {controller,layers,scenes,changes,errors,deliveries,hovered,mount};
 }
 
+test('department scope follows view switches and manual zoom without fitting the same office twice',async()=>{
+  const f=fixture(mount=>{
+    const department=mode=>(layer,callbacks)=>{const scene=mount(mode)(layer,callbacks);scene.getDepartmentScope=()=>scene.camera.area||null;return scene;};
+    return{mount2D:department('2d'),load3D:async()=>({mountScene3D:department('3d')})};
+  });
+  try{
+    const plan=f.scenes[0];f.controller.focusArea('finance');f.controller.zoom(2);
+    await f.controller.setMode('3d');const model=f.scenes[1];assert.equal(model.camera.area,'finance');f.controller.zoom(3);
+    await f.controller.setMode('2d');assert.equal(plan.camera.area,'finance');assert.equal(plan.camera.zoom,3);assert.equal(plan.scopeCalls.length,1);
+    await f.controller.setMode('3d');assert.equal(model.camera.zoom,4);assert.equal(model.scopeCalls.length,1);
+    f.controller.focusArea('ai_data');await f.controller.setMode('2d');assert.equal(plan.camera.area,'ai_data');assert.equal(plan.localTeam,null);
+    f.controller.resetView();await f.controller.setMode('3d');assert.deepEqual(model.camera,{zoom:1});assert.equal(model.getDepartmentScope(),null);
+  }finally{f.controller.destroy();}
+});
+
 test('default startup mounts only 3D, queues live state and focus, then exposes its first prepared frame',async()=>{
   const wait=deferred(),f=fixture(mount=>({initialMode:undefined,load3D:()=>wait.promise.then(()=>({mountScene3D:mount('3d')}))}));
   try{

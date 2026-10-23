@@ -1,22 +1,42 @@
-import {OFFICE_WALKING_SEGMENTS,OFFICE_DATA_CENTER,OFFICE_DATA_CENTER_WALKING_SEGMENTS} from './organization.mjs';
-import {createFloorRouter} from './floor-routing.mjs';
+import {OFFICE_WALKING_SEGMENTS,OFFICE_ROOMS,OFFICE_FITTINGS,OFFICE_LANDSCAPE,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER,OFFICE_DATA_CENTER_WALKING_SEGMENTS} from './organization.mjs';
+import {createFloorRouter,createFreeFloorRouter,floorSegmentClear} from './floor-routing.mjs';
 
 export const FLOOR_SEGMENTS=OFFICE_WALKING_SEGMENTS;
-const officeRouter=createFloorRouter(FLOOR_SEGMENTS);
-const dataCenterRouter=createFloorRouter(OFFICE_DATA_CENTER_WALKING_SEGMENTS.slice(1));
-const dataCenterEntry={x:OFFICE_DATA_CENTER.door.x,y:OFFICE_DATA_CENTER.door.y+10};
-const inDataCenter=p=>p.x>=OFFICE_DATA_CENTER.x&&p.x<=OFFICE_DATA_CENTER.x+OFFICE_DATA_CENTER.w&&p.y>=OFFICE_DATA_CENTER.y&&p.y<=OFFICE_DATA_CENTER.y+OFFICE_DATA_CENTER.h;
 const same=(a,b)=>Math.abs(a.x-b.x)<.001&&Math.abs(a.y-b.y)<.001;
 const point=p=>Array.isArray(p)?{x:p[0],y:p[1]}:{x:p.x,y:p.y};
 const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const roomAt=p=>OFFICE_ROOMS.find(room=>p.x>room.x+.001&&p.x<room.x+room.w-.001&&p.y>room.y+.001&&p.y<room.y+room.h-.001);
+const rectangle=({x,y,w,h},padding=1.5)=>({x:x-w/2-padding,y:y-h/2-padding,w:w+padding*2,h:h+padding*2});
+const roomObstacles=new Map(OFFICE_ROOMS.map(room=>[room.id,[...room.seats.map(seat=>rectangle(seat.desk)),...OFFICE_FITTINGS.filter(item=>item.roomId===room.id).map(item=>rectangle(item)),...OFFICE_LANDSCAPE.filter(item=>item.roomId===room.id).map(item=>rectangle(item))]]));
+const roomRouters=new Map(OFFICE_ROOMS.map(room=>[room.id,createFreeFloorRouter({bounds:room,obstacles:roomObstacles.get(room.id)})]));
+const outsideObstacles=[...OFFICE_FITTINGS.filter(item=>!OFFICE_ROOMS.some(room=>room.id===item.roomId)),...OFFICE_LANDSCAPE.filter(item=>!item.roomId&&!['stepping_stone','deck'].includes(item.kind)),...['shelf','fridge','counter'].map(key=>OFFICE_CONVENIENCE_AREA[key]),...['treadmill','weightRack','bench','poolTable','cueRack'].map(key=>OFFICE_RECREATION_AREA[key]),OFFICE_BULLETIN_AREA.board,...OFFICE_BULLETIN_AREA.benches].map(item=>rectangle(item));
+const boundaryConnects=(a,b)=>{
+ if(!floorSegmentClear(a,b,outsideObstacles))return false;
+ for(const room of OFFICE_ROOMS){
+  // Connectors outside a room cannot use its internal aisle through a wall.
+  if(roomAt(a)?.id===room.id||roomAt(b)?.id===room.id)return false;
+  if(!floorSegmentClear(a,b,[{x:room.x+.001,y:room.y+.001,w:room.w-.002,h:room.h-.002}]))return false;
+ }
+ return true;
+};
+const officeRouter=createFloorRouter(FLOOR_SEGMENTS,{canConnect:boundaryConnects});
+const dataCenterRouter=createFloorRouter(OFFICE_DATA_CENTER_WALKING_SEGMENTS.slice(1));
+const dataCenterEntry={x:OFFICE_DATA_CENTER.door.x,y:OFFICE_DATA_CENTER.door.y+10};
+const inDataCenter=p=>p.x>=OFFICE_DATA_CENTER.x&&p.x<=OFFICE_DATA_CENTER.x+OFFICE_DATA_CENTER.w&&p.y>=OFFICE_DATA_CENTER.y&&p.y<=OFFICE_DATA_CENTER.y+OFFICE_DATA_CENTER.h;
+const compact=route=>route.filter((p,index)=>!index||!same(p,route[index-1]));
 export function routeBetweenPoints(start,end){
-  start=point(start);end=point(end);const fromAnnex=inDataCenter(start),toAnnex=inDataCenter(end);
-  if(fromAnnex&&toAnnex)return dataCenterRouter.route(start,end);
-  // Restrict the first/last projection to annex lanes. A global nearest lane
-  // could otherwise choose the adjacent office through a solid exterior wall.
-  const approach=fromAnnex?dataCenterRouter.route(start,dataCenterEntry):[],departure=toAnnex?dataCenterRouter.route(dataCenterEntry,end):[];
-  const route=[...approach,...officeRouter.route(fromAnnex?dataCenterEntry:start,toAnnex?dataCenterEntry:end),...departure];
-  return route.filter((p,index)=>!index||!same(p,route[index-1]));
+ start=point(start);end=point(end);if(same(start,end))return[start];
+ const fromAnnex=inDataCenter(start),toAnnex=inDataCenter(end);if(fromAnnex&&toAnnex)return dataCenterRouter.route(start,end);
+ const fromRoom=!fromAnnex&&roomAt(start),toRoom=!toAnnex&&roomAt(end);
+ if(fromRoom&&fromRoom===toRoom)return roomRouters.get(fromRoom.id).route(start,end);
+ const from=fromAnnex?dataCenterEntry:fromRoom?point(fromRoom.door):start,to=toAnnex?dataCenterEntry:toRoom?point(toRoom.door):end;
+ const approach=fromAnnex?dataCenterRouter.route(start,from):fromRoom?roomRouters.get(fromRoom.id).route(start,from):[];
+ const departure=toAnnex?dataCenterRouter.route(to,end):toRoom?roomRouters.get(toRoom.id).route(to,end):[];
+ // Unreachable furniture or a disconnected floor is a failed walk, never a
+ // straight-line teleport to the server's requested destination.
+ if(approach.length&&!same(approach.at(-1),from)||departure.length&&!same(departure.at(-1),end))return[start];
+ const middle=officeRouter.route(from,to);if(!same(middle.at(-1),to))return[start];
+ return compact([...approach,...middle,...departure]);
 }
 
 export function routeLength(route) { return route.slice(1).reduce((sum,p,i)=>sum+distance(route[i],p),0); }
@@ -115,8 +135,8 @@ export function walkingSample(route,elapsedMs,duration=walkingDuration(route)) {
   const envelope=progress===0||progress===1?0:Math.min(1,Math.max(0,speed/105));
   const step=Math.sin(phase),arrived=progress===1;
   return {
-    x:segment.a.x+(segment.b.x-segment.a.x)*eased,
-    y:segment.a.y+(segment.b.y-segment.a.y)*eased,
+    x:arrived?still.x:segment.a.x+(segment.b.x-segment.a.x)*eased,
+    y:arrived?still.y:segment.a.y+(segment.b.y-segment.a.y)*eased,
     facing:segment.facing,axis:segment.axis,heading:segment.heading,progress,phase,
     stride:!envelope?0:step*14*envelope,
     bob:!envelope?0:-Math.abs(step)*.8*envelope,

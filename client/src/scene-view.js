@@ -114,8 +114,13 @@ export function createSceneViewController(container, callbacks = {}, options = {
     applyPresence(entry, positions, true);
     entry.preparedVersion = version;
   }
-  const localScope = entry => entry?.valid && typeof entry.scene.getLocalTeamId === 'function'
-    ? entry.scene.getLocalTeamId() || null : undefined;
+  const localScope = entry => {
+    if(!entry?.valid)return undefined;
+    const scene=entry.scene,team=scene.getLocalTeamId?.();
+    if(team)return team;
+    if(typeof scene.getDepartmentScope==='function')return scene.getDepartmentScope()||null;
+    return typeof scene.getLocalTeamId==='function'?null:undefined;
+  };
   async function prepare(entry) {
     // Snapshot restoration can race with a network result while an asynchronous
     // GPU preparation is in progress. Never reveal an older result or identity.

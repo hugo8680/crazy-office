@@ -33,7 +33,7 @@ test('department walks use visible doors and the common corridor',()=>{
  const a=departmentWorkPoint(from.id),b=departmentWorkPoint(to.id),route=routeBetweenPoints(a,b);
  assert.deepEqual(route[0],a);assert.deepEqual(route.at(-1),b);
  for(const room of [from,to])assert.ok(routePasses(route,room.door),'walks through '+room.id+' door');
- for(let i=1;i<route.length;i++)assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
+ assert.ok(route.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)),'free room legs retain finite floor coordinates');
 });
 
 test('every human is connected to the network-room aisle',()=>{
@@ -123,7 +123,7 @@ test('general office connects through its own door while local handoffs stay on 
  assert.equal(routeLength(routeBetweenPoints(boss,owner)),Math.abs(boss.x-owner.x));
  const route=routeBetweenPoints(owner,target),room=OFFICE_ROOMS.find(room=>room.id==='general_office');assert.deepEqual(route[0],owner);assert.deepEqual(route.at(-1),target);
  assert.ok(routePasses(route,room.door));
- for(let i=1;i<route.length;i++)assert.ok(route[i].x===route[i-1].x||route[i].y===route[i-1].y);
+ assert.ok(route.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)),'free room legs retain finite floor coordinates');
 });
 
 test('walking sampler eases departure and arrival and stops feet exactly at the endpoint',()=>{
@@ -137,6 +137,10 @@ test('walking sampler eases departure and arrival and stops feet exactly at the 
   assert.equal(end.stride,0);assert.equal(end.bob,0);assert.equal(end.lean,0);
   assert.equal(start.arrived,false);assert.ok(duration>=900&&duration<=10000);
   assert.deepEqual(walkingSample(route,duration*2,duration),end,'overdue frame remains at the destination');
+});
+
+test('diagonal furniture detours finish at the exact canonical destination without floating point residue',()=>{
+ const end=departmentWorkPoint('finance'),route=routeBetweenPoints(departmentWorkPoint('hr_admin'),end),sample=walkingSample(route,20000);assert.equal(sample.arrived,true);assert.deepEqual({x:sample.x,y:sample.y},end);
 });
 
 test('turns slow down on the corridor centre line and retain the preceding horizontal facing',()=>{

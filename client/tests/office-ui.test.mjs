@@ -1,6 +1,8 @@
 import {setOrganizationOccupants,organizationOccupant,subscribeOrganizationOccupants} from '../src/organization-occupants.mjs';
 import {createOfficeNavigation} from '../src/office-navigation.mjs';
 import {ORGANIZATION_DEPARTMENTS} from '../src/organization.mjs';
+import {presencePosition} from '../src/erp-presence.js';
+import {createOfficeAudio} from '../src/office-audio.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
@@ -35,7 +37,7 @@ async function harness({sessionValue=null,savedView=null,reducedMotion=false}={}
   const erps=[],presences=[],bulletins=[],locations=[];let account,sessionOptions;
   responder=request=>request.path==='/api/session'?{session:sessionValue||{authenticated:false}}:request.path==='/api/erp/snapshot'?businessSnapshot():request.path==='/api/erp/organization'?{employees:[]}:{};
   const fetch=async(path,options={})=>{const request={path:String(path),method:options.method||'GET',credentials:options.credentials,cache:options.cache,headers:options.headers||{},...(options.body===undefined?{}:{body:JSON.parse(options.body)})};requests.push(request);const result=await responder(request);const status=result?.__response?result.status:200,data=result?.__response?result.data:result;return{status,ok:status>=200&&status<300,json:async()=>data};};
-  const scope={console,setOrganizationOccupants(records){const value=Array.isArray(records)?records:[];setOrganizationOccupants(value);directoryWrites.push(plain(value));},createOfficeNavigation,ORGANIZATION_DEPARTMENTS,CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver,mountWorkspaceViewport,e:escapeHtml,document,fetch,window:{matchMedia:()=>motionPreference,addEventListener:(type,fn)=>windowEvents.set(type,fn)},localStorage:{getItem:key=>key==='office-view-mode'?savedView:null,setItem:(key,value)=>stored.set(key,value)},setInterval(fn,ms){const id=++timerSequence;intervals.set(id,{fn,ms});return id;},clearInterval:id=>intervals.delete(id),setTimeout(fn,ms){const id=++timerSequence;timeouts.set(id,{fn,ms});return id;},clearTimeout:id=>timeouts.delete(id),mountScene(){},
+  const scope={console,setOrganizationOccupants(records){const value=Array.isArray(records)?records:[];setOrganizationOccupants(value);directoryWrites.push(plain(value));},createOfficeNavigation,createOfficeAudio,ORGANIZATION_DEPARTMENTS,CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver,mountWorkspaceViewport,e:escapeHtml,document,fetch,window:{matchMedia:()=>motionPreference,addEventListener:(type,fn)=>windowEvents.set(type,fn)},localStorage:{getItem:key=>key==='office-view-mode'?savedView:null,setItem:(key,value)=>stored.set(key,value)},setInterval(fn,ms){const id=++timerSequence;intervals.set(id,{fn,ms});return id;},clearInterval:id=>intervals.delete(id),setTimeout(fn,ms){const id=++timerSequence;timeouts.set(id,{fn,ms});return id;},clearTimeout:id=>timeouts.delete(id),mountScene(){},
     createSceneViewController(container,callbacks,options){scene.mode=options.initialMode||'3d';scene.callbacks=callbacks;scene.setMode=async mode=>{scene.mode=mode;scene.viewCalls.push(['mode',mode]);options.onChange({mode,pending:false});return mode;};return scene;},
     mountErp(options){const instance={options,isOpen:false,destroyed:false,opens:[],documents:[],people:[],refreshes:[],draft:null,async refresh(settings={}){this.refreshes.push(plain(settings));const value=await options.request('/api/erp/snapshot');if(!this.destroyed)options.onChange({snapshot:value});return value;},async open(section,context){this.isOpen=true;this.opens.push({section,context:plain(context)});options.onNavigate({section,opened:true});},async openDocument(id){this.isOpen=true;this.documents.push(id);options.onNavigate({section:'flows',opened:true,documentId:id});},async openPerson(id){this.isOpen=true;this.people.push(id);options.onNavigate({section:'people',opened:true});},close(){if(!this.isOpen)return;this.isOpen=false;options.onNavigate({section:null,opened:false});options.onClose();},updateSession(next){this.lastSession=next;},destroy(){this.close();this.destroyed=true;this.draft=null;}};erps.push(instance);return instance;},
     mountBulletinCenter(options){const instance={options,isOpen:false,opens:[],previews:[],openOptions:[],destroyed:false,async open(section='dashboard',settings){this.isOpen=true;this.opens.push(section);this.openOptions.push(settings); await options.request('/api/erp/bulletin');},close(){if(this.isOpen){this.isOpen=false;options.onClose?.();}},preview(section,anchor){this.previews.push({section,anchor});},hidePreview(){this.previewHidden=true;},destroy(){this.destroyed=true;this.isOpen=false;}};bulletins.push(instance);return instance;},
@@ -78,6 +80,13 @@ test('perspective and full screen preserve business drafts without exposing came
  }finally{h.cleanup();}
 });
 
+test('sound control changes its accessible state without touching business or the camera',async()=>{
+ const h=await harness();try{await h.login();h.requests.length=0;const frames=h.scene.viewCalls.length,moves=h.currentPresence.points.length,opens=h.currentErp.opens.length;
+  assert.match(h.element('#action-dock').innerHTML,/aria-label="关闭音效"/);await h.click({officeAction:'sound'});assert.match(h.element('#action-dock').innerHTML,/aria-label="开启音效"/);assert.equal(h.stored.get('office-sound-muted'),'1');
+  await h.click({officeAction:'sound'});assert.match(h.element('#action-dock').innerHTML,/aria-label="关闭音效"/);assert.equal(h.stored.get('office-sound-muted'),'0');assert.equal(h.scene.viewCalls.length,frames);assert.equal(h.currentPresence.points.length,moves);assert.equal(h.currentErp.opens.length,opens);assert.equal(h.requests.length,0);
+ }finally{h.cleanup();}
+});
+
 test('initial documents are a quiet baseline and new results open the actual business document in the office',async()=>{
   const h=await harness();try{const existing=documentRow({status:'approved',version:2});h.setResponder(()=>businessSnapshot({documents:[existing]}));await h.login();assert.equal(h.element('#workspace-receipt').hidden,true);assert.deepEqual(h.currentErp.documents,[]);
     h.publish(businessSnapshot({documents:[{...existing,status:'completed',version:3,updatedAt:'2026-10-20T03:00:00Z'}]}));await flush();assert.deepEqual(h.currentErp.documents,['order-a']);assert.equal(h.element('#workspace-receipt').hidden,true,'opening the business record consumes its toast');assert.match(h.element('#workspace-receipt').innerHTML,/已完成/);assert.match(h.element('#workspace-receipt').innerHTML,/服务器采购/);assert.equal(h.controller.state().preferredDocument,'order-a');
@@ -96,8 +105,8 @@ test('background reconciliation runs only when the workbench is closed and visib
   }finally{h.cleanup();}
 });
 
-test('room, colleague and employee clicks lead to business records or scoped modules, never execution details',async()=>{
-  const h=await harness();try{await h.login();h.publish(businessSnapshot({documents:[documentRow({agentRun:{id:'work-a',status:'running',tasks:[{agentId:'finance',status:'running',output:'private model output'}]}})]}));h.scene.callbacks.onSelectAgent('finance');await flush();assert.deepEqual(h.currentErp.documents,['order-a']);h.scene.callbacks.onSelectAgent('hr');await flush();assert.equal(h.currentErp.opens.at(-1).section,'people');h.currentErp.close();await flush();h.scene.callbacks.onSelectNode('finance');await flush();assert.equal(h.currentErp.isOpen,false);assert.ok(h.scene.viewCalls.some(([action,id])=>action==='focusArea'&&id==='finance'));h.scene.callbacks.onSelectHuman('owner');await flush();assert.equal(h.currentErp.opens.at(-1).section,'desk');h.currentPresence.options.onSelectEmployee({id:'employee-b'});await flush();assert.deepEqual(h.currentErp.people,['employee-b']);h.currentPresence.options.onSelectEmployee({id:'employee-a'});await flush();assert.equal(h.currentLocation.selfOpens,1);assert.equal(h.currentLocation.isOpen,true);assert.doesNotMatch(JSON.stringify(h.scene.updates),/private model output/);assert.ok(h.requests.every(r=>r.path==='/api/session'||r.path.startsWith('/api/erp/')));
+test('department labels are scenery while colleague and employee actions retain their scoped records',async()=>{
+  const h=await harness();try{await h.login();h.publish(businessSnapshot({documents:[documentRow({agentRun:{id:'work-a',status:'running',tasks:[{agentId:'finance',status:'running',output:'private model output'}]}})]}));h.scene.callbacks.onSelectAgent('finance');await flush();assert.deepEqual(h.currentErp.documents,['order-a']);h.scene.callbacks.onSelectAgent('hr');await flush();assert.equal(h.currentErp.opens.at(-1).section,'people');h.currentErp.close();await flush();const before=h.scene.viewCalls.length,moves=h.currentPresence.points.length;h.scene.callbacks.onSelectNode('finance');await flush();assert.equal(h.currentErp.isOpen,false);assert.equal(h.scene.viewCalls.length,before);assert.equal(h.currentPresence.points.length,moves);h.scene.callbacks.onSelectHuman('owner');await flush();assert.equal(h.currentErp.opens.at(-1).section,'desk');h.currentPresence.options.onSelectEmployee({id:'employee-b'});await flush();assert.deepEqual(h.currentErp.people,['employee-b']);h.currentPresence.options.onSelectEmployee({id:'employee-a'});await flush();assert.equal(h.currentLocation.selfOpens,1);assert.equal(h.currentLocation.isOpen,true);assert.doesNotMatch(JSON.stringify(h.scene.updates),/private model output/);assert.ok(h.requests.every(r=>r.path==='/api/session'||r.path.startsWith('/api/erp/')));
   }finally{h.cleanup();}
 });
 
@@ -171,26 +180,32 @@ test('every ERP request carries the currently displayed employee identity for re
 });
 
 
-test('all twelve department areas focus the office without opening a maintenance form or creating work',async()=>{
- const h=await harness();try{
-  await h.login();h.requests.length=0;const opened=h.currentErp.opens.length;
-  for(const department of ORGANIZATION_DEPARTMENTS){h.scene.callbacks.onSelectNode(department.id);await flush();assert.ok(h.scene.viewCalls.some(([action,id])=>action==='focusArea'&&id===department.id));}
-  assert.equal(h.currentErp.opens.length,opened);assert.equal(h.currentPresence.points.length,ORGANIZATION_DEPARTMENTS.length,'each department click sends its physical arrival point');assert.equal(h.requests.length,0);
+const arriveInOffice=(h,point=h.currentPresence.points.at(-1))=>h.scene.callbacks.onPresenceStep({point,person:{id:h.controller.state().session.actor.id,current:true,point},walking:false,arrived:true});
+test('clicking every department label leaves the camera and physical presence unchanged',async()=>{
+ const h=await harness();try{await h.login();h.requests.length=0;const opened=h.currentErp.opens.length,frames=h.scene.viewCalls.length;
+  for(const department of ORGANIZATION_DEPARTMENTS){h.scene.callbacks.onSelectNode(department.id);await flush();}
+  assert.equal(h.currentErp.opens.length,opened);assert.equal(h.currentPresence.points.length,0);assert.equal(h.scene.viewCalls.length,frames);assert.equal(h.requests.length,0);
+ }finally{h.cleanup();}
+});
+test('floor walking frames a department after a real presence arrival, while a manual camera gesture cancels that framing',async()=>{
+ const h=await harness();try{await h.login();h.requests.length=0;
+  for(const department of ORGANIZATION_DEPARTMENTS){const point=presencePosition(department.id),frames=h.scene.viewCalls.length;h.scene.callbacks.onMovePoint(point);await flush();assert.equal(h.scene.viewCalls.length,frames,'server acceptance cannot move the camera');arriveInOffice(h,point);assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea',department.id]);}
+  assert.equal(h.currentPresence.points.length,ORGANIZATION_DEPARTMENTS.length);const point=presencePosition('finance'),frames=h.scene.viewCalls.length;h.scene.callbacks.onMovePoint(point);await flush();h.scene.callbacks.onCameraIntent();arriveInOffice(h,point);assert.equal(h.scene.viewCalls.length,frames);assert.equal(h.requests.length,0);
  }finally{h.cleanup();}
 });
 
 test('camera context callbacks keep close-to-office restoration in the visible overview or manually entered team',async()=>{
  const h=await harness();try{
-  await h.login();h.scene.callbacks.onEnterArea('ai_data_team_1');await flush();const moves=h.currentPresence.points.length;
+  await h.login();h.scene.callbacks.onEnterArea('finance');await flush();const moves=h.currentPresence.points.length;
   h.scene.callbacks.onNavigationContext(null);await h.click({officeSection:'desk'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['reset']);assert.equal(h.currentPresence.points.length,moves);
-  h.scene.callbacks.onNavigationContext('ai_data_team_2');await h.click({officeSection:'reports'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','ai_data_team_2']);assert.equal(h.currentPresence.points.length,moves,'manual framing and closing surfaces do not request another walk');
+  h.scene.callbacks.onNavigationContext('research');await h.click({officeSection:'reports'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','research']);assert.equal(h.currentPresence.points.length,moves,'manual framing and closing surfaces do not request another walk');
  }finally{h.cleanup();}
 });
 
 test('automatic framing can report its matching context without cancelling the original walk',async()=>{
  const h=await harness();try{
   await h.login();h.scene.focusArea=function(id){this.viewCalls.push(['focusArea',id]);this.callbacks.onNavigationContext(id);return true;};const moves=h.currentPresence.points.length;
-  h.scene.callbacks.onEnterArea('finance');await flush();assert.equal(h.currentPresence.points.length,moves+1);await h.click({officeSection:'desk'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);assert.equal(h.currentPresence.points.length,moves+1);
+  h.scene.callbacks.onEnterArea('finance');await flush();assert.equal(h.currentPresence.points.length,moves+1);arriveInOffice(h);await h.click({officeSection:'desk'});h.currentErp.close();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);assert.equal(h.currentPresence.points.length,moves+1);
  }finally{h.cleanup();}
 });
 
@@ -272,7 +287,7 @@ test('login waits for the account surface to finish closing, then frames the emp
  const h=await harness();try{h.account.isOpen=true;await h.login();assert.equal(h.scene.viewCalls.some(([method])=>method==='focusArea'),false);h.account.isOpen=false;h.account.session=h.controller.state().session;h.currentErp.options.onClose();await flush();assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','hr_admin']);}finally{h.cleanup();}
 });
 test('closing a business or board surface restores the selected office, while changing surfaces does not move the camera',async()=>{
- const h=await harness();try{await h.login();h.scene.callbacks.onSelectNode('finance');await flush();await h.click({officeSection:'reports'});const before=h.scene.viewCalls.length;h.currentErp.close();await flush();assert.equal(h.scene.viewCalls.length,before+1);assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);h.scene.callbacks.onSelectBulletin('dashboard');await flush();const boardBefore=h.scene.viewCalls.length;h.currentBulletin.close();await flush();assert.equal(h.scene.viewCalls.length,boardBefore+1);assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);
+ const h=await harness();try{await h.login();h.scene.callbacks.onMovePoint(presencePosition('finance'));await flush();arriveInOffice(h);await h.click({officeSection:'reports'});const before=h.scene.viewCalls.length;h.currentErp.close();await flush();assert.equal(h.scene.viewCalls.length,before+1);assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);h.scene.callbacks.onSelectBulletin('dashboard');await flush();const boardBefore=h.scene.viewCalls.length;h.currentBulletin.close();await flush();assert.equal(h.scene.viewCalls.length,boardBefore+1);assert.deepEqual(h.scene.viewCalls.at(-1),['focusArea','finance']);
   await h.click({officeSection:'flows'});const switching=h.scene.viewCalls.length;h.scene.callbacks.onSelectBulletin('training');await flush();assert.equal(h.currentBulletin.isOpen,true);assert.equal(h.scene.viewCalls.length,switching,'an intermediate panel close cannot pull the camera under another surface');
  }finally{h.cleanup();}
 });

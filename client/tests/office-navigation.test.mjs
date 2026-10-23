@@ -6,43 +6,55 @@ import {presencePosition} from '../src/erp-presence.js';
 const deferred=()=>{let resolve;return {promise:new Promise(yes=>resolve=yes),get resolve(){return resolve;}};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(){const calls=[],moves=[],self={id:'me',...presencePosition('hr_admin')},presence={ready:Promise.resolve(),self,async movePoint(point,options){if(!options.shouldRun())return false;moves.push(point);Object.assign(self,point);return true;}};let owner=presence,allowed=true,blocked=false;const scene={focusArea:id=>calls.push(id),resetView:()=>calls.push('home')};const nav=createOfficeNavigation({scene,getPresence:()=>owner,requireAccount:()=>allowed,isBlocked:()=>blocked});return{nav,scene,presence,self,calls,moves,setOwner:value=>owner=value,setAllowed:value=>allowed=value,setBlocked:value=>blocked=value};}
-test('each department click sends one authenticated destination and focuses that office without changing business membership',async()=>{
- const f=fixture();for(const room of OFFICE_ROOMS){await f.nav.enterArea(room.id);assert.equal(f.calls.at(-1),room.id);assert.deepEqual({x:f.self.x,y:f.self.y},presencePosition(room.id));}assert.equal(f.self.id,'me');assert.equal(f.self.department,undefined);
+const arrive=(f,point=f.moves.at(-1))=>f.nav.observePresence({point,person:{id:f.self.id,current:true,point},walking:false,arrived:true});
+test('department destinations wait for the rendered arrival before framing an office',async()=>{
+ const f=fixture();for(const room of OFFICE_ROOMS){const before=f.calls.length;await f.nav.enterArea(room.id);assert.equal(f.calls.length,before,'HTTP success is not a walking arrival');assert.deepEqual({x:f.self.x,y:f.self.y},presencePosition(room.id));arrive(f);assert.equal(f.calls.at(-1),room.id);}assert.equal(f.self.id,'me');assert.equal(f.self.department,undefined);
 });
-test('AI teams arrive below the desks, and each shared amenity has a bounded real destination',async()=>{
- const f=fixture();for(const room of OFFICE_ROOMS)for(const team of room.teamZones){await f.nav.enterArea(team.id);assert.equal(f.calls.at(-1),team.id);assert.deepEqual(f.moves.at(-1),{x:team.x+team.w/2,y:team.y+team.h-4});assert.equal(officeAreaAt(f.moves.at(-1)).id,team.id);f.nav.locateSelf();assert.equal(f.calls.at(-1),team.id);}for(const id of ['bulletin','convenience','recreation','data_center','shared_lounge']){await f.nav.enterArea(id);assert.equal(f.calls.at(-1),id);assert.ok(f.self.x>=-155&&f.self.x<=1370&&f.self.y>=20&&f.self.y<=1080);}
+test('compatibility team and amenity destinations never expand an AI team or invent a department',async()=>{
+ const f=fixture();for(const room of OFFICE_ROOMS)for(const team of room.teamZones){await f.nav.enterArea(team.id);assert.deepEqual(f.moves.at(-1),{x:team.x+team.w/2,y:team.y+team.h-4});arrive(f);assert.equal(f.calls.at(-1),'ai_data');f.nav.locateSelf();assert.equal(f.calls.at(-1),'ai_data');}for(const id of ['bulletin','convenience','recreation','data_center','shared_lounge']){const before=f.calls.length;await f.nav.enterArea(id);arrive(f);assert.equal(f.calls.length,before);assert.ok(f.self.x>=-155&&f.self.x<=1370&&f.self.y>=20&&f.self.y<=1080);}
 });
-test('floor clicks preserve their coordinates, while login and closing surfaces restore the current area without sending a move',async()=>{
- const f=fixture(),room=officeArea('finance'),point={x:room.x+24,y:room.y+room.h-20};await f.nav.movePoint(point);assert.deepEqual(f.moves,[point]);f.nav.restore();assert.equal(f.calls.at(-1),'finance');f.nav.locateSelf();assert.equal(f.calls.at(-1),'finance');assert.equal(f.moves.length,1);f.nav.home();f.nav.restore();assert.equal(f.calls.at(-1),'home');
+test('floor walking frames once after entering the real target doorway, while close restores without another move',async()=>{
+ const f=fixture(),room=officeArea('finance'),point={x:room.x+24,y:room.y+room.h-20};await f.nav.movePoint(point);assert.deepEqual(f.moves,[point]);assert.deepEqual(f.calls,[]);
+ const step=p=>f.nav.observePresence({point:p,person:{id:f.self.id,current:true,point},walking:true,arrived:false});step({x:285,y:710});assert.equal(f.calls.length,0);step({x:265,y:710});assert.deepEqual(f.calls,['finance']);arrive(f,point);assert.equal(f.calls.length,1);f.nav.restore();assert.equal(f.calls.at(-1),'finance');f.nav.locateSelf();assert.equal(f.calls.at(-1),'finance');assert.equal(f.moves.length,1);f.nav.home();f.nav.restore();assert.equal(f.calls.at(-1),'home');
 });
 test('latest destination replaces a waiting intent and repeated clicks share one request',async()=>{
- const f=fixture(),wait=deferred();f.presence.ready=wait.promise;const first=f.nav.enterArea('finance'),second=f.nav.enterArea('research'),duplicate=f.nav.enterArea('research');assert.equal(second,duplicate);wait.resolve();assert.equal(await first,false);assert.equal(await second,true);assert.deepEqual(f.moves,[presencePosition('research')]);assert.equal(f.calls.at(-1),'research');await f.nav.enterArea('research');assert.equal(f.moves.length,1);
+ const f=fixture(),wait=deferred();f.presence.ready=wait.promise;const first=f.nav.enterArea('finance'),second=f.nav.enterArea('research'),duplicate=f.nav.enterArea('research');assert.equal(second,duplicate);wait.resolve();assert.equal(await first,false);assert.equal(await second,true);assert.deepEqual(f.moves,[presencePosition('research')]);assert.equal(f.calls.length,0);arrive(f);assert.equal(f.calls.at(-1),'research');await f.nav.enterArea('research');assert.equal(f.moves.length,1);
 });
 test('returning to the initial office while an earlier move is in flight still submits the return command',async()=>{
- const f=fixture(),wait=deferred(),queue=[];let chain=Promise.resolve();f.presence.movePoint=(point,options)=>{const job=chain.then(async()=>{if(!options.shouldRun())return false;queue.push(point);if(queue.length===1)await wait.promise;Object.assign(f.self,point);return true;});chain=job;return job;};const outward=f.nav.enterArea('finance');await tick();const back=f.nav.enterArea('hr_admin');wait.resolve();await Promise.all([outward,back]);assert.equal(queue.length,2);assert.deepEqual(queue.at(-1),presencePosition('hr_admin'));assert.equal(f.calls.at(-1),'hr_admin');assert.deepEqual({x:f.self.x,y:f.self.y},presencePosition('hr_admin'));
+ const f=fixture(),wait=deferred(),queue=[];let chain=Promise.resolve();f.presence.movePoint=(point,options)=>{const job=chain.then(async()=>{if(!options.shouldRun())return false;queue.push(point);if(queue.length===1)await wait.promise;Object.assign(f.self,point);return true;});chain=job;return job;};const outward=f.nav.enterArea('finance');await tick();const back=f.nav.enterArea('hr_admin');wait.resolve();await Promise.all([outward,back]);assert.equal(queue.length,2);assert.deepEqual(queue.at(-1),presencePosition('hr_admin'));assert.equal(f.calls.length,0);arrive(f,queue.at(-1));assert.equal(f.calls.at(-1),'hr_admin');assert.deepEqual({x:f.self.x,y:f.self.y},presencePosition('hr_admin'));
 });
 test('sign-out, identity replacement, blocked surfaces and invalid coordinates cannot submit stale moves',async()=>{
  const f=fixture(),wait=deferred();f.presence.ready=wait.promise;const moving=f.nav.enterArea('finance');f.nav.reset();f.setOwner(null);wait.resolve();assert.equal(await moving,false);assert.deepEqual(f.moves,[]);f.setOwner(f.presence);f.setAllowed(false);assert.equal(await f.nav.enterArea('finance'),false);f.setAllowed(true);f.setBlocked(true);assert.equal(await f.nav.enterArea('finance'),false);f.setBlocked(false);for(const p of [{x:NaN,y:400},{x:200,y:0},{x:2000,y:200}])assert.equal(await f.nav.movePoint(p),false);assert.equal(await f.nav.enterArea('missing'),false);f.nav.destroy();assert.equal(await f.nav.enterArea('finance'),false);assert.deepEqual(f.moves,[]);
 });
-
-
-test('walking inside an already framed office keeps the user zoom instead of fitting the same area again',async()=>{
- const f=fixture();await f.nav.enterArea('finance');const before=f.calls.length,room=officeArea('finance');await f.nav.movePoint({x:room.x+20,y:room.y+room.h-20});assert.equal(f.calls.length,before);assert.equal(f.moves.length,2);await f.nav.enterArea('finance');assert.equal(f.calls.at(-1),'finance','explicitly choosing the office still restores its framing');
+test('walking inside an already framed office keeps manual zoom and never reframes every floor click',async()=>{
+ const f=fixture();await f.nav.enterArea('finance');arrive(f);const before=f.calls.length,room=officeArea('finance');await f.nav.movePoint({x:room.x+20,y:room.y+room.h-20});arrive(f);assert.equal(f.calls.length,before);assert.equal(f.moves.length,2);await f.nav.enterArea('finance');arrive(f);assert.equal(f.calls.length,before);
+});
+test('manual overview and department contexts restore without sending a walk',async()=>{
+ const f=fixture();await f.nav.enterArea('finance');arrive(f);const moves=f.moves.length,calls=f.calls.length;
+ assert.equal(f.nav.setContext(null),true);assert.equal(f.nav.areaId,null);assert.equal(f.calls.length,calls);f.nav.restore();assert.equal(f.calls.at(-1),'home');assert.equal(f.moves.length,moves);
+ assert.equal(f.nav.setContext('research'),true);assert.equal(f.nav.areaId,'research');f.nav.restore();assert.equal(f.calls.at(-1),'research');assert.equal(f.moves.length,moves);assert.equal(f.nav.setContext('unknown'),false);assert.equal(f.nav.areaId,'research');f.nav.destroy();assert.equal(f.nav.setContext('finance'),false);assert.equal(f.nav.areaId,null);
+});
+test('manual context changes cancel obsolete waiting destinations without restoring a previous area',async()=>{
+ for(const next of[null,'research']){const f=fixture(),wait=deferred();f.presence.ready=wait.promise;f.nav.setContext('finance');const pending=f.nav.enterArea('business');assert.equal(f.nav.setContext(next),true);wait.resolve();assert.equal(await pending,false);assert.equal(f.nav.areaId,next);assert.deepEqual(f.moves,[]);f.nav.restore();assert.equal(f.calls.at(-1),next||'home');}
+});
+test('a matching framing callback cannot cancel its own accepted arrival',async()=>{
+ const f=fixture();f.scene.focusArea=id=>{f.calls.push(id);f.nav.setContext(id);};await f.nav.enterArea('finance');assert.equal(f.moves.length,1);assert.equal(arrive(f),true);assert.equal(f.nav.areaId,'finance');assert.deepEqual(f.calls,['finance']);f.nav.restore();assert.equal(f.moves.length,1);
+});
+test('only the current employee and matching route can focus, with real arrival fallback after a coarse frame',async()=>{
+ const f=fixture();await f.nav.enterArea('finance');const destination=f.moves[0],step={point:destination,walking:false,arrived:true};
+ assert.equal(f.nav.observePresence({...step,person:{id:'other',point:destination}}),false);assert.equal(f.nav.observePresence({...step,person:{id:'me',point:presencePosition('research')}}),false);assert.equal(f.nav.observePresence({...step,person:{id:'me',point:destination},arrived:false}),false);assert.equal(f.calls.length,0);assert.equal(arrive(f),true);assert.deepEqual(f.calls,['finance']);assert.equal(arrive(f),false);
+});
+test('manual camera intent cancels only automatic framing and cannot cancel an already requested walk',async()=>{
+ const f=fixture(),wait=deferred();f.presence.movePoint=async point=>{f.moves.push(point);await wait.promise;return true;};const pending=f.nav.enterArea('finance');await tick();assert.equal(f.nav.cancelAutoFocus(),true);wait.resolve();assert.equal(await pending,true);arrive(f);assert.equal(f.calls.length,0);assert.equal(f.moves.length,1);
+});
+test('an actual arrival emitted during a synchronous presence response is retained until that request is accepted',async()=>{
+ const f=fixture();f.presence.movePoint=async point=>{f.moves.push(point);Object.assign(f.self,point);f.nav.observePresence({point,person:{id:'me',point},walking:false,arrived:true});assert.equal(f.calls.length,0);return true;};assert.equal(await f.nav.enterArea('finance'),true);assert.deepEqual(f.calls,['finance']);
+});
+test('a rejected move, reset or replaced employee cannot trigger a late framing step',async()=>{
+ for(const action of['reject','reset','identity','home']){const f=fixture();if(action==='reject')f.presence.movePoint=async()=>false;await f.nav.enterArea('finance');if(action==='reset')f.nav.reset();if(action==='identity')f.setOwner({...f.presence,self:{...f.self,id:'other'}});if(action==='home')f.nav.home();arrive(f,presencePosition('finance'));assert.equal(f.calls.filter(id=>id==='finance').length,0,action);}
 });
 
-test('manual overview and team context changes restore the visible place without sending a walk',async()=>{
- const f=fixture();await f.nav.enterArea('ai_data_team_1');const moves=f.moves.length,calls=f.calls.length;
- assert.equal(f.nav.setContext(null),true);assert.equal(f.nav.areaId,null);assert.equal(f.calls.length,calls,'context recording does not move the camera');f.nav.restore();assert.equal(f.calls.at(-1),'home');assert.equal(f.moves.length,moves);
- assert.equal(f.nav.setContext('ai_data_team_2'),true);assert.equal(f.nav.areaId,'ai_data_team_2');f.nav.restore();assert.equal(f.calls.at(-1),'ai_data_team_2');assert.equal(f.moves.length,moves);
- assert.equal(f.nav.setContext('unknown'),false);assert.equal(f.nav.areaId,'ai_data_team_2');f.nav.destroy();assert.equal(f.nav.setContext('finance'),false);assert.equal(f.nav.areaId,null);
-});
-
-test('a manual context change cancels an obsolete waiting destination without restoring the old area',async()=>{
- for(const next of[null,'ai_data_team_2']){
-  const f=fixture(),wait=deferred();f.presence.ready=wait.promise;const pending=f.nav.enterArea('ai_data_team_1');assert.equal(f.nav.setContext(next),true);wait.resolve();assert.equal(await pending,false);assert.equal(f.nav.areaId,next);assert.deepEqual(f.moves,[]);f.nav.restore();assert.equal(f.calls.at(-1),next||'home');
- }
-});
-
-test('a matching camera context callback cannot cancel its own authenticated navigation',async()=>{
- const f=fixture(),wait=deferred();f.presence.ready=wait.promise;f.scene.focusArea=id=>{f.calls.push(id);f.nav.setContext(id);};const first=f.nav.enterArea('ai_data_team_1'),duplicate=f.nav.enterArea('ai_data_team_1');assert.equal(first,duplicate);assert.equal(f.nav.setContext('ai_data_team_1'),true);assert.equal(f.nav.setContext('unknown'),false);wait.resolve();assert.equal(await first,true);assert.equal(f.moves.length,1);assert.equal(f.nav.areaId,'ai_data_team_1');f.nav.restore();assert.equal(f.moves.length,1);
+test('closing a work window consumes a real arrival received while the window held the camera',async()=>{
+ const f=fixture();await f.nav.enterArea('finance');f.setBlocked(true);assert.equal(arrive(f),false);assert.equal(f.calls.length,0);
+ f.setBlocked(false);assert.equal(f.nav.restore(),true);assert.deepEqual(f.calls,['finance']);assert.equal(f.nav.areaId,'finance');assert.equal(f.moves.length,1);
 });

@@ -8,6 +8,7 @@ import {mountSession} from './session-ui.js';
 import {mountBulletinCenter} from './bulletin-center.js';
 import {mountOfficeLocation} from './office-location.js';
 import {createOfficeNavigation} from './office-navigation.mjs';
+import {createOfficeAudio} from './office-audio.mjs';
 import {escapeHtml as e} from './erp-ui.mjs';
 import {mountWorkspaceViewport} from './workspace-viewport.mjs';
 import {CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver} from './workspace-state.mjs';
@@ -23,6 +24,9 @@ const workspaceViewport=mountWorkspaceViewport([document.querySelector('#workspa
 const observer=createDocumentObserver();
 const motionPreference=window.matchMedia?.('(prefers-reduced-motion: reduce)');
 const surfaceMotions=new Map();
+const officeAudio=createOfficeAudio({window,storage:localStorage,isVisible:()=>!document.hidden});
+document.addEventListener('pointerdown',()=>officeAudio.unlock(),{passive:true});
+document.addEventListener('keydown',()=>officeAudio.unlock(),{passive:true});
 function cancelSurfaceMotion(element){surfaceMotions.get(element)?.cancel();surfaceMotions.delete(element);}
 function revealSurface(element,kind='menu'){
   cancelSurfaceMotion(element);
@@ -72,13 +76,13 @@ function renderDock(){
     if(viewFocus&&!scene.pending){for(const button of viewSwitch.querySelectorAll('button'))if(button.dataset.officeView===viewFocus){button.focus();break;}viewFocus=null;}
   }
   const counts=workspaceCounts(snapshot,actor().id),name=actor().name||'账户';
-  const signature=JSON.stringify([actor().id,name,counts.approvals,section,scene.mode,scene.pending,!!document.fullscreenElement]);
+  const signature=JSON.stringify([actor().id,name,counts.approvals,section,scene.mode,scene.pending,!!document.fullscreenElement,officeAudio.muted]);
   if(signature===dockSignature)return;dockSignature=signature;
   const focused=document.activeElement?.closest?.('#action-dock button');
   const focusData=focused?{...focused.dataset}:null;
   dock.innerHTML=`<button type="button" class="workspace-home" data-office-action="home" aria-label="办公室" title="办公室"><img src="./brand-mark.svg" width="27" height="27" alt="莱森购"></button>
     <div class="workspace-navigation">${navigation.map(([id,label,symbol])=>`<button type="button" data-office-section="${id}" class="workspace-nav-item ${section===id?'is-active':''}" ${section===id?'aria-current="page"':''}>${icon(symbol)}<span>${label}</span>${id==='desk'&&counts.approvals?`<em aria-label="${counts.approvals} 项待审批">${counts.approvals}</em>`:''}</button>`).join('')}</div>
-    <div class="workspace-utilities"><button type="button" class="workspace-account" data-office-action="account" aria-label="账户：${e(name)}" title="${e(name)}"><span class="workspace-avatar">${e(name.slice(0,1))}</span><span class="workspace-account-name">${e(name)}</span></button></div>`;
+    <div class="workspace-utilities"><button type="button" class="workspace-sound" data-office-action="sound" aria-label="${officeAudio.muted?'开启音效':'关闭音效'}" title="${officeAudio.muted?'开启音效':'关闭音效'}" aria-pressed="${!officeAudio.muted}"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4Z"/>${officeAudio.muted?'<path d="m16 9 5 6m0-6-5 6"/>':'<path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>'}</svg></button><button type="button" class="workspace-account" data-office-action="account" aria-label="账户：${e(name)}" title="${e(name)}"><span class="workspace-avatar">${e(name.slice(0,1))}</span><span class="workspace-account-name">${e(name)}</span></button></div>`;
   if(focusData)for(const button of dock.querySelectorAll('button'))if(['officeAction','officeSection','officeView'].some(key=>focusData[key]&&button.dataset[key]===focusData[key])){button.focus();break;}
 }
 function requireAccount(){if(isAuthenticated()&&erp)return true;account?.requireLogin();return false;}
@@ -116,9 +120,12 @@ function receiveSnapshot(value){
   }
 }
 const scene=createSceneViewController(document.querySelector('#office-scene'),{
-  onSelectNode:id=>{if(id==='bulletin'){void openBulletin();return;}if(departmentIDs.has(id)){pendingLoginLocation=false;void officeNavigation?.enterArea(id);return;}void openSection(ROOM_SECTIONS[id]||'desk');},
+  onSelectNode:id=>{if(id==='bulletin'){void openBulletin();return;}if(departmentIDs.has(id))return;void openSection(ROOM_SECTIONS[id]||'desk');},
   onEnterArea:id=>{pendingLoginLocation=false;void officeNavigation?.enterArea(id);},
-  onNavigationContext:id=>officeNavigation?.setContext(id),
+  onNavigationContext:id=>{officeNavigation?.setContext(id);officeAudio.context(id);},
+  onDepartmentHover:id=>officeAudio.hover(id),
+  onPresenceStep:step=>{officeNavigation?.observePresence(step);officeAudio.step(step);},
+  onCameraIntent:()=>officeNavigation?.cancelAutoFocus(),
   onSelectBulletin:section=>{void openBulletin(section);},
   onHoverBulletin:(section,anchor)=>{if(isAuthenticated()&&!erp?.isOpen&&!locationMenu?.isOpen)void bulletin?.preview(section,anchor);},
   onLeaveBulletin:section=>bulletin?.hidePreview(section),
@@ -159,6 +166,7 @@ async function handleOfficeClick(event){
     switch(target.dataset.officeAction){
       case 'home':erp?.close();void bulletin?.close();locationMenu?.close();pendingLoginLocation=false;officeNavigation.home();break;
       case 'account':bulletin?.hidePreview();account?.open();break;
+      case 'sound':officeAudio.setMuted(!officeAudio.muted);officeAudio.unlock();renderDock();break;
       case 'fullscreen':await toggleFullscreen();break;
       case 'dismiss-receipt':receipt.hidden=true;break;
     }
@@ -172,5 +180,5 @@ account=mountSession({container:lab,onClose:returnToOffice,onAuthenticated:next=
 await account.ready;
 // Reconcile while the business pane is closed; the pane owns its own visible polling.
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelSurfaceMotions();else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);officeNavigation?.destroy();returnTicket++;bulletin?.destroy();locationMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelSurfaceMotions();officeAudio.pause();}else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);officeNavigation?.destroy();officeAudio.destroy();returnTicket++;bulletin?.destroy();locationMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});

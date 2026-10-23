@@ -480,8 +480,20 @@ export function createOffice3DLayout(assets) {
   emit(batches,root);
   const overviewRoot=new THREE.Group();overviewRoot.name='organization-overview';root.add(overviewRoot);emit(overviewBatches,overviewRoot);
   for(const [id,map]of detailBatches){const group=new THREE.Group();group.name=`organization-detail-${id}`;group.visible=false;root.add(group);seatGroups.get(id).root=group;emit(map,group);}
+  const departmentHover=new THREE.Group();departmentHover.name='department-hover';departmentHover.visible=false;
+  const hoverPlane=new THREE.Mesh(assets.geometries.slab,assets.material('#e4ecdb'));hoverPlane.position.y=1.76;
+  const hoverOutlineGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.5,0,-.5),new THREE.Vector3(.5,0,-.5),new THREE.Vector3(.5,0,.5),new THREE.Vector3(-.5,0,.5)]),hoverOutlineMaterial=new THREE.LineBasicMaterial({color:'#86a187'});
+  const hoverOutline=new THREE.LineLoop(hoverOutlineGeometry,hoverOutlineMaterial);hoverOutline.position.y=2;departmentHover.add(hoverPlane,hoverOutline);root.add(departmentHover);
+  const assetDispose=assets.dispose.bind(assets);assets.dispose=()=>{hoverOutlineGeometry.dispose();hoverOutlineMaterial.dispose();assetDispose();};
+  let hoveredDepartmentId=null;
+  function setHoveredDepartment(id){
+    const room=OFFICE3D_ROOMS.find(room=>room.id===id),next=localTeamId?null:room?.id||null;if(next===hoveredDepartmentId)return false;
+    hoveredDepartmentId=next;departmentHover.visible=!!next;
+    if(next){departmentHover.position.set(room.x+room.w/2,0,room.y+room.h/2);hoverPlane.scale.set(room.w-5,.08,room.h-5);hoverOutline.scale.set(room.w+2,1,room.h+2);hoverPlane.updateMatrix();hoverOutline.updateMatrix();departmentHover.updateMatrix();departmentHover.updateMatrixWorld(true);}
+    return true;
+  }
   let detailed=new Set(),away=new Set(),localTeamId=null;
-  const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
+  const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)&&child!==departmentHover).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
   for(const map of[overviewBatches,...detailBatches.values()])for(const batch of map.values())batch.bodyParts.forEach((part,index)=>{
     if(!part||part==='legs')return;const id=batch.owners[index];if(!poseParts.has(id))poseParts.set(id,[]);poseParts.get(id).push({batch,index,part,overview:map===overviewBatches,groupId:seatGroupById.get(id)});
   });
@@ -532,7 +544,7 @@ export function createOffice3DLayout(assets) {
   function setDetailGroups(ids=[]){
     const requested=ids.filter(id=>seatGroups.has(id)),team=requested.find(id=>officeTeamDetail(id)),next=new Set(team?[team]:requested),nextLocal=team||null;
     if(nextLocal===localTeamId&&next.size===detailed.size&&[...next].every(id=>detailed.has(id)))return false;
-    clearIdlePoses();
+    clearIdlePoses();setHoveredDepartment(null);
     const changed=new Set([...next,...detailed].filter(id=>next.has(id)!==detailed.has(id)));localTeamId=nextLocal;
     for(const [child,visible]of campusVisibility)child.visible=!localTeamId&&visible;
     for(const info of seatGroups.values())info.root.visible=next.has(info.id);
@@ -550,7 +562,7 @@ export function createOffice3DLayout(assets) {
   function enterTeam(id){const team=officeTeamDetail(id);if(!team)return null;setDetailGroups([team.id]);return team;}
   function exitTeam(){return localTeamId?setDetailGroups([]):false;}
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
     get awaySeatIds(){return new Set(away);},

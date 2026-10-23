@@ -22,6 +22,8 @@
 .workspace-dock .workspace-nav-item.is-active{background:var(--office-ui-soft);color:var(--office-ui-ink)}
 .workspace-nav-item em{display:grid;place-items:center;min-width:17px;height:17px;background:var(--office-ui-danger);color:var(--office-ui-on-accent);font:var(--office-ui-text-caption) var(--office-ui-font-sans);font-style:normal;border-radius:5px}
 .workspace-utilities{display:flex;align-items:center;gap:6px}
+.workspace-dock .workspace-sound{width:34px;padding:7px;flex:none}
+.workspace-sound[aria-pressed=false]{color:var(--office-ui-muted)}
 .workspace-tools{position:absolute;top:max(24px,env(safe-area-inset-top));right:max(24px,env(safe-area-inset-right))}
 .workspace-tools button{display:grid;place-items:center;width:42px;height:42px;padding:10px;border-radius:12px;background:var(--office-ui-paper);color:var(--office-ui-muted);border:1px solid var(--office-ui-line)}
 .workspace-tools button:hover{background:var(--office-ui-soft);color:var(--office-ui-accent)}

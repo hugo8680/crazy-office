@@ -1,5 +1,6 @@
 // A room's automatic framing is a comfortable starting view, not the user's
 // zoom limit. Both renderers and every input device share this policy.
+export const OFFICE_DEPARTMENT_CAMERA_POLICY=Object.freeze({enterScale:1.12,exitRatio:.72});
 export const OFFICE_CAMERA_LIMITS=Object.freeze({minScale:.72,maxManualScale:32,maxAutomaticScale:18});
 
 export function clampOfficeScale(value,{automatic=false,fallback=1}={}){

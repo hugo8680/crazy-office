@@ -112,3 +112,19 @@ test('shared quiet team finishes leave every desk and colleague footprint intact
   }
  }finally{assets.dispose();}
 });
+
+test('department hover reuses one quiet full-room surface and outline without rebuilding static geometry',()=>{
+ const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets),group=layout.root.getObjectByName('department-hover'),[plane,outline]=group.children,roots=layout.root.children.length,instances=layout.statistics.staticInstances;
+  assert.equal(layout.hoveredDepartmentId,null);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment(null),false);
+  assert.equal(plane.castShadow,false);assert.equal(plane.receiveShadow,false);assert.equal(plane.material.emissive.getHex(),0);assert.equal(outline.isLineLoop,true);assert.equal(outline.geometry.attributes.position.count,4);
+  for(const room of OFFICE_ROOMS){
+   assert.equal(layout.setHoveredDepartment(room.id),true);assert.equal(layout.hoveredDepartmentId,room.id);assert.equal(group.visible,true);
+   assert.deepEqual(group.position.toArray(),[room.x+room.w/2,0,room.y+room.h/2]);assert.deepEqual(plane.scale.toArray(),[room.w-5,.08,room.h-5]);assert.deepEqual(outline.scale.toArray(),[room.w+2,1,room.h+2]);
+   const matrix=group.matrixWorld.elements.slice();assert.equal(layout.setHoveredDepartment(room.id),false);assert.deepEqual(group.matrixWorld.elements,matrix,'repeated pointer samples do not dirty the hover transform');
+   assert.equal(layout.root.children.length,roots);assert.equal(layout.statistics.staticInstances,instances);assert.equal(group.children[0],plane);assert.equal(group.children[1],outline);
+  }
+  assert.equal(layout.setHoveredDepartment('missing'),true);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('missing'),false);
+  layout.setHoveredDepartment('ai_data');layout.enterTeam(ai.teamZones[0].id);assert.equal(layout.hoveredDepartmentId,null);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('finance'),false,'a hidden campus cannot leave a department plane over the legacy local floor');layout.exitTeam();assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('finance'),true);
+ }finally{assets.dispose();}
+});
