@@ -36,14 +36,38 @@ export function mountBulletinCenter({container,chrome,request,session,onError=()
   const video=()=>dialog.querySelector('video');
   const empty=text=>`<div class="bulletin-empty">${e(text)}</div>`;
   const field=(label,name,type='text',extra='')=>`<label class="erp-field"><span>${label}</span><input name="${name}" type="${type}" value="${e(trainingDraft[name]||'')}" ${extra} required></label>`;
-  function render(){if(destroyed)return;dialog.dataset.section=section;captureDrafts();const source=board||{},training=source.training||{},messages=source.messages||{},media=source.video||{},dashboard=source.dashboard||{};
+  const focusControls='button,input,select,textarea,summary,video';
+  function focusIdentity(node){
+    if(node?.dataset?.bulletinAction)return JSON.stringify(['action',node.dataset.bulletinAction,node.dataset.id||'']);
+    if(node?.dataset?.bulletinTab)return JSON.stringify(['tab',node.dataset.bulletinTab]);
+    const form=node?.form||node?.closest?.('[data-bulletin-form]');
+    if(node?.name&&form?.dataset?.bulletinForm)return JSON.stringify(['field',form.dataset.bulletinForm,node.name]);
+    if(node?.type==='submit'&&form?.dataset?.bulletinForm)return JSON.stringify(['submit',form.dataset.bulletinForm]);
+    return ['SUMMARY','VIDEO'].includes(node?.tagName)?node.tagName:'';
+  }
+  function captureView(){
+    if(!dialog.open)return null;
+    const focused=doc.activeElement,content=dialog.querySelector('.bulletin-content');
+    return {section:dialog.dataset.section,top:content?.scrollTop||0,left:content?.scrollLeft||0,focus:dialog.contains?.(focused)?{key:focusIdentity(focused),start:focused.selectionStart,end:focused.selectionEnd,direction:focused.selectionDirection,top:focused.scrollTop||0,left:focused.scrollLeft||0}:null};
+  }
+  function restoreView(saved){
+    if(!saved||!dialog.open)return;
+    const focused=saved.focus,target=focused?.key?[...dialog.querySelectorAll(focusControls)].find(node=>focusIdentity(node)===focused.key):null;
+    if(target&&!target.disabled){
+      target.focus?.({preventScroll:true});
+      if(Number.isInteger(focused.start)&&Number.isInteger(focused.end))try{target.setSelectionRange?.(focused.start,focused.end,focused.direction||'none');}catch{/* Number and date controls do not expose text ranges. */}
+      target.scrollTop=focused.top;target.scrollLeft=focused.left;
+    }
+    const content=dialog.querySelector('.bulletin-content');if(content&&saved.section===section){content.scrollTop=saved.top;content.scrollLeft=saved.left;}
+  }
+  function render(){if(destroyed)return;const savedView=captureView();dialog.dataset.section=section;captureDrafts();const source=board||{},training=source.training||{},messages=source.messages||{},media=source.video||{},dashboard=source.dashboard||{};
     const title=tabs.find(t=>t[0]===section)?.[1]||'数据看板';let content=empty('正在读取…');
     if(board&&section==='dashboard')content=`<div class="bulletin-dashboard-head"><div><h2>数据看板</h2></div><time>${e(dateText(dashboard.generatedAt))}</time></div>${renderOfficeDashboardCharts(getSnapshot(),{metrics:list(dashboard.metrics)})}<div class="bulletin-dashboard-footer"><span>当前账号可见数据</span><span>${e(actor.name||'')}</span></div>`;
     if(board&&section==='training')content=`<div class="bulletin-section-title"><div><h2>标注排行榜</h2><p>${training.periodStart?`${e(training.periodStart)} — ${e(training.periodEnd)}`:'按完成量排名 · 准确率同步展示'}</p></div>${training.canManage?`<button type="button" class="erp-button" data-bulletin-action="manage-training">${manage?'取消录入':'登记成绩'}</button>`:''}</div>${manage?`<form class="bulletin-training-form erp-form" data-bulletin-form="training"><label class="erp-field"><span>员工</span><select name="employeeId" required><option value="">选择员工</option>${people.filter(p=>p.active!==false&&p.status!=='disabled').map(p=>`<option value="${e(p.id)}" ${trainingDraft.employeeId===p.id?'selected':''}>${e(p.name)} · ${e(p.department||'')}</option>`).join('')}</select></label>${field('开始日期','periodStart','date')}${field('结束日期','periodEnd','date')}${field('完成量','completedCount','number','min="0" step="1"')}${field('准确率 %','accuracy','number','min="0" max="100" step="0.01"')}<button class="erp-button erp-primary" type="submit" ${busy?'disabled':''}>保存成绩</button></form>`:''}${renderTrainingRows(training.entries)}`;
     if(board&&section==='video'){const src=safeBoardVideo(media.src);content=`<div class="bulletin-section-title"><div><h2>${e(media.title||'公司宣传片')}</h2></div></div>${src?`<video class="bulletin-video" controls playsinline preload="metadata" ${src==='/media/office-film.webm'?'poster="/media/office-film-poster.svg"':''} src="${e(src)}" aria-label="${e(media.title||'公司宣传片')}"></video>`:empty('宣传片尚未上传')}${media.canManage?`<details class="bulletin-video-settings" ${videoSettingsOpen?'open':''}><summary>设置宣传视频</summary><form class="erp-form" data-bulletin-form="video"><label class="erp-field"><span>视频地址</span><input name="src" value="${e(videoDraft?.src??media.src??'')}" placeholder="/media/office-film.webm" maxlength="500"></label><label class="erp-field"><span>标题</span><input name="title" value="${e(videoDraft?.title??media.title??'公司宣传片')}" maxlength="80" required></label><button class="erp-button erp-primary" type="submit" ${busy?'disabled':''}>保存</button></form></details>`:''}`;}
     if(board&&section==='messages')content=`<div class="bulletin-section-title"><div><h2>员工留言板</h2></div><span>${list(messages.items).length} 条留言</span></div>${messages.canPost?`<form class="bulletin-compose" data-bulletin-form="message"><label class="sr-only" for="bulletin-message-body">留言</label><textarea id="bulletin-message-body" name="body" maxlength="600" rows="3" placeholder="写下你的留言…" required>${e(draft)}</textarea><div><small>以 ${e(actor.name||'本人')} 的身份发布</small><button type="submit" class="erp-button erp-primary" ${busy?'disabled':''}>发布留言</button></div></form>`:''}${renderBoardMessages(messages)}`;
     pauseVideo();
-    dialog.innerHTML=`<div class="bulletin-shell"><header class="bulletin-header"><div class="bulletin-brand"><img src="./brand-mark.svg" width="25" height="25" alt="莱森购"><strong>信息公开栏</strong></div><div><button type="button" class="bulletin-icon" data-bulletin-action="fullscreen" aria-label="${expanded?'退出大屏':'大屏展示'}" aria-pressed="${expanded}">${icon('fullscreen')}</button><button type="button" class="bulletin-icon" data-bulletin-action="close" aria-label="返回办公室">${icon('close')}</button></div></header><nav class="bulletin-tabs" aria-label="公开栏内容">${tabs.map(([id,label,symbol])=>`<button type="button" data-bulletin-tab="${id}" ${id===section?'aria-current="page"':''}>${icon(symbol)}${label}</button>`).join('')}</nav><main class="bulletin-content" aria-label="${e(title)}">${error?`<div class="bulletin-error" role="alert">${e(error)}<button type="button" data-bulletin-action="retry">重试</button></div>`:''}${content}</main></div>`;lockControls();updateExpanded(expanded);
+    dialog.innerHTML=`<div class="bulletin-shell"><header class="bulletin-header"><div class="bulletin-brand"><img src="./brand-mark.svg" width="25" height="25" alt="莱森购"><strong>信息公开栏</strong></div><div><button type="button" class="bulletin-icon" data-bulletin-action="fullscreen" aria-label="${expanded?'退出大屏':'大屏展示'}" aria-pressed="${expanded}">${icon('fullscreen')}</button><button type="button" class="bulletin-icon" data-bulletin-action="close" aria-label="返回办公室">${icon('close')}</button></div></header><nav class="bulletin-tabs" aria-label="公开栏内容">${tabs.map(([id,label,symbol])=>`<button type="button" data-bulletin-tab="${id}" ${id===section?'aria-current="page"':''}>${icon(symbol)}${label}</button>`).join('')}</nav><main class="bulletin-content" aria-label="${e(title)}">${error?`<div class="bulletin-error" role="alert">${e(error)}<button type="button" data-bulletin-action="retry">重试</button></div>`:''}${content}</main></div>`;lockControls();updateExpanded(expanded);restoreView(savedView);
   }
   function captureDrafts(){
     for(const form of dialog.querySelectorAll('[data-bulletin-form]')){

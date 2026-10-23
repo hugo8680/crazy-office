@@ -290,3 +290,11 @@ test('employee charts resolve names from the real users endpoint when snapshot h
  const h=harness(({path})=>path==='/api/erp/snapshot'?{currentUser:{id:'me',name:'管理员',roles:['admin']},projects:[{id:'p',name:'实际项目'}],tasks:[{id:'t',projectId:'p',assigneeId:'actual-employee',status:'completed'}]}:path==='/api/erp/users'?{users:[{id:'actual-employee',name:'李嘉明'}]}:undefined);
  try{await h.mounted.open('reports');await h.click('report-tab',{tab:'performance'});assert.match(h.root.innerHTML,/李嘉明/);assert.doesNotMatch(h.root.innerHTML,/姓名未提供/);}finally{h.cleanup();}
 });
+
+test('Escape first cancels active input composition rather than closing the ERP window',async()=>{
+ const h=harness();try{
+  await h.mounted.open('projects');let prevented=0;const key=extra=>h.documentEvents.get('keydown')({key:'Escape',preventDefault(){prevented++;},...extra});
+  key({isComposing:true});assert.equal(h.mounted.isOpen,true);key({keyCode:229});assert.equal(h.mounted.isOpen,true);key({isComposing:false,keyCode:229});assert.equal(h.mounted.isOpen,true);assert.equal(prevented,0);
+  key({isComposing:false,keyCode:27});assert.equal(h.mounted.isOpen,false);assert.equal(prevented,1);
+ }finally{h.cleanup();}
+});

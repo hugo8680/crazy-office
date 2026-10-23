@@ -104,3 +104,32 @@ test('a delayed board fullscreen exit cannot close a reopened selection or notif
   }finally{h.destroy();}
  }
 });
+
+test('a board refresh retains the active draft field, selection direction and scroll without publishing it',async()=>{
+ const h=harness();try{
+  await h.ui.open('messages');const field=h.set('message',{body:'本周项目资料等待核对，请先保留这段草稿'}).elements[0];
+  field.focus();field.setSelectionRange(4,12,'backward');field.scrollTop=18;field.scrollLeft=7;h.dialog.content.scrollTop=250;h.dialog.content.scrollLeft=11;
+  const fresh=state();fresh.messages.items.unshift({id:'m2',body:'另一位同事的新留言'});h.respond(()=>({board:fresh}));await h.ui.refresh();
+  const restored=h.form('message').elements[0];assert.notEqual(restored,field);assert.equal(h.document.activeElement,restored);assert.equal(restored.value,'本周项目资料等待核对，请先保留这段草稿');
+  assert.deepEqual([restored.selectionStart,restored.selectionEnd,restored.selectionDirection],[4,12,'backward']);assert.deepEqual(restored.focusOptions,{preventScroll:true});assert.deepEqual([restored.scrollTop,restored.scrollLeft,h.dialog.content.scrollTop,h.dialog.content.scrollLeft],[18,7,250,11]);
+  assert.equal(h.calls.filter(call=>call.method!=='GET').length,0);assert.match(h.dialog.innerHTML,/另一位同事的新留言/);
+ }finally{h.destroy();}
+});
+
+test('a late first board read restores the currently focused header and never steals focus from outside the board',async()=>{
+ const h=harness(),slow=deferred();try{
+  h.respond(()=>slow.promise);const pending=h.ui.open('dashboard');const close=h.dialog.querySelector('[data-bulletin-action="close"]');close.focus();slow.resolve({board:state()});await pending;
+  assert.notEqual(h.document.activeElement,close);assert.equal(h.document.activeElement,h.dialog.querySelector('[data-bulletin-action="close"]'));
+  const outside={focus(){h.document.activeElement=this;}};outside.focus();await h.ui.refresh();assert.equal(h.document.activeElement,outside);
+ }finally{h.destroy();}
+});
+
+test('board tab replacement retains keyboard focus, resets new tab scrolling and skips unsupported number selections',async()=>{
+ const h=harness();try{
+  await h.ui.open('messages');h.dialog.content.scrollTop=340;const training=h.dialog.buttons.find(button=>button.dataset.bulletinTab==='training');training.focus();await h.tab('training');
+  assert.equal(h.document.activeElement.dataset.bulletinTab,'training');assert.equal(h.dialog.content.scrollTop,0);
+  h.respond(({path})=>path==='/api/erp/users'?{users:[{id:'e1',name:'真实员工'}]}:{board:state()});await h.click('manage-training');
+  const field=h.set('training',{employeeId:'e1',periodStart:'2026-10-01',periodEnd:'2026-10-22',completedCount:17,accuracy:99.5}).elements.find(field=>field.name==='completedCount');field.focus();field.selectionStart=null;field.selectionEnd=null;
+  await h.ui.refresh();const restored=h.form('training').elements.find(field=>field.name==='completedCount');assert.equal(h.document.activeElement,restored);assert.equal(restored.value,'17');assert.equal(restored.selectionStart,undefined);
+ }finally{h.destroy();}
+});

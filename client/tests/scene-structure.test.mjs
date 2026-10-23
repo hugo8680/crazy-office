@@ -5,6 +5,7 @@ import { HUMAN_EMPLOYEES } from '../src/people.js';
 import {renderOrganizationPositionContents} from '../src/scene-floor2d.mjs';
 import {setOrganizationOccupants} from '../src/organization-occupants.mjs';
 import {employeeAppearance} from '../src/employee-appearance.mjs';
+import {OFFICE_CAMERA_LIMITS,officeWheelScale} from '../src/office-camera.mjs';
 import {BULLETIN_SECTIONS} from '../src/bulletin-sections.mjs';
 import {greetingForPerson} from '../src/person-greeting.mjs';
 import {OFFICE_WORLD,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_FITTINGS,OFFICE_SHARED_AREAS,OFFICE_LANDSCAPE,OFFICE_OVERVIEW_SEATS,officeSeatsForView,OFFICE_AGENT_HOMES,OFFICE_WORK_POSITIONS,departmentWorkPoint} from '../src/organization.mjs';
@@ -196,9 +197,9 @@ test('2D wheel units are normalized and a continuous stream retargets smoothly w
  const f=sceneFixture({}, {frames:true});try{
   f.drain();const world={x:300,y:220},anchor=f.screen(world);let previous=sceneScale(f);
   for(let i=0;i<12;i++){f.input('wheel',{deltaY:-12,clientX:anchor.x,clientY:anchor.y});f.frame();f.frame();const current=sceneScale(f);assert.ok(current>=previous);previous=current;almost(f.screen(world).x,anchor.x);almost(f.screen(world).y,anchor.y);}
-  f.drain();almost(sceneScale(f),Math.exp(12*12*.0009));assert.equal(f.pending.size,0);
+  f.drain();almost(sceneScale(f),Math.exp(12*12*.0016));assert.equal(f.pending.size,0);
   f.input('wheel',{deltaY:100000,clientX:anchor.x,clientY:anchor.y});f.drain();assert.ok(sceneScale(f)>.72&&sceneScale(f)<2.25);
-  f.scene.resetView();f.drain();f.input('wheel',{deltaY:-100000});f.drain();assert.ok(sceneScale(f)<1.12,'one mouse wheel event is capped to a mild relative step');
+  f.scene.resetView();f.drain();f.input('wheel',{deltaY:-100000});f.drain();assert.ok(sceneScale(f)<1.35,'one mouse wheel event is bounded rather than jumping to the limit');
  }finally{f.destroy();}
 });
 
@@ -298,7 +299,7 @@ test('department focus frames the actual room while large organization seats rem
       assert.ok(OFFICE_WORLD.width/width<=4.5);
     }
     assert.equal(f.scene.focusNode('missing-department'),false);
-    f.scene.zoom(100);f.drain();almost(sceneScale(f),6.5);
+    f.scene.zoom(100);f.drain();almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);
     f.scene.resetView();f.drain();assert.equal(f.svg.attrs.viewBox,initialViewBox);
   }finally{f.destroy();}
 });
@@ -414,12 +415,12 @@ test('overview and focused detail switch both artwork geometry and hit regions w
 test('Home and blank map double-click restore overview while object double-click never resets or submits work',()=>{
   const actions=[],f=sceneFixture({onSelectHuman:id=>actions.push(id),onSelectNode:id=>actions.push(id)}, {frames:true});
   try {
-    f.scene.zoom(100);f.drain();almost(sceneScale(f),4.5);f.input('keydown',{key:'Home'});f.drain();almost(sceneScale(f),1);
+    f.scene.zoom(100);f.drain();almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);f.input('keydown',{key:'Home'});f.drain();almost(sceneScale(f),1);
     const team=f.groups.get('[data-team]')[0];team.listeners.get('click')({stopPropagation(){}});f.drain();assert.ok(sceneScale(f)>4.5);assert.ok(f.svg.dataset.focusTeam);
     const element=f.groups.get('[data-position]').find(el=>el.dataset.visible==='true'),before=f.svg.attrs.viewBox;
     f.input('dblclick',{target:eventTarget(element)});assert.equal(f.svg.attrs.viewBox,before);assert.deepEqual(actions,[]);
     assert.equal(f.input('dblclick').defaultPrevented,true);f.drain();assert.equal(f.svg.attrs.viewBox,initialViewBox);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));assert.equal(f.svg.dataset.focusTeam,'');
-    f.scene.zoom(100);f.drain();almost(sceneScale(f),4.5);assert.deepEqual(actions,[]);
+    f.scene.zoom(100);f.drain();almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);assert.deepEqual(actions,[]);
   }finally{f.destroy();}
 });
 
@@ -676,4 +677,24 @@ test('an existing cached 2D colleague resumes from the active view position with
   f.scene.setPresence(base);f.scene.setActive(false);f.advanceTimers(10000);f.scene.setPresence({...base,people:[{...base.people[0],x:800}],positions:{me:{x:650,y:1058}},rebase:true});assert.deepEqual(f.scene.getPresenceState().positions.me,{x:650,y:1058});
   f.scene.prepare();f.scene.setActive(true);f.frame();assert.ok(Math.hypot(f.scene.getPresenceState().positions.me.x-650,f.scene.getPresenceState().positions.me.y-1058)>.01,'the restored route moves on its first active frame');f.scene.setActive(false);
  }finally{f.destroy();}
+});
+
+
+test('2D area framing leaves manual zoom available, and limits reverse immediately without a dead zone',()=>{
+ const f=sceneFixture({}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.drain();const fitted=sceneScale(f),world={x:960,y:520},at=f.screen(world);f.input('wheel',{deltaY:-80,clientX:at.x,clientY:at.y});f.drain();assert.ok(sceneScale(f)>fitted);almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);f.scene.zoom(100);f.drain();almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);f.input('wheel',{deltaY:-100});assert.equal(f.pending.size,0,'an exhausted limit does not start another camera animation');f.input('wheel',{deltaY:1});f.drain();assert.ok(sceneScale(f)<OFFICE_CAMERA_LIMITS.maxManualScale);f.input('gesturestart');f.input('gesturechange',{scale:100});almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);f.input('gesturechange',{scale:99});assert.ok(sceneScale(f)<OFFICE_CAMERA_LIMITS.maxManualScale);f.input('gesturechange',{scale:.00001});almost(sceneScale(f),OFFICE_CAMERA_LIMITS.minScale);f.input('gesturechange',{scale:.000011});assert.ok(sceneScale(f)>OFFICE_CAMERA_LIMITS.minScale);f.input('gestureend');f.drain();}finally{f.destroy();}
+});
+test('2D manual input cancels an unfinished automatic journey at the visible frame and dragging works over teams and seats',()=>{
+ const actions=[],f=sceneFixture({onEnterArea:id=>actions.push(id),onSelectSeat:id=>actions.push(id)}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.frame();f.frame();const visible=sceneScale(f),world={x:800,y:500},at=f.screen(world);f.input('wheel',{deltaY:-16,clientX:at.x,clientY:at.y});f.drain();almost(sceneScale(f),officeWheelScale(visible,-16));almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);f.scene.focusArea('ai_data_team_1');f.drain();const team=f.groups.get('[data-team]')[0],seat=f.groups.get('[data-position]').find(el=>el.dataset.visible==='true');for(const el of [team,seat]){const before=f.screen(world);f.input('pointerdown',{target:eventTarget(el),clientX:400,clientY:300});f.input('pointermove',{clientX:480,clientY:330});f.input('pointerup');const after=f.screen(world);almost(after.x,before.x+80);almost(after.y,before.y+30);const click=f.input('click',{target:eventTarget(el)});assert.equal(click.stopped,true);assert.deepEqual(actions,[]);f.frame();}f.drain();assert.equal(f.svg.captured.size,0);}finally{f.destroy();}
+});
+test('2D automatic framing finishes before caching while manual input keeps the exact visible state across switches',()=>{
+ const f=sceneFixture({}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.frame();f.frame();f.scene.setActive(false);f.scene.setActive(true);f.drain();const completed=f.svg.attrs.viewBox;f.scene.focusArea('ai_data_team_1');f.drain();assert.equal(f.svg.attrs.viewBox,completed);f.input('wheel',{deltaY:-80});f.frame();f.frame();const manual=f.svg.attrs.viewBox;f.scene.setActive(false);f.scene.setActive(true);f.drain();assert.equal(f.svg.attrs.viewBox,manual);f.input('pointerdown',{clientX:400,clientY:300});f.input('pointermove',{clientX:450,clientY:320});f.doc.hidden=true;f.visibility.get('visibilitychange')();assert.equal(f.svg.captured.size,0);f.doc.hidden=false;f.visibility.get('visibilitychange')();const resumed=f.svg.attrs.viewBox;f.input('pointermove',{clientX:600,clientY:400});f.drain();assert.equal(f.svg.attrs.viewBox,resumed);}finally{f.destroy();}
+});
+
+
+test('reversing 2D wheel or zoom mid-animation changes direction from the visible frame immediately',()=>{
+ const f=sceneFixture({}, {frames:true});try{f.drain();f.input('wheel',{deltaY:-180});f.frame();f.frame();const before=sceneScale(f);assert.ok(before>1);f.input('wheel',{deltaY:8});f.frame();f.frame();assert.ok(sceneScale(f)<before,'a small reverse input cannot continue toward the previous zoom-in target');f.drain();f.scene.zoom(5);f.frame();f.frame();const zoomed=sceneScale(f);f.scene.zoom(-.1);f.frame();f.frame();assert.ok(sceneScale(f)<zoomed);f.drain();}finally{f.destroy();}
+});
+
+test('2D semantic zoom expands only the selected team and restores representatives when returning to the overview',()=>{
+ const f=sceneFixture({}, {frames:true});try{f.drain();const overview=Number(f.svg.dataset.visiblePosts);f.scene.focusArea('ai_data_team_1');f.drain();assert.ok(Number(f.svg.dataset.visiblePosts)>overview);f.scene.zoom(.5);f.drain();assert.ok(Number(f.svg.dataset.visiblePosts)>overview);f.scene.focusArea('business');f.drain();assert.equal(f.svg.dataset.focusTeam,'');assert.equal(Number(f.svg.dataset.visiblePosts),overview);f.scene.resetView();f.drain();assert.equal(Number(f.svg.dataset.visiblePosts),overview);}finally{f.destroy();}
 });

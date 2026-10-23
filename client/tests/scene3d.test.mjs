@@ -11,6 +11,7 @@ import { createScene3DMotion, desired3DPositions } from '../src/scene3d-motion.j
 import { EMPLOYEE_WARDROBE, employeeAppearance } from '../src/employee-appearance.mjs';
 import { OFFICE_EXTERIOR } from '../src/office-environment.mjs';
 import { setOrganizationOccupants } from '../src/organization-occupants.mjs';
+import {OFFICE_CAMERA_LIMITS} from '../src/office-camera.mjs';
 
 test('3D furnishes all twelve departments with 251 workplaces and 249 unique occupants in bounded GPU batches',()=>{
   const assets=createOffice3DAssets();try{
@@ -98,7 +99,7 @@ test('canonical region fitting keeps the full room, colleagues and roofline abov
       const current=canonicalAzimuth+Math.PI*8+2.9,view=office3DRegionView(area,{width,height,azimuth:current});
       assert.ok(view&&Object.values(view).every(Number.isFinite));assert.ok(Math.abs(view.azimuth-current)<=Math.PI,'auto focus takes the shortest turn, even after several manual orbits');assert.ok(Math.abs(Math.sin(view.azimuth-canonicalAzimuth))<1e-8);
       let xMin=Infinity,xMax=-Infinity,yMin=Infinity,yMax=-Infinity;
-      for(const x of[area.x-8,area.x+area.w+8])for(const y of[0,area.id==='data_center'?100:76])for(const z of[area.y-8,area.y+area.h+8]){
+      for(const x of[area.x-8,area.x+area.w+8])for(const y of[0,area.id==='data_center'?100:area.headPersonId?24:76])for(const z of[area.y-8,area.y+area.h+8]){
         const point=new THREE.Vector3(x-OFFICE3D_CENTER.x,y-OFFICE3D_CENTER.y,z-OFFICE3D_CENTER.z),px=width/2+(point.dot(frame.right)-frame.centerX-view.panX)*view.scale/frame.width*width,py=usable/2-(point.dot(frame.up)-frame.centerY-view.panY)*view.scale/frame.height*usable;
         xMin=Math.min(xMin,px);xMax=Math.max(xMax,px);yMin=Math.min(yMin,py);yMax=Math.max(yMax,py);
         assert.ok(px>=19.99&&px<=width-19.99,`${area.id} horizontal crop at ${width} × ${height}: ${px}`);assert.ok(py>=19.99&&py<=usable-19.99,`${area.id} roofline or colleague cropped behind dock at ${width} × ${height}: ${py}`);
@@ -211,10 +212,10 @@ function mountedSceneFixture(callbacks={},options={}){
   }
   const doc=new Element();doc.hidden=false;doc.createElement=tag=>new Element(tag);globalThis.document=doc;globalThis.ResizeObserver=class{constructor(fn){this.fn=fn;}observe(){resizers.add(this.fn);}disconnect(){resizers.delete(this.fn);}};
   globalThis.requestAnimationFrame=fn=>{const id=++sequence;pending.set(id,fn);return id;};globalThis.cancelAnimationFrame=id=>pending.delete(id);globalThis.setTimeout=(fn,delay)=>{const id=++sequence;timers.set(id,{fn,due:clock+delay});return id;};globalThis.clearTimeout=id=>timers.delete(id);globalThis.devicePixelRatio=options.deviceRatio??1;globalThis.matchMedia=selector=>{if(selector.includes('prefers-reduced-motion'))return preference;if(!media.has(selector))media.set(selector,query(true));return media.get(selector);};
-  const canvas=new Element('canvas'),allocations=[],operations=[],renderer={domElement:canvas,shadowMap:{},capabilities:{maxTextureSize:options.maxBufferDimension||16384},info:{render:{calls:0,triangles:0}},setDrawingBufferSize(width,height,ratio){allocations.push({width,height,ratio});operations.push('resize');canvas.painted=false;canvas.width=Math.floor(width*ratio);canvas.height=Math.floor(height*ratio);},render(scene){operations.push('render');canvas.painted=true;let calls=0,triangles=0;const visit=(item,visible=true)=>{visible=visible&&item.visible;if(!visible)return;if(item.isMesh&&item.material?.visible!==false){calls++;triangles+=(item.geometry.index?.count||item.geometry.attributes.position.count)/3*(item.isInstancedMesh?item.count:1);}for(const child of item.children)visit(child,visible);};visit(scene);this.info.render.calls=calls;this.info.render.triangles=triangles;},dispose(){},forceContextLoss(){}};
+  let latestCamera;const canvas=new Element('canvas'),allocations=[],operations=[],renderer={domElement:canvas,shadowMap:{},capabilities:{maxTextureSize:options.maxBufferDimension||16384},info:{render:{calls:0,triangles:0}},setDrawingBufferSize(width,height,ratio){allocations.push({width,height,ratio});operations.push('resize');canvas.painted=false;canvas.width=Math.floor(width*ratio);canvas.height=Math.floor(height*ratio);},render(scene,camera){latestCamera=camera;operations.push('render');canvas.painted=true;let calls=0,triangles=0;const visit=(item,visible=true)=>{visible=visible&&item.visible;if(!visible)return;if(item.isMesh&&item.material?.visible!==false){calls++;triangles+=(item.geometry.index?.count||item.geometry.attributes.position.count)/3*(item.isInstancedMesh?item.count:1);}for(const child of item.children)visit(child,visible);};visit(scene);this.info.render.calls=calls;this.info.render.triangles=triangles;},dispose(){},forceContextLoss(){}};
   if(options.clockedMotion)globalThis.performance={now:()=>clock};
   const container=new Element(),api=mountScene3D(container,{...callbacks,rendererFactory:()=>renderer,ambientEnabled:options.ambientEnabled??false,ambientNow:()=>clock,ambientRandom:options.ambientRandom||(()=>.41)});
-  return{api,canvas,pending,timers,container,wrapper:container.children[0],preference,media,allocations,operations,document:doc,client(x,y){return {clientX:surface.left+x/surface.scale,clientY:surface.top+y/surface.scale};},viewport(scale,left=surface.left,top=surface.top){surface={scale,left,top};for(const fn of resizers)fn();},resize(width,height){size={width,height};for(const fn of resizers)fn();},density(ratio){const previous=media.get(`(resolution: ${globalThis.devicePixelRatio}dppx)`);globalThis.devicePixelRatio=ratio;previous?.listeners.get('change')?.({matches:false});},greeting(){const find=el=>el.className==='office3d-greeting'?el:el.children.map(find).find(Boolean);return find(container);},postTooltip(){const find=el=>el.className==='office3d-post-tooltip'?el:el.children.map(find).find(Boolean);return find(container);},room(id){const find=el=>el.className==='office3d-room-label'&&el.dataset.node===id?el:el.children.map(find).find(Boolean);return find(container);},area(id){const find=el=>el.dataset.area===id?el:el.children.map(find).find(Boolean);return find(container);},button(type,id){const visit=el=>el.tagName==='button'&&el.dataset[type]===id?el:el.children.map(visit).find(Boolean);return visit(container);},frame(milliseconds=34){const callbacks=[...pending.values()];pending.clear();clock+=milliseconds;callbacks.forEach(fn=>fn(clock));for(const [id,timer]of [...timers])if(timer.due<=clock){timers.delete(id);timer.fn();}},drain(){for(let i=0;i<1000&&(pending.size||timers.size);i++)this.frame();assert.equal(pending.size,0,'presentation animations stop after reaching their endpoint');assert.equal(timers.size,0);},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
+  return{get camera(){return latestCamera;},api,canvas,pending,timers,container,wrapper:container.children[0],preference,media,allocations,operations,document:doc,client(x,y){return {clientX:surface.left+x/surface.scale,clientY:surface.top+y/surface.scale};},viewport(scale,left=surface.left,top=surface.top){surface={scale,left,top};for(const fn of resizers)fn();},resize(width,height){size={width,height};for(const fn of resizers)fn();},density(ratio){const previous=media.get(`(resolution: ${globalThis.devicePixelRatio}dppx)`);globalThis.devicePixelRatio=ratio;previous?.listeners.get('change')?.({matches:false});},greeting(){const find=el=>el.className==='office3d-greeting'?el:el.children.map(find).find(Boolean);return find(container);},postTooltip(){const find=el=>el.className==='office3d-post-tooltip'?el:el.children.map(find).find(Boolean);return find(container);},room(id){const find=el=>el.className==='office3d-room-label'&&el.dataset.node===id?el:el.children.map(find).find(Boolean);return find(container);},area(id){const find=el=>el.dataset.area===id?el:el.children.map(find).find(Boolean);return find(container);},button(type,id){const visit=el=>el.tagName==='button'&&el.dataset[type]===id?el:el.children.map(visit).find(Boolean);return visit(container);},frame(milliseconds=34){const callbacks=[...pending.values()];pending.clear();clock+=milliseconds;callbacks.forEach(fn=>fn(clock));for(const [id,timer]of [...timers])if(timer.due<=clock){timers.delete(id);timer.fn();}},drain(){for(let i=0;i<1000&&(pending.size||timers.size);i++)this.frame();assert.equal(pending.size,0,'presentation animations stop after reaching their endpoint');assert.equal(timers.size,0);},restore(){api.destroy();for(const [key,value]of saved)if(value===undefined)delete globalThis[key];else globalThis[key]=value;}};
 }
 
 test('resize observers preserve the painted frame and coalesce allocation into the replacement draw',()=>{
@@ -331,8 +332,74 @@ test('an employee walk keeps rendering until arrival, while hidden pages never d
 
 test('camera buttons and wheel ease through intermediate positions, retarget smoothly and return to idle',()=>{
  const f=mountedSceneFixture();try{f.frame();const baseline=f.api.getPerformanceStats();f.api.rotate(.6);assert.equal(f.api.getPerformanceStats().azimuth,baseline.azimuth);f.frame();f.frame();const middle=f.api.getPerformanceStats();assert.ok(middle.azimuth>baseline.azimuth&&middle.azimuth<baseline.azimuth+.6);f.api.rotate(.2);f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth-.8)<1e-8);assert.equal(f.api.getPerformanceStats().actorUpdates,baseline.actorUpdates);
-  f.canvas.emit('wheel',{deltaY:120,deltaMode:0});f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale<1);f.canvas.emit('wheel',{deltaY:-120,deltaMode:0});f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().scale-1)<1e-8);f.api.resetView();f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth)<1e-8);assert.equal(f.api.getPerformanceStats().cameraMoving,false);assert.equal(f.api.getPerformanceStats().drawCalls,baseline.drawCalls);
+  f.canvas.emit('wheel',{deltaY:120,deltaMode:0});f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale<1);const reversingScale=f.api.getPerformanceStats().scale;f.canvas.emit('wheel',{deltaY:-120,deltaMode:0});f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().scale-reversingScale*Math.exp(120*.0016))<1e-8,'a reversing wheel starts at the visible frame rather than the unfinished old target');f.api.resetView();f.drain();assert.ok(Math.abs(f.api.getPerformanceStats().azimuth-baseline.azimuth)<1e-8);assert.equal(f.api.getPerformanceStats().cameraMoving,false);assert.equal(f.api.getPerformanceStats().drawCalls,baseline.drawCalls);
  }finally{f.restore();}
+});
+
+function cameraGroundPoint(f,x,y){const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(x/f.api.getPerformanceStats().width*2-1,1-y/f.api.getPerformanceStats().height*2),f.camera);return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-1.9),new THREE.Vector3());}
+function cameraPixel(f,point){const p=point.clone().project(f.camera),s=f.api.getPerformanceStats();return{x:(p.x+1)*s.width/2,y:(1-p.y)*s.height/2};}
+function assertCameraPixel(f,point,expected,message){const actual=cameraPixel(f,point);for(const axis of['x','y'])assert.ok(Math.abs(actual[axis]-expected[axis])<1e-6,`${message}: ${axis} ${actual[axis]} vs ${expected[axis]}`);}
+
+test('team framing fills the main picture and every manual zoom can inspect farther without expanding the office',()=>{
+ const f=mountedSceneFixture();try{
+  f.frame();const baseline=f.api.getPerformanceStats();f.api.focusArea('ai_data_team_1');f.drain();const focused=f.api.getPerformanceStats();assert.ok(focused.scale>6.5,'automatic room fit is no longer clipped by the old zoom cap');assert.ok(focused.scale<=OFFICE_CAMERA_LIMITS.maxAutomaticScale);assert.deepEqual(focused.detailGroups,['ai_data_team_1']);
+  assert.equal(f.api.zoom(100),OFFICE_CAMERA_LIMITS.maxManualScale);f.drain();const close=f.api.getPerformanceStats();assert.ok(close.scale>focused.scale);assert.deepEqual(close.detailGroups,['ai_data_team_1'],'zooming cannot expand every AI team');assert.equal(close.staticInstances,baseline.staticInstances);assert.equal(f.allocations.length,1);
+  const renders=close.renders;f.api.zoom(1);assert.equal(f.pending.size,0,'outward input at a limit does not start a pointless animation');assert.equal(f.api.getPerformanceStats().renders,renders);f.api.zoom(-.1);f.drain();assert.ok(f.api.getPerformanceStats().scale<OFFICE_CAMERA_LIMITS.maxManualScale);
+  f.api.zoom(-100);f.drain();assert.equal(f.api.getPerformanceStats().scale,OFFICE_CAMERA_LIMITS.minScale);f.api.zoom(-1);assert.equal(f.pending.size,0);f.api.zoom(.1);f.drain();assert.ok(f.api.getPerformanceStats().scale>OFFICE_CAMERA_LIMITS.minScale);
+ }finally{f.restore();}
+});
+
+test('wheel and native pinch take over a room animation at the visible pose and never continue its old rotation target',()=>{
+ for(const input of['wheel','native']){const f=mountedSceneFixture();try{
+  f.frame();f.api.rotate(1.3,.15);f.drain();f.api.focusArea('general_office');f.frame();f.frame();const before=f.api.getPerformanceStats();assert.equal(before.cameraMoving,true);
+  if(input==='wheel')f.canvas.emit('wheel',{deltaY:-60,...f.client(650,350)});else{f.wrapper.emit('gesturestart',{scale:1,rotation:0,...f.client(650,350)});f.wrapper.emit('gesturechange',{scale:1.1,rotation:0,...f.client(650,350)});f.wrapper.emit('gestureend');}
+  f.drain();const after=f.api.getPerformanceStats();assert.equal(after.azimuth,before.azimuth);assert.equal(after.elevation,before.elevation);assert.ok(Math.abs(after.scale-before.scale*(input==='wheel'?Math.exp(60*.0016):1.1))<1e-8,'manual zoom starts at the visible scale');
+ }finally{f.restore();}}
+});
+
+test('wheel zoom pins the pointed floor position throughout its animation and reversed input responds before the old target finishes',()=>{
+ for(const visualScale of[1,2]){const f=mountedSceneFixture({}, {visualScale,offsetLeft:153,offsetTop:74});try{
+  f.frame();f.api.focusArea('business');f.drain();const screen={x:830,y:330},world=cameraGroundPoint(f,screen.x,screen.y);f.canvas.emit('wheel',{deltaY:-120,...f.client(screen.x,screen.y)});
+  for(let i=0;i<4;i++){f.frame();assertCameraPixel(f,world,screen,'pointer anchor remains fixed during zoom');}
+  const before=f.api.getPerformanceStats().scale;f.canvas.emit('wheel',{deltaY:30,...f.client(screen.x,screen.y)});f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale<before,'reverse input does not first finish zooming inward');assertCameraPixel(f,world,screen,'reversing retains the same pointer anchor');f.drain();assertCameraPixel(f,world,screen,'settled wheel anchor');
+ }finally{f.restore();}}
+});
+
+test('native pinch reverses immediately at both limits and twist rotates around its screen anchor',()=>{
+ const f=mountedSceneFixture();try{
+  f.frame();f.api.focusArea('finance');f.drain();const screen={x:710,y:380},world=cameraGroundPoint(f,screen.x,screen.y);f.wrapper.emit('gesturestart',{scale:1,rotation:0,...f.client(screen.x,screen.y)});
+  f.wrapper.emit('gesturechange',{scale:100,rotation:0});f.frame();assert.equal(f.api.getPerformanceStats().scale,OFFICE_CAMERA_LIMITS.maxManualScale);assertCameraPixel(f,world,screen,'maximum pinch anchor');
+  f.wrapper.emit('gesturechange',{scale:99,rotation:20});f.frame();assert.ok(f.api.getPerformanceStats().scale<OFFICE_CAMERA_LIMITS.maxManualScale);assertCameraPixel(f,world,screen,'native twist anchor');
+  f.wrapper.emit('gesturechange',{scale:.001,rotation:20});f.frame();assert.equal(f.api.getPerformanceStats().scale,OFFICE_CAMERA_LIMITS.minScale);f.wrapper.emit('gesturechange',{scale:.00101,rotation:20});f.frame();assert.ok(f.api.getPerformanceStats().scale>OFFICE_CAMERA_LIMITS.minScale);assertCameraPixel(f,world,screen,'minimum pinch reverse anchor');f.wrapper.emit('gestureend');f.drain();
+ }finally{f.restore();}
+});
+
+test('two-finger pan, pinch and twist retain the world point under the moving finger midpoint',()=>{
+ const f=mountedSceneFixture();try{
+  f.frame();f.api.focusArea('research');f.drain();const world=cameraGroundPoint(f,500,400);f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:1,...f.client(400,400)});f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,...f.client(600,400)});f.canvas.emit('pointermove',{pointerType:'touch',pointerId:2,...f.client(650,500)});f.frame();assertCameraPixel(f,world,{x:525,y:450},'touch centroid anchor');f.canvas.emit('pointerup',{pointerType:'touch',pointerId:2,...f.client(650,500)});f.canvas.emit('pointerup',{pointerType:'touch',pointerId:1,...f.client(400,400)});f.drain();assert.equal(f.canvas.captured.size,0);
+ }finally{f.restore();}
+});
+
+test('right-drag orbit and keyboard turns keep the focused office around the current world pivot',()=>{
+ for(const input of['drag','keyboard']){const f=mountedSceneFixture();try{
+  f.frame();f.api.focusArea('general_office');f.drain();const s=f.api.getPerformanceStats(),screen={x:s.width/2,y:(s.height-Math.min(100,Math.max(72,s.height*.095)))/2},world=cameraGroundPoint(f,screen.x,screen.y);
+  if(input==='drag'){f.canvas.emit('pointerdown',{button:2,...f.client(600,400)});f.canvas.emit('pointermove',{button:2,...f.client(600-Math.PI/4/.006,400)});f.canvas.emit('pointerup',{button:2,...f.client(600-Math.PI/4/.006,400)});}else f.api.rotate(Math.PI/4);
+  for(let i=0;i<4;i++){f.frame();assertCameraPixel(f,world,screen,'orbit keeps the current office centred');}f.drain();assertCameraPixel(f,world,screen,'settled orbit pivot');
+ }finally{f.restore();}}
+});
+
+test('cached automatic focus finishes before hiding while a manually interrupted camera preserves the drawn frame',()=>{
+ const f=mountedSceneFixture();try{
+  f.frame();f.api.focusArea('general_office');f.frame();f.frame();const expected=office3DRegionView(OFFICE_ROOMS.find(room=>room.id==='general_office'),{width:1440,height:900,azimuth:f.api.getPerformanceStats().azimuth});f.api.setActive(false);assert.equal(f.pending.size,0);assert.equal(f.api.getPerformanceStats().scale,expected.scale);f.api.prepare();f.api.setActive(true);f.drain();assert.equal(f.api.getPerformanceStats().scale,expected.scale);
+  f.api.zoom(4);f.frame();f.frame();const visible=f.api.getPerformanceStats();assert.equal(visible.cameraMoving,true);f.api.setActive(false);for(const key of['scale','panX','panY','azimuth','elevation'])assert.equal(f.api.getPerformanceStats()[key],visible[key]);f.resize(1000,800);f.api.prepare();f.api.setActive(true);f.drain();for(const key of['scale','panX','panY','azimuth','elevation'])assert.equal(f.api.getPerformanceStats()[key],visible[key],'view switching cannot relock manual zoom to the automatic fit');
+ }finally{f.restore();}
+});
+
+test('backgrounding without blur releases all pointer captures and cannot resume a stale drag or pinch',()=>{
+ for(const multitouch of[false,true]){const f=mountedSceneFixture({}, {clockedMotion:true});try{
+  f.frame();f.canvas.emit('pointerdown',{button:2,pointerId:1,pointerType:multitouch?'touch':'mouse',...f.client(500,400)});if(multitouch)f.canvas.emit('pointerdown',{pointerType:'touch',pointerId:2,...f.client(700,400)});assert.ok(f.canvas.captured.size>0);
+  f.document.hidden=true;f.document.emit('visibilitychange');assert.equal(f.canvas.captured.size,0);assert.equal(f.pending.size,0);f.frame(1000);f.document.hidden=false;f.document.emit('visibilitychange');f.drain();const before=f.api.getPerformanceStats();f.canvas.emit('pointermove',{pointerId:1,...f.client(800,500)});f.wrapper.emit('gesturechange',{scale:2,rotation:30});f.drain();for(const key of['scale','panX','panY','azimuth','elevation'])assert.equal(f.api.getPerformanceStats()[key],before[key]);
+ }finally{f.restore();}}
 });
 
 test('every automatic focus restores the same slanted view, eases in both directions and remains directly interruptible',()=>{
@@ -471,7 +538,7 @@ test('shared managers have one permanent name attached to their primary figure, 
 test('AI departments expose five shared-plan team labels that focus locally and return to the same full view',()=>{
   const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)});try{f.frame();const initial=f.api.getPerformanceStats(),initialAnchor=f.api.getPostAnchor('ai_data_head_001');
     const teams=OFFICE_ROOMS.find(room=>room.id==='ai_data').teamZones;assert.equal(teams.length,5);
-    for(const team of teams){const label=f.button('team',team.id);assert.ok(label);assert.equal(label.firstChild.textContent,`${team.title} · 40 人`);label.emit('click',{detail:0});f.drain();assert.ok(f.api.getPerformanceStats().scale>=1.65&&f.api.getPerformanceStats().scale<=6.5);assert.ok(f.api.getPostAnchor(team.headPersonId).visible);assert.deepEqual(selected,[],'team navigation never opens or mutates ERP records');}
+    for(const team of teams){const label=f.button('team',team.id);assert.ok(label);assert.equal(label.firstChild.textContent,`${team.title} · 40 人`);label.emit('click',{detail:0});f.drain();assert.ok(f.api.getPerformanceStats().scale>=1.65&&f.api.getPerformanceStats().scale<=OFFICE_CAMERA_LIMITS.maxAutomaticScale);assert.ok(f.api.getPostAnchor(team.headPersonId).visible);assert.deepEqual(selected,[],'team navigation never opens or mutates ERP records');}
     f.api.resetView();f.drain();assert.equal(f.api.getPerformanceStats().scale,1);assert.equal(f.api.getPerformanceStats().azimuth,initial.azimuth);const finalAnchor=f.api.getPostAnchor('ai_data_head_001');for(const key of['x','y'])assert.ok(Math.abs(finalAnchor[key]-initialAnchor[key])<1e-6);assert.equal(f.pending.size,0);
   }finally{f.restore();}
 });
@@ -713,4 +780,8 @@ test('sign-out synchronously clears authenticated names and aria labels from an 
   setOrganizationOccupants([{personId:'private-cache-person',name:'缓存私有姓名',username:'private-cache@example.test',seatIds:[seat.id]}]);f.frame();const label=f.button('post',seat.id);assert.equal(label.textContent,'缓存私有姓名');assert.equal(label.attributes['aria-label'],'缓存私有姓名');label.emit('pointerenter');f.api.setActive(false);const renders=f.api.getPerformanceStats().renders;
   setOrganizationOccupants([]);assert.equal(label.textContent,'');assert.equal(label.attributes['aria-label'],'工位');assert.equal(label.hidden,true);assert.equal(f.postTooltip().firstChild.textContent,'');assert.equal(f.pending.size,0);assert.equal(f.api.getPerformanceStats().renders,renders);f.frame(10000);assert.equal(f.api.getPerformanceStats().renders,renders);
  }finally{setOrganizationOccupants([]);f.restore();}
+});
+
+test('a detailed 3D team stays local to its footprint and collapses when focusing another office or returning home',()=>{
+ const f=mountedSceneFixture();try{f.drain();const overview=f.api.getPerformanceStats().visibleWorkplaces;f.api.focusArea('ai_data_team_1');f.drain();assert.deepEqual(f.api.getPerformanceStats().detailGroups,['ai_data_team_1']);assert.ok(f.api.getPerformanceStats().visibleWorkplaces>overview);const fitted=f.api.getPerformanceStats().scale;f.api.zoom(1);f.drain();assert.ok(f.api.getPerformanceStats().scale>fitted);f.api.focusArea('business');f.drain();assert.deepEqual(f.api.getPerformanceStats().detailGroups,[]);assert.equal(f.api.getPerformanceStats().visibleWorkplaces,overview);f.api.resetView();f.drain();assert.equal(f.api.getPerformanceStats().visibleWorkplaces,overview);}finally{f.restore();}
 });

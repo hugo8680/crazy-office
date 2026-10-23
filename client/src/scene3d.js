@@ -7,6 +7,7 @@ import { createOffice3DActor } from './scene3d-actors.js';
 import { createScene3DMotion } from './scene3d-motion.js';
 import { createOfficePresenceMotion } from './erp-presence.js';
 import { createViewTween } from './scene-motion.js';
+import {clampOfficeScale,officeWheelScale,officePinchScale,officeCameraChanged} from './office-camera.mjs';
 import { greetingForPerson } from './person-greeting.mjs';
 import { mountOfficeAmbient } from './office-ambient.mjs';
 import { OFFICE_SEATS, OFFICE_WORLD, OFFICE_SHARED_AREAS, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_DETAIL_ZOOM, officeSeatForView } from './organization.mjs';
@@ -55,12 +56,12 @@ export function office3DRegionView(region,{width=1440,height=900,azimuth=default
   const reserved=Math.min(100,Math.max(72,height*.095)),usable=Math.max(1,height-reserved),frame=office3DFrustum(width/usable);
   const gutter=Math.min(48,Math.max(20,width*.025)),verticalGutter=Math.min(40,Math.max(20,usable*.045));
   let left=Infinity,right=-Infinity,bottom=Infinity,top=-Infinity;
-  const altitude=region.id==='data_center'?100:76;
+  const altitude=region.id==='data_center'?100:region.headPersonId?24:76;
   for(const x of[region.x-8,region.x+region.w+8])for(const y of[0,altitude])for(const z of[region.y-8,region.y+region.h+8]){
     const point=new THREE.Vector3(x-OFFICE3D_CENTER.x,y-OFFICE3D_CENTER.y,z-OFFICE3D_CENTER.z),px=point.dot(frame.right),py=point.dot(frame.up);
     left=Math.min(left,px);right=Math.max(right,px);bottom=Math.min(bottom,py);top=Math.max(top,py);
   }
-  const scale=clamp(Math.min(frame.width/(right-left)*Math.max(.1,1-gutter*2/width),frame.height/(top-bottom)*Math.max(.1,1-verticalGutter*2/usable)),.72,6.5);
+  const scale=clampOfficeScale(Math.min(frame.width/(right-left)*Math.max(.1,1-gutter*2/width),frame.height/(top-bottom)*Math.max(.1,1-verticalGutter*2/usable)),{automatic:true});
   const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));
   return {scale,panX:(left+right)/2-frame.centerX,panY:(bottom+top)/2-frame.centerY,azimuth:bearing,elevation:defaultElevation};
 }
@@ -115,12 +116,13 @@ export function mountScene3D(container,{
   const touches=new Map();let touchGesture=null,nativeGesture=null;
   let selectedNode=null,selectedAgent=null,selectedHuman=null,topologyVisible=true,latestState={},hiddenAt=document.hidden?performance.now():null;
   const motionPreference=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)');let reducedMotion=motionPreference?.matches||false;
-  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false,focusedRegion=null;
+  let routeSignature='',currentRouteMeshes=[],labelsDirty=true,renderDirty=true,urgentRenderDirty=true,forceFrame=false,pendingResize=null,hoveredKey='',selectionTimer=null,pendingSelection=null,lastClickTarget=null,greeting=null,ambient=null,detailFocus=null,manualDetail=false,focusedRegion=null,cameraMotionKind=null,motionAnchor=null;
   const actorList=()=>[...agents.values(),...humans.values()];
   const disposables=[];
   const schedule=()=>{if(!frame&&active&&!destroyed&&!contextLost&&!document.hidden)frame=requestAnimationFrame(renderFrame);};
   const markDirty=reason=>{labelsDirty=true;renderDirty=true;if(reason!=='ambient')urgentRenderDirty=true;ambient?.refresh();schedule();};
-  const viewTween=createViewTween({read:()=>({scale,panX,panY,azimuth,elevation}),write:value=>{({scale,panX,panY,azimuth,elevation}=value);setCamera();labelsDirty=true;renderDirty=true;},onStart:()=>{forceFrame=true;markDirty();}});
+  const viewState=()=>({scale,panX,panY,azimuth,elevation});
+  const viewTween=createViewTween({read:viewState,write:value=>{({scale,panX,panY,azimuth,elevation}=value);if(motionAnchor)({panX,panY}=anchoredPan(motionAnchor,scale,azimuth,elevation));setCamera();labelsDirty=true;renderDirty=true;},onStart:()=>{forceFrame=true;markDirty();}});
   const controller=createScene3DMotion({agents,humans,reducedMotion,onDelivery:event=>{onDelivery(event);markDirty();},onChange:markDirty});
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>positionEmployee(entry)});
   function listen(element,type,handler,options){element.addEventListener(type,handler,options);disposables.push(()=>element.removeEventListener(type,handler,options));}
@@ -412,9 +414,11 @@ export function mountScene3D(container,{
     if(!Number.isFinite(nextWidth)||!Number.isFinite(nextHeight)||nextWidth<=0||nextHeight<=0)return;
     const nextRatio=scene3DPixelRatio(nextWidth,nextHeight,globalThis.devicePixelRatio||1,{maxDimension:maxBufferDimension});
     if((stats.resizes||pendingResize)&&width===nextWidth&&height===nextHeight&&Math.abs(pixelRatio-nextRatio)<1e-8)return;
-    const layoutChanged=width!==nextWidth||height!==nextHeight;width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
+    const layoutChanged=width!==nextWidth||height!==nextHeight;
+    if(layoutChanged&&cameraMotionKind!=='automatic'){viewTween.cancel();motionAnchor=null;}
+    width=nextWidth;height=nextHeight;pixelRatio=nextRatio;
     pendingResize=stats.resizes&&stats.width===width&&stats.height===height&&Math.abs(stats.pixelRatio-pixelRatio)<1e-8?null:{pixelRatio,width,height};
-    if(layoutChanged&&focusedRegion)viewTween.start(office3DRegionView(focusedRegion,{width,height,azimuth}),{immediate:true});else setCamera();markDirty();}
+    if(layoutChanged&&focusedRegion&&cameraMotionKind==='automatic')viewTween.start(office3DRegionView(focusedRegion,{width,height,azimuth}),{immediate:true});else setCamera();markDirty();}
   function renderFrame(time){
     frame=0;if(destroyed||!active||contextLost||document.hidden)return;
     const wasBusy=controller.walks.size>0||controller.exchanges.size>0||presenceMotion.busy;
@@ -432,18 +436,50 @@ export function mountScene3D(container,{
     for(const group of links.children){const a=nodeStatus(state.nodes,group.userData.a),b=nodeStatus(state.nodes,group.userData.b),status=[a,b].find(s=>s==='offline')||[a,b].find(s=>s==='warning')||[a,b].find(s=>s==='recovering')||'online';for(const line of group.children)line.material=linkMaterial(status);}
     controller.update(latestState);if(state.selectedNode!==undefined)select('node',state.selectedNode,false);if(state.selectedAgent!==undefined)select('agent',state.selectedAgent,false);markDirty();}
   function applyView(){setCamera();markDirty();onViewChange();}
-  function zoom(delta=.15){onLeaveBulletin();focusedRegion=null;manualDetail=true;clearSelectionTimer();clearPost();const next=clamp(viewTween.target.scale+Number(delta||0),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});return next;}
-  function rotate(delta=Math.PI/8,tilt=0){onLeaveBulletin();focusedRegion=null;clearSelectionTimer();clearPost();const next={...viewTween.target,azimuth:viewTween.target.azimuth+(Number(delta)||0),elevation:clamp(viewTween.target.elevation+(Number(tilt)||0),.42,1.28)};viewTween.start(next,{immediate:reducedMotion});return {azimuth:next.azimuth,elevation:next.elevation};}
+  function takeCameraControl(kind){
+    onLeaveBulletin();focusedRegion=null;manualDetail=true;clearSelectionTimer();clearPost();
+    if(cameraMotionKind!==kind){viewTween.cancel();motionAnchor=null;}cameraMotionKind=kind;
+  }
+  function zoomBase(direction){
+    takeCameraControl('zoom');const destination=viewTween.target;
+    // A reversing wheel must act on the visible frame, not first wait for an
+    // earlier burst to reach its old limit or finish a room's automatic zoom.
+    if(viewTween.active&&Math.sign(destination.scale-scale)&&Math.sign(destination.scale-scale)!==Math.sign(direction)){viewTween.cancel();motionAnchor=null;}
+    return viewTween.target.scale;
+  }
+  function anchoredPan(anchor,nextScale,nextAzimuth=azimuth,nextElevation=elevation){
+    const reserved=Math.min(100,Math.max(72,height*.095)),usable=Math.max(1,height-reserved),frame=office3DFrustum(width/usable,{azimuth:nextAzimuth,elevation:nextElevation}),relative=anchor.world.clone().sub(target);
+    return {panX:relative.dot(frame.right)-frame.centerX-(anchor.screen.x-width/2)*frame.width/width/nextScale,panY:relative.dot(frame.up)-frame.centerY+(anchor.screen.y-usable/2)*frame.height/usable/nextScale};
+  }
+  function anchorAt(screen){
+    pointer.set(screen.x/width*2-1,1-screen.y/height*2);raycaster.setFromCamera(pointer,camera);const world=new THREE.Vector3();
+    return raycaster.ray.intersectPlane(floorPlane,world)?{world,screen:{...screen}}:null;
+  }
+  function zoomTo(nextScale,anchor){
+    const next={...viewState(),scale:clampOfficeScale(nextScale),...(anchor?anchoredPan(anchor,clampOfficeScale(nextScale)):null)};
+    if(!officeCameraChanged(viewState(),next))return next.scale;
+    motionAnchor=anchor;viewTween.start(next,{immediate:reducedMotion});return next.scale;
+  }
+  function zoom(delta=.15){
+    const amount=Number(delta);if(!Number.isFinite(amount)||!amount)return scale;const base=zoomBase(amount),reserved=Math.min(100,Math.max(72,height*.095));
+    return zoomTo(clampOfficeScale(base+amount),anchorAt({x:width/2,y:(height-reserved)/2}));
+  }
+  function rotate(delta=Math.PI/8,tilt=0){
+    takeCameraControl('rotate');const reserved=Math.min(100,Math.max(72,height*.095)),anchor=motionAnchor||anchorAt({x:width/2,y:(height-reserved)/2});
+    const turn=Number.isFinite(Number(delta))?Number(delta):0,pitch=Number.isFinite(Number(tilt))?Number(tilt):0,next={...viewTween.target,azimuth:viewTween.target.azimuth+turn,elevation:clamp(viewTween.target.elevation+pitch,.42,1.28)};
+    if(anchor)Object.assign(next,anchoredPan(anchor,next.scale,next.azimuth,next.elevation));
+    if(officeCameraChanged(viewState(),next)){motionAnchor=anchor;viewTween.start(next,{immediate:reducedMotion});}return {azimuth:next.azimuth,elevation:next.elevation};
+  }
   function focusPoint(point,minimumScale=1.4){
     if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;
-    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();detailFocus=null;manualDetail=false;focusedRegion=null;
+    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();detailFocus=null;manualDetail=false;focusedRegion=null;cameraMotionKind='automatic';motionAnchor=null;
     const frame=office3DFrustum(width/Math.max(1,height-Math.min(100,Math.max(72,height*.095)))),diff=new THREE.Vector3(point.x-target.x,(Number.isFinite(point.height)?point.height:28)-target.y,point.y-target.z);
     const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));
-    viewTween.start({scale:clamp(Number(minimumScale)||1.4,.72,6.5),panX:diff.dot(frame.right)-frame.centerX,panY:diff.dot(frame.up)-frame.centerY,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});return true;
+    viewTween.start({scale:clampOfficeScale(Number(minimumScale)||1.4,{automatic:true}),panX:diff.dot(frame.right)-frame.centerX,panY:diff.dot(frame.up)-frame.centerY,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});return true;
   }
   function focusRegion(region){
     const destination=office3DRegionView(region,{width,height,azimuth});if(!destination)return false;
-    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();focusedRegion=region;viewTween.start(destination,{immediate:reducedMotion});return true;
+    onLeaveBulletin();clearSelectionTimer();clearPost();clearGreeting();focusedRegion=region;cameraMotionKind='automatic';motionAnchor=null;viewTween.start(destination,{immediate:reducedMotion});return true;
   }
   function focusTeam(id){const team=teamsById.get(id);if(!team)return false;detailFocus=id;manualDetail=false;clearSelectionTimer();return focusRegion(team);}
   function focusArea(id){
@@ -454,21 +490,23 @@ export function mountScene3D(container,{
   // A viewport-compensating ancestor can scale the stage without changing its
   // layout. Camera/labels use layout pixels; pointer coordinates use its rect.
   function logicalPointer(event){const rect=canvas.getBoundingClientRect();return {x:(event.clientX-rect.left)*width/Math.max(1,rect.width),y:(event.clientY-rect.top)*height/Math.max(1,rect.height)};}
+  function gesturePointer(event){const reserved=Math.min(100,Math.max(72,height*.095));return Number.isFinite(event.clientX)&&Number.isFinite(event.clientY)?logicalPointer(event):{x:width/2,y:(height-reserved)/2};}
   function pan(dx,dy){focusedRegion=null;panX-=dx*cameraFrame.width/scale/width;panY+=dy*(camera.top-camera.bottom)/height;}
   function sampleTouch(){const points=[...touches.values()],a=points[0],b=points[1];return a&&b?{x:(a.x+b.x)/2,y:(a.y+b.y)/2,distance:Math.max(1,Math.hypot(a.x-b.x,a.y-b.y)),angle:Math.atan2(b.y-a.y,b.x-a.x)}:null;}
   const onDown=(e,origin=null)=>{
-    if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;onLeaveBulletin();clearPost();clearGreeting();hoveredKey='';viewTween.cancel();wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
+    if(![0,1,2].includes(e.button))return;e.preventDefault();if(selectionTimer&&!pendingSelection)clearSelectionTimer();forceFrame=true;onLeaveBulletin();clearPost();clearGreeting();hoveredKey='';viewTween.cancel();motionAnchor=null;cameraMotionKind='pointer';wrapper.focus?.({preventScroll:true});canvas.setPointerCapture?.(e.pointerId);
     const point=logicalPointer(e);
     if(e.pointerType==='touch'){touches.set(e.pointerId,point);if(touches.size>1){touchGesture=sampleTouch();if(drag)drag.moved=true;canvas.setPointerCapture?.(e.pointerId);return;}}
-    drag={id:e.pointerId,x:point.x,y:point.y,lastX:point.x,lastY:point.y,moved:false,mode:scene3DGestureMode(e),origin};ambient?.refresh();
+    const mode=scene3DGestureMode(e),reserved=Math.min(100,Math.max(72,height*.095));
+    drag={id:e.pointerId,x:point.x,y:point.y,lastX:point.x,lastY:point.y,moved:false,mode,origin,orbitAnchor:mode==='orbit'?anchorAt({x:width/2,y:(height-reserved)/2}):null};ambient?.refresh();
   };
   const onMove=e=>{
     const point=logicalPointer(e);
-    if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){pan(next.x-touchGesture.x,next.y-touchGesture.y);scale=clamp(scale*next.distance/touchGesture.distance,.72,6.5);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
+    if(touches.has(e.pointerId)){touches.set(e.pointerId,point);if(touches.size>1){const next=sampleTouch();if(touchGesture&&next){focusedRegion=null;manualDetail=true;const anchor=anchorAt({x:touchGesture.x,y:touchGesture.y});scale=officePinchScale(scale,next.distance/touchGesture.distance);azimuth-=Math.atan2(Math.sin(next.angle-touchGesture.angle),Math.cos(next.angle-touchGesture.angle));if(anchor){anchor.screen={x:next.x,y:next.y};({panX,panY}=anchoredPan(anchor,scale));}else pan(next.x-touchGesture.x,next.y-touchGesture.y);applyView();}touchGesture=next;suppressClickUntil=performance.now()+200;return;}}
     if(!drag){if(e.pointerType!=='touch'){const hit=pickAt(e),key=hit?`${hit.type}:${hit.id}`:'';if(key!==hoveredKey){onLeaveBulletin();hoveredKey=key;if(hit?.type==='bulletin')showBulletin(hit.id);else if(hit?.type==='post')showPost(postsById.get(hit.id));else if(hit?.type==='node'&&OFFICE3D_ROOMS.some(room=>room.id===hit.id))showRegion('department',hit.id);else if(hit&&['agent','human','employee'].includes(hit.type))showGreeting(hit.type,hit.id);else{clearPost();clearGreeting();if(hit)feedback(hit.type,hit.id);}}}return;}if(drag.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(point.x-drag.x,point.y-drag.y)<5)return;
     focusedRegion=null;manualDetail=true;clearSelectionTimer();drag.moved=true;canvas.setPointerCapture?.(e.pointerId);wrapper.classList.add('is-panning');
     const dx=point.x-drag.lastX,dy=point.y-drag.lastY;
-    if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);}
+    if(drag.mode==='pan')pan(dx,dy);else{azimuth-=dx*.006;elevation=clamp(elevation+dy*.004,.42,1.28);if(drag.orbitAnchor)({panX,panY}=anchoredPan(drag.orbitAnchor,scale));}
     drag.lastX=point.x;drag.lastY=point.y;applyView();
   };
   const visiblePick=object=>{for(let p=object;p&&p!==scene;p=p.parent)if(!p.visible)return false;return true;};
@@ -484,6 +522,11 @@ export function mountScene3D(container,{
     const hit=active.origin||pickAt(e);lastClickTarget=hit?{...hit,time:performance.now()}:null;if(hit?.type==='bulletin')select(hit.type,hit.id);else if(hit)queueSelection(hit.type,hit.id);else{const point=movePointAt(e);clearSelectionTimer();if(point)selectionTimer=setTimeout(()=>{clearSelectionTimer();if(!destroyed)onMovePoint(point);},350);}if(active.origin)suppressClickUntil=performance.now()+80;
   };
   const onCancel=e=>{clearPost();clearGreeting();touches.delete(e.pointerId);touchGesture=null;if(drag?.id===e.pointerId)drag=null;wrapper.classList.remove('is-panning');ambient?.refresh();if(canvas.hasPointerCapture?.(e.pointerId))canvas.releasePointerCapture(e.pointerId);};
+  function resetInput(){
+    const captured=new Set([...touches.keys(),...(drag?[drag.id]:[])]);drag=null;touches.clear();touchGesture=null;nativeGesture=null;wrapper.classList.remove('is-panning');
+    for(const id of captured)if(canvas.hasPointerCapture?.(id))canvas.releasePointerCapture(id);
+    suppressClickUntil=performance.now()+180;
+  }
   listen(canvas,'pointerdown',onDown);listen(canvas,'pointermove',onMove);listen(canvas,'pointerup',onUp);listen(canvas,'pointercancel',onCancel);listen(wrapper,'contextmenu',e=>e.preventDefault());
   listen(canvas,'pointerleave',()=>{onLeaveBulletin();hoveredKey='';clearPost();clearGreeting();});
   listen(canvas,'dblclick',e=>{e.preventDefault();clearSelectionTimer();const hit=lastClickTarget&&performance.now()-lastClickTarget.time<400?lastClickTarget:pickAt(e);if(hit)focusObject(hit.type,hit.id);else resetView();});
@@ -499,13 +542,23 @@ export function mountScene3D(container,{
   // events here as well, so the browser never zooms the entire office page.
   // Wheel deltas are scroll units, not transformed pointer coordinates: keep
   // pixel values unchanged, resolve lines to 16px and pages to logical height.
-  listen(wrapper,'wheel',e=>{onLeaveBulletin();e.preventDefault();focusedRegion=null;manualDetail=true;clearPost();clearSelectionTimer();if(nativeGesture)return;const amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?height:1),next=clamp(viewTween.target.scale*Math.exp(-clamp(amount,-180,180)*.0016),.72,6.5);viewTween.start({...viewTween.target,scale:next},{immediate:reducedMotion});},{passive:false});
-  listen(wrapper,'gesturestart',e=>{onLeaveBulletin();e.preventDefault();focusedRegion=null;forceFrame=true;manualDetail=true;clearPost();clearGreeting();clearSelectionTimer();viewTween.cancel();nativeGesture=touches.size>1?null:{scale,azimuth};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
-  listen(wrapper,'gesturechange',e=>{e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;const nextScale=Number(e.scale),rotation=Number(e.rotation);if(Number.isFinite(nextScale)&&nextScale>0)scale=clamp(nativeGesture.scale*nextScale,.72,6.5);if(Number.isFinite(rotation))azimuth=nativeGesture.azimuth-rotation*Math.PI/180;applyView();suppressClickUntil=performance.now()+200;},{passive:false});
+  listen(wrapper,'wheel',e=>{
+    e.preventDefault();if(nativeGesture)return;const amount=Number(e.deltaY);if(!Number.isFinite(amount)||!amount)return;
+    const base=zoomBase(-amount),next=officeWheelScale(base,amount,e.deltaMode,height);zoomTo(next,anchorAt(gesturePointer(e)));
+  },{passive:false});
+  listen(wrapper,'gesturestart',e=>{e.preventDefault();takeCameraControl('native');clearGreeting();forceFrame=true;viewTween.cancel();motionAnchor=null;nativeGesture=touches.size>1?null:{lastScale:1,lastRotation:0,anchor:anchorAt(gesturePointer(e))};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});
+  listen(wrapper,'gesturechange',e=>{
+    e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture)return;
+    const nextScale=Number(e.scale),rotation=Number(e.rotation),before=viewState();
+    if(Number.isFinite(nextScale)&&nextScale>0){scale=officePinchScale(scale,nextScale/nativeGesture.lastScale);nativeGesture.lastScale=nextScale;}
+    if(Number.isFinite(rotation)){azimuth-=(rotation-nativeGesture.lastRotation)*Math.PI/180;nativeGesture.lastRotation=rotation;}
+    if(nativeGesture.anchor){if(Number.isFinite(e.clientX)&&Number.isFinite(e.clientY))nativeGesture.anchor.screen=logicalPointer(e);({panX,panY}=anchoredPan(nativeGesture.anchor,scale));}
+    if(officeCameraChanged(before,viewState()))applyView();suppressClickUntil=performance.now()+200;
+  },{passive:false});
   listen(wrapper,'gestureend',e=>{e.preventDefault();nativeGesture=null;ambient?.refresh();suppressClickUntil=performance.now()+180;},{passive:false});
-  listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearPost();clearGreeting();if(drag)onCancel({pointerId:drag.id});touches.clear();touchGesture=null;nativeGesture=null;clearSelectionTimer();});
+  listen(canvas,'lostpointercapture',onCancel);listen(globalThis.window||wrapper,'blur',()=>{clearPost();clearGreeting();resetInput();ambient?.refresh();clearSelectionTimer();});
   listen(canvas,'webglcontextlost',e=>{e.preventDefault();if(destroyed)return;clearPost();clearGreeting({redraw:false});contextLost=true;cancelAnimationFrame(frame);frame=0;controller.reset();const error=new Scene3DUnavailableError('3D 图形连接已中断，请切回 2D 视图');onUnavailable(error);container.dispatchEvent?.(new CustomEvent('scene3d-unavailable',{detail:error,bubbles:true}));});
-  listen(document,'visibilitychange',()=>{if(!active)return;if(document.hidden){ambient?.refresh();clearPost();clearGreeting({redraw:false});hoveredKey='';nativeGesture=null;hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;resize();schedule();}});
+  listen(document,'visibilitychange',()=>{if(!active)return;if(document.hidden){ambient?.refresh();clearPost();clearGreeting({redraw:false});hoveredKey='';resetInput();hiddenAt=performance.now();cancelAnimationFrame(frame);frame=0;clearSelectionTimer();}else{if(hiddenAt!==null){const elapsed=performance.now()-hiddenAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed);viewTween.shiftTime(elapsed);}hiddenAt=null;lastFrame=0;resize();schedule();}});
   const onPreference=event=>{reducedMotion=event.matches;if(reducedMotion)viewTween.finish();controller.setReducedMotion(reducedMotion);presenceMotion.setReducedMotion(reducedMotion);ambient?.refresh();markDirty();};motionPreference?.addEventListener?.('change',onPreference);
   scene.updateMatrixWorld(true);scene.matrixWorldAutoUpdate=false;
   disposables.push(subscribeOrganizationOccupants(()=>{
@@ -519,7 +572,7 @@ export function mountScene3D(container,{
   function watchDensity(){densityQuery?.removeEventListener?.('change',onDensityChange);densityQuery=globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio||1}dppx)`);densityQuery?.addEventListener?.('change',onDensityChange);}
   if(globalThis.window?.addEventListener)listen(window,'resize',resize);
   const resizeObserver=new ResizeObserver(resize);resizeObserver.observe(container);watchDensity();resize();update({animateEvents:false});
-  function resetView(){onLeaveBulletin();detailFocus=null;manualDetail=false;focusedRegion=null;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
+  function resetView(){onLeaveBulletin();detailFocus=null;manualDetail=false;focusedRegion=null;cameraMotionKind='automatic';motionAnchor=null;clearSelectionTimer();clearPost();const bearing=azimuth+Math.atan2(Math.sin(defaultAzimuth-azimuth),Math.cos(defaultAzimuth-azimuth));viewTween.start({scale:1,panX:0,panY:0,azimuth:bearing,elevation:defaultElevation},{immediate:reducedMotion});}
   let prepared=false,preparing=null;
   function prepare(){
     if(destroyed||contextLost||document.hidden)return;
@@ -535,8 +588,8 @@ export function mountScene3D(container,{
     active=!!value;
     if(!active){
       inactiveAt=hiddenAt??performance.now();hiddenAt=null;ambient?.pause();clearPost();clearGreeting({redraw:false});
-      hoveredKey='';drag=null;touches.clear();touchGesture=null;nativeGesture=null;wrapper.classList.remove('is-panning');clearSelectionTimer();
-      viewTween.cancel();cancelAnimationFrame(frame);frame=0;
+      hoveredKey='';resetInput();clearSelectionTimer();
+      if(cameraMotionKind==='automatic')viewTween.finish();else viewTween.cancel();motionAnchor=null;cancelAnimationFrame(frame);frame=0;
     }else{
       if(inactiveAt!==null){const elapsed=performance.now()-inactiveAt;controller.shiftTime(elapsed);presenceMotion.shiftTime(elapsed,{since:inactiveAt});}
       inactiveAt=null;hiddenAt=document.hidden?performance.now():null;lastFrame=0;ambient?.resume();resize();markDirty();

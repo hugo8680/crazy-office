@@ -18,14 +18,14 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
  let revision=0,currentArea=null,pending=null,destroyed=false;
  const focus=id=>id?(typeof scene.focusArea==='function'?scene.focusArea(id):scene.focusNode?.(id)):scene.resetView();
  function restore(){if(destroyed||isBlocked())return false;focus(currentArea);return true;}
- function enterArea(id,{point}={}){
+ function enterArea(id,{point,frame=true}={}){
   const area=officeArea(id);if(destroyed||!area||isBlocked()||!requireAccount())return Promise.resolve(false);
   const presence=getPresence();if(!presence)return Promise.resolve(false);
   const destination=point?validPoint(point)?{x:point.x,y:point.y}:null:area.nodeId?{x:area.x+area.w/2,y:area.y+area.h+4}:presencePosition(area.id);
   if(!destination)return Promise.resolve(false);
   const key=area.id+':'+destination.x+':'+destination.y;
   if(pending?.key===key&&pending.presence===presence)return pending.promise;
-  const hadPending=!!pending,ticket=++revision,previous=currentArea;currentArea=area.id;focus(area.id);
+  const hadPending=!!pending,ticket=++revision,previous=currentArea;currentArea=area.id;if(frame)focus(area.id);
   const current=()=>!destroyed&&revision===ticket&&getPresence()===presence&&!isBlocked();
   const promise=(async()=>{
    await presence.ready;if(!current())return false;
@@ -37,7 +37,7 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
   pending={key,presence,ticket,promise};return promise;
  }
  return{enterArea,
-  movePoint(point){if(!validPoint(point))return Promise.resolve(false);return enterArea(officeAreaAt(point)?.id,{point});},
+  movePoint(point){if(!validPoint(point))return Promise.resolve(false);const id=officeAreaAt(point)?.id;return enterArea(id,{point,frame:id!==currentArea});},
   locateSelf(){const presence=getPresence(),me=presence?.self;if(destroyed||!me||isBlocked())return false;++revision;pending=null;currentArea=(validPoint(me)?officeAreaAt(me):officeArea(me.nodeId||me.department))?.id||null;return restore();},
   restore,
   home(){if(destroyed)return;++revision;pending=null;currentArea=null;focus(null);},
