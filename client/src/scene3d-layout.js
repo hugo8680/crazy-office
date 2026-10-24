@@ -481,15 +481,33 @@ export function createOffice3DLayout(assets) {
   const overviewRoot=new THREE.Group();overviewRoot.name='organization-overview';root.add(overviewRoot);emit(overviewBatches,overviewRoot);
   for(const [id,map]of detailBatches){const group=new THREE.Group();group.name=`organization-detail-${id}`;group.visible=false;root.add(group);seatGroups.get(id).root=group;emit(map,group);}
   const departmentHover=new THREE.Group();departmentHover.name='department-hover';departmentHover.visible=false;
-  const hoverPlane=new THREE.Mesh(assets.geometries.slab,assets.material('#e4ecdb'));hoverPlane.position.y=1.76;
-  const hoverOutlineGeometry=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-.5,0,-.5),new THREE.Vector3(.5,0,-.5),new THREE.Vector3(.5,0,.5),new THREE.Vector3(-.5,0,.5)]),hoverOutlineMaterial=new THREE.LineBasicMaterial({color:'#86a187'});
-  const hoverOutline=new THREE.LineLoop(hoverOutlineGeometry,hoverOutlineMaterial);hoverOutline.position.y=2;departmentHover.add(hoverPlane,hoverOutline);root.add(departmentHover);
-  const assetDispose=assets.dispose.bind(assets);assets.dispose=()=>{hoverOutlineGeometry.dispose();hoverOutlineMaterial.dispose();assetDispose();};
+  // The team platforms reach y=2.8. Keep the feedback above every floor,
+  // below furniture, and independent of the warm scene lighting. A four-piece
+  // inset rim has a real world-space width on all WebGL implementations.
+  const hoverFillMaterial=new THREE.MeshBasicMaterial({color:'#38a88b',transparent:true,opacity:.2,depthWrite:false,toneMapped:false});
+  const hoverRimMaterial=new THREE.MeshBasicMaterial({color:'#377e6c',transparent:true,opacity:.88,depthWrite:false,toneMapped:false});
+  const hoverPlane=new THREE.Mesh(assets.geometries.slab,hoverFillMaterial);hoverPlane.name='department-hover-fill';hoverPlane.position.y=3.04;hoverPlane.renderOrder=1;
+  const hoverRim=new THREE.InstancedMesh(assets.geometries.box,hoverRimMaterial,4);hoverRim.name='department-hover-rim';hoverRim.renderOrder=2;
+  departmentHover.add(hoverPlane,hoverRim);root.add(departmentHover);
+  const assetDispose=assets.dispose.bind(assets);assets.dispose=()=>{hoverFillMaterial.dispose();hoverRimMaterial.dispose();assetDispose();};
   let hoveredDepartmentId=null;
   function setHoveredDepartment(id){
     const room=OFFICE3D_ROOMS.find(room=>room.id===id),next=localTeamId?null:room?.id||null;if(next===hoveredDepartmentId)return false;
     hoveredDepartmentId=next;departmentHover.visible=!!next;
-    if(next){departmentHover.position.set(room.x+room.w/2,0,room.y+room.h/2);hoverPlane.scale.set(room.w-5,.08,room.h-5);hoverOutline.scale.set(room.w+2,1,room.h+2);hoverPlane.updateMatrix();hoverOutline.updateMatrix();departmentHover.updateMatrix();departmentHover.updateMatrixWorld(true);}
+    if(next){
+      departmentHover.position.set(room.x+room.w/2,0,room.y+room.h/2);hoverPlane.scale.set(room.w-14,.08,room.h-14);hoverPlane.updateMatrix();
+      const rimWidth=2.8,inset=7.5;
+      for(const [index,x,z,w,d]of[[0,0,-room.h/2+inset,room.w-inset*2,rimWidth],[1,0,room.h/2-inset,room.w-inset*2,rimWidth],[2,-room.w/2+inset,0,rimWidth,room.h-inset*2],[3,room.w/2-inset,0,rimWidth,room.h-inset*2]]){
+        object.position.set(x,3.16,z);object.rotation.set(0,0,0);object.scale.set(w,.2,d);object.updateMatrix();hoverRim.setMatrixAt(index,object.matrix);
+      }
+      hoverRim.instanceMatrix.needsUpdate=true;hoverRim.computeBoundingSphere();departmentHover.updateMatrix();
+      // The renderer freezes static world matrices after mounting. A hover is
+      // an explicit transform change, so compose its small dynamic subtree
+      // even when matrixWorldAutoUpdate is disabled for the architecture.
+      departmentHover.matrixWorld.multiplyMatrices(root.matrixWorld,departmentHover.matrix);
+      for(const child of departmentHover.children){child.updateMatrix();child.matrixWorld.multiplyMatrices(departmentHover.matrixWorld,child.matrix);child.matrixWorldNeedsUpdate=false;}
+      departmentHover.matrixWorldNeedsUpdate=false;
+    }
     return true;
   }
   let detailed=new Set(),away=new Set(),localTeamId=null;

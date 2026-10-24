@@ -113,16 +113,40 @@ test('shared quiet team finishes leave every desk and colleague footprint intact
  }finally{assets.dispose();}
 });
 
-test('department hover reuses one quiet full-room surface and outline without rebuilding static geometry',()=>{
+test('department hover stays visible above every floor with unlit fill and a full inset geometric rim',()=>{
  const assets=createOffice3DAssets();try{
-  const layout=createOffice3DLayout(assets),group=layout.root.getObjectByName('department-hover'),[plane,outline]=group.children,roots=layout.root.children.length,instances=layout.statistics.staticInstances;
+  const layout=createOffice3DLayout(assets),group=layout.root.getObjectByName('department-hover'),[plane,rim]=group.children,roots=layout.root.children.length,instances=layout.statistics.staticInstances;
+  const staticFloors=[];
+  for(const mesh of layout.root.children.filter(mesh=>mesh.isInstancedMesh&&mesh.geometry===assets.geometries.slab)){
+   mesh.geometry.computeBoundingBox();const matrix=new THREE.Matrix4(),color=new THREE.Color(),floorColors=OFFICE_ROOMS.map(room=>new THREE.Color(room.floor)).concat(new THREE.Color('#e0e8de'));
+   for(let index=0;index<mesh.count;index++){
+    mesh.getColorAt(index,color);if(!floorColors.some(floor=>Math.abs(floor.r-color.r)+Math.abs(floor.g-color.g)+Math.abs(floor.b-color.b)<1e-5))continue;
+    mesh.getMatrixAt(index,matrix);staticFloors.push(mesh.geometry.boundingBox.clone().applyMatrix4(matrix));
+   }
+  }
+  assert.ok(staticFloors.length>=OFFICE_ROOMS.length+ai.teamZones.length,'inspect actual department and raised team floor geometry');
+  // Production disables both forms of automatic matrix updates for static
+  // architecture. Feedback must still move and resize in that exact state.
+  layout.root.updateMatrixWorld(true);layout.root.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
   assert.equal(layout.hoveredDepartmentId,null);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment(null),false);
-  assert.equal(plane.castShadow,false);assert.equal(plane.receiveShadow,false);assert.equal(plane.material.emissive.getHex(),0);assert.equal(outline.isLineLoop,true);assert.equal(outline.geometry.attributes.position.count,4);
+  assert.equal(plane.castShadow,false);assert.equal(plane.receiveShadow,false);assert.equal(plane.material.isMeshBasicMaterial,true);assert.equal(plane.material.toneMapped,false);assert.equal(plane.material.transparent,true);assert.ok(plane.material.opacity>=.18&&plane.material.opacity<=.25);assert.equal(plane.material.depthWrite,false);
+  assert.equal(rim.isInstancedMesh,true);assert.equal(rim.count,4);assert.equal(rim.geometry,assets.geometries.box);assert.equal(rim.material.isMeshBasicMaterial,true);assert.equal(rim.material.toneMapped,false);assert.equal(rim.material.depthWrite,false);assert.equal(rim.castShadow,false);assert.equal(rim.receiveShadow,false);
+  plane.geometry.computeBoundingBox();rim.geometry.computeBoundingBox();const rimMatrix=new THREE.Matrix4(),worldRimMatrix=new THREE.Matrix4();
   for(const room of OFFICE_ROOMS){
    assert.equal(layout.setHoveredDepartment(room.id),true);assert.equal(layout.hoveredDepartmentId,room.id);assert.equal(group.visible,true);
-   assert.deepEqual(group.position.toArray(),[room.x+room.w/2,0,room.y+room.h/2]);assert.deepEqual(plane.scale.toArray(),[room.w-5,.08,room.h-5]);assert.deepEqual(outline.scale.toArray(),[room.w+2,1,room.h+2]);
+   assert.deepEqual(group.position.toArray(),[room.x+room.w/2,0,room.y+room.h/2]);assert.deepEqual(plane.scale.toArray(),[room.w-14,.08,room.h-14]);
+   const fillBounds=plane.geometry.boundingBox.clone().applyMatrix4(plane.matrixWorld),floors=staticFloors.filter(bounds=>bounds.min.x>=room.x-.01&&bounds.max.x<=room.x+room.w+.01&&bounds.min.z>=room.y-.01&&bounds.max.z<=room.y+room.h+.01),floorTop=Math.max(...floors.map(bounds=>bounds.max.y));
+   assert.ok(floors.length>0);assert.ok(fillBounds.min.y>floorTop+.1,`${room.id} raised floors cannot cover the hover fill`);assert.ok(fillBounds.max.y<5,'furniture and people stay in front of the floor feedback');
+   assert.ok(Math.abs((fillBounds.min.x+fillBounds.max.x)/2-(room.x+room.w/2))<1e-8);assert.ok(Math.abs((fillBounds.min.z+fillBounds.max.z)/2-(room.y+room.h/2))<1e-8);assert.ok(fillBounds.max.x-fillBounds.min.x>room.w-15,'the real frozen world matrix covers the department rather than the origin');
+   const base=new THREE.Color(room.floor),blended=base.clone().lerp(plane.material.color,plane.material.opacity);assert.ok(Math.abs(base.r-blended.r)+Math.abs(base.g-blended.g)+Math.abs(base.b-blended.b)>.08,'every department has measurable fill contrast');
+   const sides=[];
+   for(let index=0;index<rim.count;index++){
+    rim.getMatrixAt(index,rimMatrix);worldRimMatrix.multiplyMatrices(rim.matrixWorld,rimMatrix);const bounds=rim.geometry.boundingBox.clone().applyMatrix4(worldRimMatrix),size=bounds.getSize(new THREE.Vector3());
+    assert.ok(bounds.min.y>floorTop+.1);assert.ok(bounds.max.y<5);assert.ok(bounds.min.x>room.x+5&&bounds.max.x<room.x+room.w-5&&bounds.min.z>room.y+5&&bounds.max.z<room.y+room.h-5,'the rim sits inside the walls');assert.ok(Math.min(size.x,size.z)>2.7,'rim width is world geometry, independent of WebGL line width');sides.push(size.x>size.z?'horizontal':'vertical');
+   }
+   assert.deepEqual(sides,['horizontal','horizontal','vertical','vertical']);
    const matrix=group.matrixWorld.elements.slice();assert.equal(layout.setHoveredDepartment(room.id),false);assert.deepEqual(group.matrixWorld.elements,matrix,'repeated pointer samples do not dirty the hover transform');
-   assert.equal(layout.root.children.length,roots);assert.equal(layout.statistics.staticInstances,instances);assert.equal(group.children[0],plane);assert.equal(group.children[1],outline);
+   assert.equal(layout.root.children.length,roots);assert.equal(layout.statistics.staticInstances,instances);assert.equal(group.children[0],plane);assert.equal(group.children[1],rim);
   }
   assert.equal(layout.setHoveredDepartment('missing'),true);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('missing'),false);
   layout.setHoveredDepartment('ai_data');layout.enterTeam(ai.teamZones[0].id);assert.equal(layout.hoveredDepartmentId,null);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('finance'),false,'a hidden campus cannot leave a department plane over the legacy local floor');layout.exitTeam();assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('finance'),true);
