@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createOfficeNavigation,officeArea,officeAreaAt} from '../src/office-navigation.mjs';
-import {OFFICE_ROOMS} from '../src/organization.mjs';
+import {OFFICE_ROOMS,OFFICE_FITTINGS} from '../src/organization.mjs';
 import {presencePosition} from '../src/erp-presence.js';
+import {routeBetweenPoints} from '../src/scene-motion.js';
 const deferred=()=>{let resolve;return {promise:new Promise(yes=>resolve=yes),get resolve(){return resolve;}};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(){const calls=[],moves=[],self={id:'me',...presencePosition('hr_admin')},presence={ready:Promise.resolve(),self,async movePoint(point,options){if(!options.shouldRun())return false;moves.push(point);Object.assign(self,point);return true;}};let owner=presence,allowed=true,blocked=false;const scene={focusArea:id=>calls.push(id),resetView:()=>calls.push('home')};const nav=createOfficeNavigation({scene,getPresence:()=>owner,requireAccount:()=>allowed,isBlocked:()=>blocked});return{nav,scene,presence,self,calls,moves,setOwner:value=>owner=value,setAllowed:value=>allowed=value,setBlocked:value=>blocked=value};}
@@ -57,4 +58,26 @@ test('a rejected move, reset or replaced employee cannot trigger a late framing 
 test('closing a work window consumes a real arrival received while the window held the camera',async()=>{
  const f=fixture();await f.nav.enterArea('finance');f.setBlocked(true);assert.equal(arrive(f),false);assert.equal(f.calls.length,0);
  f.setBlocked(false);assert.equal(f.nav.restore(),true);assert.deepEqual(f.calls,['finance']);assert.equal(f.nav.areaId,'finance');assert.equal(f.moves.length,1);
+});
+
+test('a furniture click submits a reachable floor correction and waits for that actual arrival',async()=>{
+ const f=fixture(),sofa=OFFICE_FITTINGS.find(item=>item.id==='legal_sofa_1'),target={x:sofa.x,y:sofa.y},start={...f.self};
+ assert.equal(await f.nav.movePoint(target),true);assert.equal(f.moves.length,1);const resolved=f.moves[0];assert.notDeepEqual(resolved,target);assert.deepEqual(routeBetweenPoints(start,resolved).at(-1),resolved);assert.deepEqual(f.calls,[]);
+ assert.equal(f.nav.observePresence({point:resolved,person:{id:f.self.id,point:resolved},walking:false,arrived:true}),true);assert.deepEqual(f.calls,['legal']);
+});
+
+test('navigation preflights against the actual drawn position, refusing an unusable origin without HTTP or a fake camera arrival',async()=>{
+ const f=fixture(),sofa=OFFICE_FITTINGS.find(item=>item.id==='legal_sofa_1');
+ // A valid old server goal must not mask an unusable drawn origin.
+ f.scene.getPresenceState=()=>({positions:{me:{x:NaN,y:sofa.y}}});
+ assert.equal(await f.nav.movePoint(presencePosition('finance')),false);assert.deepEqual(f.moves,[]);assert.deepEqual(f.calls,[]);
+ f.scene.getPresenceState=()=>({positions:{me:presencePosition('research')}});
+ assert.equal(await f.nav.movePoint(presencePosition('finance')),true);assert.equal(f.moves.length,1);
+});
+
+test('old saved furniture positions can submit a legal exit without pretending the employee has already arrived',async()=>{
+ const f=fixture(),sofa=OFFICE_FITTINGS.find(item=>item.id==='legal_sofa_1'),inside={x:sofa.x,y:sofa.y},target=presencePosition('legal');Object.assign(f.self,inside);f.scene.getPresenceState=()=>({positions:{me:inside}});
+ assert.equal(await f.nav.movePoint(target),true);assert.deepEqual(f.moves,[target]);assert.deepEqual(f.calls,[]);const path=routeBetweenPoints(inside,target);assert.deepEqual(path[0],inside);assert.notDeepEqual(path[1],target);
+ assert.equal(f.nav.observePresence({point:path[1],person:{id:f.self.id,point:target},walking:true,arrived:false}),false);assert.deepEqual(f.calls,[]);
+ assert.equal(f.nav.observePresence({point:target,person:{id:f.self.id,point:target},walking:false,arrived:true}),true);assert.deepEqual(f.calls,['legal']);
 });

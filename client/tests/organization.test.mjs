@@ -214,10 +214,13 @@ test('overview uses readable representative geometry while preserving exact full
   }
 });
 
-test('detail is scoped to a selected department or team and never unfolds all two hundred AI staff on zoom',()=>{
+test('department detail renders its complete canonical roster while overview stays compact',()=>{
   assert.equal(officeSeatsForView({zoom:20}).length,OFFICE_OVERVIEW_SEATS.length);
-  assert.equal(officeSeatsForView({focusedDepartmentId:'ai_data'}).length,OFFICE_OVERVIEW_SEATS.length);
-  assert.equal(officeSeatsForView({zoom:20,detailDepartmentId:'ai_data'}).length,OFFICE_OVERVIEW_SEATS.length);
+  for(const options of[{focusedDepartmentId:'ai_data'},{zoom:20,detailDepartmentId:'ai_data'}]){
+    const detail=officeSeatsForView(options),ai=detail.filter(post=>post.departmentId==='ai_data');assert.equal(detail.length,251);assert.equal(ai.length,206);assert.equal(new Set(ai.map(post=>post.personId)).size,206);
+    for(const post of ai)assert.equal(post,OFFICE_SEATS.find(item=>item.id===post.id),'complete department uses canonical positions and proportions');
+    for(const room of OFFICE_ROOMS.filter(room=>room.id!=='ai_data'))assert.equal(detail.filter(post=>post.departmentId===room.id).length,room.overviewSeatIds.length);
+  }
   const team=roomForDepartment('ai_data').teamZones[0];
   const focused=officeSeatsForView({focusedTeamId:team.id});
   assert.equal(focused.length,41);assert.equal(focused.filter(post=>post.teamId===team.id).length,41);

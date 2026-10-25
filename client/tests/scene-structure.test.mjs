@@ -393,14 +393,14 @@ test('working or hovered people pause individually while unrelated staff stay al
  }finally{f.destroy();}assert.equal(f.timers.size,0);
 });
 
-test('overview and focused detail switch both artwork geometry and hit regions without exposing all AI employees',()=>{
+test('overview and department detail switch geometry and hit regions to the complete AI roster',()=>{
   const f=sceneFixture({}, {frames:true});
   try {
     const posts=f.groups.get('[data-position]'),visible=()=>posts.filter(post=>post.dataset.visible==='true'),visibleIds=()=>visible().map(post=>post.dataset.position).sort();
     assert.deepEqual(visibleIds(),OFFICE_OVERVIEW_SEATS.map(post=>post.id).sort());
     const room=OFFICE_ROOMS.find(room=>room.id==='ai_data'),team=room.teamZones[0],overview=OFFICE_OVERVIEW_SEATS.find(post=>post.teamId===team.id&&post.role==='staff'),element=posts.find(post=>post.dataset.position===overview.id),full=OFFICE_SEATS.find(post=>post.id===overview.id);
     assert.ok(element.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`));assert.equal(overview.desk.w,64);
-    f.scene.focusNode('ai_data');f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length,'department overview does not unfold all 200 AI employees');
+    f.scene.focusNode('ai_data');f.drain();assert.equal(visible().length,OFFICE_SEATS.length,'a focused AI department reveals every canonical workstation');assert.ok(element.innerHTML.includes(`translate(${full.desk.x-full.desk.w/2} ${full.desk.y-full.desk.h/2})`));
     f.scene.focusArea(team.id);f.drain();
     assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===team.id).length,41);
     assert.equal(visible().filter(el=>OFFICE_SEATS.find(post=>post.id===el.dataset.position).teamId===room.teamZones[1].id).length,0);
@@ -723,7 +723,7 @@ test('manual 2D department inspection uses the same wheel entrance and outward o
   f.drain();
   for(const room of OFFICE_ROOMS){
    f.scene.resetView();f.drain();const point=f.screen({x:room.x+room.w/2,y:room.y+room.h/2});
-   f.input('wheel',{deltaY:-100,clientX:point.x,clientY:point.y});f.drain();assert.equal(f.scene.getDepartmentScope(),room.id);assert.equal(f.svg.dataset.localTeam||'','');assert.equal(f.svg.dataset.focusTeam||'','');assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));
+   f.input('wheel',{deltaY:-100,clientX:point.x,clientY:point.y});f.drain();assert.equal(f.scene.getDepartmentScope(),room.id);assert.equal(f.svg.dataset.localTeam||'','');assert.equal(f.svg.dataset.focusTeam||'','');assert.equal(f.svg.dataset.visiblePosts,String(room.id==='ai_data'?OFFICE_SEATS.length:OFFICE_OVERVIEW_SEATS.length));
    const fit=sceneScale(f);assert.ok(fit>1);for(let i=0;i<5&&f.scene.getDepartmentScope();i++){f.input('wheel',{deltaY:180,clientX:point.x,clientY:point.y});f.drain();}
    assert.equal(f.scene.getDepartmentScope(),null);assert.equal(f.svg.attrs.viewBox,initialViewBox);
   }
@@ -779,4 +779,38 @@ test('department pinch transitions retire the old native and touch gesture befor
    f.drain();assert.equal(f.svg.attrs.viewBox,initialViewBox);assert.equal(f.svg.captured.size,0);
   }finally{f.destroy();}
  }
+});
+
+
+test('complete department roster persists through manual camera control and collapses only on a real overview exit',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  f.drain();f.scene.focusArea('ai_data');f.drain();const visible=()=>f.groups.get('[data-position]').filter(el=>el.dataset.visible==='true');
+  assert.equal(visible().length,251);assert.equal(visible().filter(el=>OFFICE_SEATS.find(seat=>seat.id===el.dataset.position).departmentId==='ai_data').length,206);
+  f.scene.zoom(2);f.drain();assert.equal(visible().length,251);assert.equal(f.scene.getDepartmentScope(),'ai_data');
+  f.input('pointerdown',{clientX:500,clientY:300});f.input('pointermove',{clientX:550,clientY:330});f.input('pointerup');f.drain();assert.equal(visible().length,251);
+  f.input('gesturestart',{clientX:550,clientY:330});f.input('gesturechange',{scale:1.1,clientX:550,clientY:330});f.input('gestureend');f.drain();assert.equal(visible().length,251);
+  f.scene.focusArea('finance');f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length);f.scene.resetView();f.drain();assert.equal(f.scene.getDepartmentScope(),null);assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length);
+ }finally{f.destroy();}
+});
+
+
+test('dense department presence uses the same physical scale and hit footprint as its canonical colleagues',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  const seat=OFFICE_SEATS.find(seat=>seat.departmentId==='ai_data'&&seat.role==='staff'),person={id:'density-self',name:'本人',current:true,online:true,nodeId:'ai_data',x:seat.x,y:seat.y,posture:'standing'};
+  f.scene.setPresence({enabled:true,currentUserId:person.id,people:[person]});f.scene.focusArea('ai_data');f.drain();const element=f.layers.get('.cnl-presence-layer').children.find(el=>el.dataset.human===person.id),expected=seat.scale*.6;
+  assert.ok(element.innerHTML.includes(`scale(${expected})`));assert.ok(element.innerHTML.includes(`width="${30*expected/.66}"`),'the invisible hit area cannot cover neighboring desks');
+  const artwork=element.innerHTML;f.scene.zoom(2);f.drain();assert.equal(element.innerHTML,artwork,'camera magnification does not change employee proportions');
+  f.scene.resetView();f.drain();assert.equal(element.innerHTML,artwork,'returning to overview does not turn the current employee into a giant');
+ }finally{f.destroy();}
+});
+
+
+test('249 online identities stay retained while overview and department visibility use the same roster levels',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  const primary=OFFICE_SEATS.filter(seat=>seat.primarySeat),people=primary.map(seat=>({id:seat.personId,name:seat.id,appearanceKey:seat.id,seatId:seat.id,posture:'seated',nodeId:seat.departmentId,x:seat.x,y:seat.y,online:true}));
+  f.scene.setPresence({enabled:true,currentUserId:people[0].id,people});f.drain();const visible=()=>f.layers.get('.cnl-presence-layer').children.filter(el=>el.style.display!=='none');
+  assert.equal(Object.keys(f.scene.getPresenceState().positions).length,249);assert.equal(visible().length,primary.filter(seat=>seat.overviewVisible).length);
+  f.scene.focusArea('ai_data');f.drain();assert.equal(visible().length,249);assert.equal(Object.keys(f.scene.getPresenceState().positions).length,249);
+  f.scene.zoom(1);f.drain();assert.equal(visible().length,249);f.scene.resetView();f.drain();assert.equal(visible().length,primary.filter(seat=>seat.overviewVisible).length);
+ }finally{f.destroy();}
 });

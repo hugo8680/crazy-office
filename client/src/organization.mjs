@@ -124,8 +124,8 @@ for (const spec of specs) {
   departments.push({id:spec.id,name:spec.name,title:spec.name,managerPersonId:spec.manager||`${spec.id}_manager_001`,headcount:members.length,roleCounts,members,teams:teamZones.map(team=>({id:team.id,name:team.title,headPersonId:team.headPersonId,staffCount:team.staffCount,memberPersonIds:team.seats.map(post=>post.personId)}))});
 }
 
-// The campus uses representatives. A team opens into its own full-size floor;
-// canonical positions remain the only coordinates sent to the server.
+// The campus uses representatives. Department detail renders the complete
+// canonical roster in place; explicit legacy team interiors use display maps.
 function sampleTeamSeats(team) {
   const staff=team.seats.filter(post=>post.role!=='head');
   for(let i=staff.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[staff[i],staff[j]]=[staff[j],staff[i]];}
@@ -186,7 +186,8 @@ export function officeSeatsForView({zoom=1,focusedDepartmentId,focusedTeamId,det
   const team=focusedTeamId||(zoom>=OFFICE_DETAIL_ZOOM?detailTeamId:null);
   const department=canonicalDepartmentId(focusedDepartmentId||(zoom>=OFFICE_DETAIL_ZOOM?detailDepartmentId:null));
   if(officeTeamDetail(team))return OFFICE_SEATS.filter(post=>post.teamId===team).map(post=>officeSeatForView(post,{detail:true}));
-  const detail=post=>team?post.teamId===team:department&&department!=='ai_data'&&post.departmentId===department;
+  if(department)return OFFICE_SEATS.filter(post=>post.departmentId===department||post.overviewVisible).map(post=>post.departmentId===department?post:officeSeatForView(post));
+  const detail=post=>team&&post.teamId===team;
   return OFFICE_SEATS.filter(post=>post.overviewVisible||(detail(post)&&(!post.teamId||post.detailGeometry))).map(post=>officeSeatForView(post,{detail:!!detail(post)}));
 }
 export const ORGANIZATION_DEPARTMENTS=freeze(departments);

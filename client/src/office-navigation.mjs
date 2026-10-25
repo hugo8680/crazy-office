@@ -1,5 +1,6 @@
 import {OFFICE_ROOMS,OFFICE_SHARED_AREAS,OFFICE_BULLETIN_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_RECREATION_AREA,OFFICE_DATA_CENTER,canonicalDepartmentId} from './organization.mjs';
 import {presencePosition} from './erp-presence.js';
+import {resolveFloorDestination} from './scene-motion.js';
 
 const contains=(area,point)=>point&&Number.isFinite(point.x)&&Number.isFinite(point.y)&&point.x>=area.x&&point.x<=area.x+area.w&&point.y>=area.y&&point.y<=area.y+area.h;
 const teams=OFFICE_ROOMS.flatMap(room=>room.teamZones.map(team=>({...team,nodeId:room.id})));
@@ -56,19 +57,23 @@ export function createOfficeNavigation({scene,getPresence=()=>null,requireAccoun
  function enterArea(id,{point,frame=true}={}){
   const area=officeArea(id);if(destroyed||!area||isBlocked()||!requireAccount())return Promise.resolve(false);
   const presence=getPresence();if(!presence)return Promise.resolve(false);
-  const destination=point?validPoint(point)?pointCopy(point):null:area.nodeId?{x:area.x+area.w/2,y:area.y+area.h-4}:presencePosition(area.id);
-  if(!destination)return Promise.resolve(false);
-  const key=area.id+':'+destination.x+':'+destination.y;
+  const requested=point?validPoint(point)?pointCopy(point):null:area.nodeId?{x:area.x+area.w/2,y:area.y+area.h-4}:presencePosition(area.id);
+  if(!requested)return Promise.resolve(false);
+  const key=area.id+':'+requested.x+':'+requested.y;
   if(pending?.key===key&&pending.presence===presence)return pending.promise;
-  const hadPending=!!pending,ticket=++revision,room=departmentAt(destination);
+  const hadPending=!!pending,ticket=++revision,room=departmentAt(requested);
   const drawn=lastObserved?.presence===presence&&lastObserved.id===presence.self?.id?lastObserved.point:scene.getPresenceState?.()?.positions?.[presence.self?.id]||presence.self;
   cancelAutoFocus();
-  const intent=frame&&room&&room.id!==currentArea?{key,ticket,presence,room,destination,lastPoint:validPoint(drawn)?pointCopy(drawn):null,accepted:false,step:null}:null;
+  const intent=frame&&room&&room.id!==currentArea?{key,ticket,presence,room,destination:requested,lastPoint:validPoint(drawn)?pointCopy(drawn):null,accepted:false,step:null}:null;
   walkIntent=intent;
   const current=()=>!destroyed&&revision===ticket&&getPresence()===presence&&!isBlocked();
   const promise=(async()=>{
    await presence.ready;if(!current())return false;
-   if(!hadPending&&near(presence.self,destination)){if(walkIntent===intent)cancelAutoFocus();return true;}
+   const actual=lastObserved?.presence===presence&&lastObserved.id===presence.self?.id?lastObserved.point:scene.getPresenceState?.()?.positions?.[presence.self?.id]||presence.self;
+   const destination=resolveFloorDestination(actual,requested);
+   if(!destination){if(walkIntent===intent)cancelAutoFocus();return false;}
+   if(intent){intent.destination=destination;intent.lastPoint=validPoint(actual)?pointCopy(actual):null;}
+   if(!hadPending&&near(actual,destination)){if(walkIntent===intent)cancelAutoFocus();return true;}
    const accepted=await presence.movePoint(destination,{shouldRun:current});
    if(!current())return false;
    if(!accepted){if(walkIntent===intent)cancelAutoFocus();return false;}

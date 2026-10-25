@@ -142,7 +142,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   // Fixed desk occupants keep lightweight reusable symbols.
   const avatarArtwork={person:svg.querySelector(`#${uid}-person`).innerHTML,seated:svg.querySelector(`#${uid}-seated`).innerHTML};
   const ambientProps='<g class="cnl-ambient-props" aria-hidden="true"><g class="cnl-ambient-cup" transform="translate(12 -28)"><path d="M2-3Q9-3 7 1Q6 3 3 1" fill="none" stroke="#8c7051" stroke-width=".8"/><rect x="-3" y="-4" width="7" height="7" rx="2" fill="#f3ddad" stroke="#8c7051" stroke-width=".7"/><path d="M-1-5Q-3-8-1-10" fill="none" stroke="#c4ad84" stroke-width=".6"/></g><g class="cnl-ambient-tablet" transform="translate(0 -15)"><rect x="-8" y="-6" width="16" height="12" rx="2" fill="#435f61" stroke="#335151" stroke-width=".8"/><rect x="-6.2" y="-4.2" width="12.4" height="7.5" rx=".8" fill="#b5e0ce"/><path d="M-4-2H3M-4 .2H0" stroke="#eef9e9" stroke-width=".7"/><circle cy="4.5" r=".7" fill="#bdd6ca"/></g></g>';
-  const avatar=(shirt,hair,{sitting=false,scale=.56,appearance=null,chair=true,resting=false,back=sitting}={})=>`<g class="${sitting?'cnl-pose-seated cnl-seated':'cnl-pose-standing'}"${appearance?` data-outfit="${appearance.outfitId}" data-synthetic="${appearance.synthetic}"`:''} transform="translate(0 ${sitting?0:-22}) scale(${scale})" style="${appearance?employeeAppearanceStyle(appearance):`--shirt:${esc(shirt)};--hair:${esc(hair)}`};--chair-display:${chair?'block':'none'};--typing-display:${resting?'none':'block'};--resting-display:${resting?'block':'none'};--front-facing:${back?'none':'block'};--back-facing:${back?'block':'none'}">${avatarArtwork[sitting?'seated':'person']}</g>`;
+  const avatar=(shirt,hair,{sitting=false,scale=.56,standingOffset=-22,appearance=null,chair=true,resting=false,back=sitting}={})=>`<g class="${sitting?'cnl-pose-seated cnl-seated':'cnl-pose-standing'}"${appearance?` data-outfit="${appearance.outfitId}" data-synthetic="${appearance.synthetic}"`:''} transform="translate(0 ${sitting?0:standingOffset}) scale(${scale})" style="${appearance?employeeAppearanceStyle(appearance):`--shirt:${esc(shirt)};--hair:${esc(hair)}`};--chair-display:${chair?'block':'none'};--typing-display:${resting?'none':'block'};--resting-display:${resting?'block':'none'};--front-facing:${back?'none':'block'};--back-facing:${back?'block':'none'}">${avatarArtwork[sitting?'seated':'person']}</g>`;
   const teamElements=new Map([...svg.querySelectorAll('[data-team]')].map(el=>[el.dataset.team,el]));
   const displayedPositions=new Map();
   const positionElements=new Map([...svg.querySelectorAll('[data-position]')].map(el=>[el.dataset.position,el]));
@@ -165,7 +165,8 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   const presenceLayer=svg.querySelector('.cnl-presence-layer');
   const greetingLayer=svg.querySelector('.cnl-greeting-layer');
   const nameLayer=svg.querySelector('.cnl-name-layer'),nameElements=new Map();let nameScale='';
-  const presenceElements=new Map();let presenceState={enabled:false,people:[]},presenceFrame=0,presenceHiddenAt=null;
+  const presenceElements=new Map();let presenceState={enabled:false,people:[]},presenceFrame=0,presenceHiddenAt=null,lastPresenceStep=null,presenceBatchDepth=0;
+  const compactRoomScales=new Map(OFFICE_ROOMS.filter(room=>room.seats.some(post=>!post.overviewVisible)).map(room=>[room.id,Math.min(...room.seats.map(post=>post.scale))]));
   const agentElements = new Map();
   const agentPositions = new Map();
   const agentSignatures = new Map();
@@ -279,19 +280,23 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   function renderPresencePerson(element,person,{sitting=false,size=.66,atSeat=false}={}){
     const signature=JSON.stringify([person.name,person.title,person.current,person.color,person.hair,person.posture,person.seatId,sitting,size,atSeat]);if(element.dataset.signature===signature)return;
     if(element===greetingElement)stopGreetingWave();element.dataset.signature=signature;element.classList.toggle('is-seated',sitting);
-    element.innerHTML=`<title>${esc(person.name)}${person.title?' · '+esc(person.title):''} · 在线员工</title><rect x="-15" y="-40" width="30" height="54" fill="transparent"/><g class="cnl-presence-body">${avatar(person.color,person.hair,{sitting,scale:size,back:false,chair:!atSeat,resting:sitting&&!atSeat,appearance:employeeAppearance({id:person.appearanceKey||person.id,outfitId:person.outfitId})})}${ambientProps}${sitting?'':'<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/>'}</g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(person.name.slice(0,9))}${person.name.length>9?'…':''}${person.current?' · 你':''}</text>`;
+    const ratio=size/.66;
+    element.innerHTML=`<title>${esc(person.name)}${person.title?' · '+esc(person.title):''} · 在线员工</title><rect x="${-15*ratio}" y="${-40*ratio}" width="${30*ratio}" height="${54*ratio}" fill="transparent"/><g class="cnl-presence-body">${avatar(person.color,person.hair,{sitting,scale:size,standingOffset:-22*ratio,back:false,chair:!atSeat,resting:sitting&&!atSeat,appearance:employeeAppearance({id:person.appearanceKey||person.id,outfitId:person.outfitId})})}<g transform="scale(${ratio})">${ambientProps}${sitting?'':'<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/>'}</g></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(person.name.slice(0,9))}${person.name.length>9?'…':''}${person.current?' · 你':''}</text>`;
   }
   function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample,person}=entry,seat=person.seatId&&(displayedPositions.get(person.seatId)||ORGANIZATION_POSITION_META[person.seatId]),sitting=person.posture==='seated'&&!entry.motion;
-    const visible=!localTeamId||(sitting&&seat?seat.teamId===localTeamId:officePointInTeam(point,localTeamId));el.style.display=visible?'':'none';el.setAttribute('aria-hidden',String(!visible));el.setAttribute('tabindex',visible?'0':'-1');
-    const displayPoint=sitting&&seat?{x:seat.x,y:seat.y}:officeDisplayPoint(point,localTeamId);renderPresencePerson(el,person,{sitting,atSeat:!!(sitting&&seat),size:sitting&&seat?Math.max(.2,seat.scale*.6):localTeamId?.432:.66});
+    const canonicalSeat=ORGANIZATION_POSITION_META[person.seatId||person.appearanceKey],sampledOut=sitting&&!person.current&&!localTeamId&&canonicalSeat&&!canonicalSeat.overviewVisible&&departmentScope!==canonicalSeat.departmentId;
+    const visible=!sampledOut&&(!localTeamId||(sitting&&seat?seat.teamId===localTeamId:officePointInTeam(point,localTeamId)));el.style.display=visible?'':'none';el.setAttribute('aria-hidden',String(!visible));el.setAttribute('tabindex',visible?'0':'-1');
+    const displayPoint=sitting&&seat?{x:seat.x,y:seat.y}:officeDisplayPoint(point,localTeamId),denseRoom=OFFICE_ROOMS.find(room=>compactRoomScales.has(room.id)&&room.teamZones.some(team=>point.x>=team.x&&point.x<=team.x+team.w&&point.y>=team.y&&point.y<=team.y+team.h));
+    renderPresencePerson(el,person,{sitting,atSeat:!!(sitting&&seat),size:sitting&&seat?seat.scale*.6:localTeamId?.432:denseRoom?compactRoomScales.get(denseRoom.id)*.6:.66});
     el.setAttribute('transform',`translate(${displayPoint.x} ${displayPoint.y})`);humanPositions.set(person.id,{...displayPoint});el.dataset.walking=String(!!entry.motion);el.dataset.x=displayPoint.x.toFixed(2);el.dataset.y=displayPoint.y.toFixed(2);
-    if(el===greetingElement){if(entry.motion||deliveryQueue.locked(person.id))stopGreetingWave();syncGreetingPoint();}syncNameLabels();
+    if(el===greetingElement){if(entry.motion||deliveryQueue.locked(person.id))stopGreetingWave();syncGreetingPoint();}if(!presenceBatchDepth)syncNameLabels();
     const body=el.querySelector('.cnl-presence-body');if(body)body.style.transform=`translateY(${sample?.bob||0}px) rotate(${sample?.lean||0}deg)`;
     for(const [selector,sign]of[['.cnl-person-leg-left',1],['.cnl-person-leg-right',-1],['.cnl-person-arm-left',-.65],['.cnl-person-arm-right',.65]]){const limb=el.querySelector(selector);if(limb)limb.style.transform=`rotate(${(sample?.stride||0)*sign}deg)`;}
-    if(person.current&&active&&!destroyed&&!document.hidden)onPresenceStep({point:{x:point.x,y:point.y},person:{...person},walking:!!entry.motion,arrived:sample?.arrived===true||!!(reducedMotion&&!entry.motion&&entry.target&&Math.abs(point.x-entry.target.x)<.001&&Math.abs(point.y-entry.target.y)<.001)});
+    if(person.current&&active&&!destroyed&&!document.hidden){const walking=!!entry.motion,arrived=sample?.arrived===true||!!(reducedMotion&&!entry.motion&&entry.target&&Math.abs(point.x-entry.target.x)<.001&&Math.abs(point.y-entry.target.y)<.001),key=`${person.id}:${point.x}:${point.y}:${walking}:${arrived}`;if(lastPresenceStep!==key){lastPresenceStep=key;onPresenceStep({point:{x:point.x,y:point.y},person:{...person},walking,arrived});}}
   }
+  function withPresenceBatch(change){presenceBatchDepth++;try{return change();}finally{if(--presenceBatchDepth===0)syncNameLabels();}}
   function ensurePresenceFrame(){if(!presenceFrame&&active&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
-  function tickPresence(time){presenceFrame=0;if(destroyed||!active||document.hidden)return;presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)});onViewChange();ensurePresenceFrame();if(!presenceMotion.busy)ambient?.refresh();}
+  function tickPresence(time){presenceFrame=0;if(destroyed||!active||document.hidden)return;withPresenceBatch(()=>presenceMotion.tick(time,{isPaused:id=>deliveryQueue.locked(id)}));onViewChange();ensurePresenceFrame();if(!presenceMotion.busy)ambient?.refresh();}
   function presenceVisibility(){if(!active)return;if(document.hidden){clearGreeting();if(cameraOwner==='automatic')viewTween.finish();resetInput();presenceHiddenAt=performance.now();cancelAnimationFrame(presenceFrame);presenceFrame=0;}else{if(presenceHiddenAt!==null)presenceMotion.shiftTime(performance.now()-presenceHiddenAt);presenceHiddenAt=null;ensurePresenceFrame();}}
   document.addEventListener?.('visibilitychange',presenceVisibility);
   function syncLegacyHumanVisibility(){
@@ -313,11 +318,11 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);syncPresenceWorkplaces();const present=new Set(presenceMotion.entries.keys());
     for(const [id,el]of presenceElements)if(!present.has(id)){if(el===greetingElement)clearGreeting();el.remove();presenceElements.delete(id);humanElements.delete(id);humanPositions.delete(id);}
     syncLegacyHumanVisibility();
-    for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||el.style.display==='none'||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
+    withPresenceBatch(()=>{for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||el.style.display==='none'||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
       const p=entry.person;el.dataset.current=String(p.current);el.setAttribute('aria-label',`${p.name}${p.title?'，'+p.title:''}，${p.current?'你，':''}在线，查看个人与待办`);el.setAttribute('aria-pressed',String(selectedHuman===id));
       setPresencePoint(entry);
-    }
-    ensurePresenceFrame();syncNameLabels();ambient?.refresh();scheduleViewChange();
+    }});
+    ensurePresenceFrame();ambient?.refresh();scheduleViewChange();
   }
 
   const scheduleViewChange = (duration = 0) => {
@@ -627,7 +632,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     localFloor.style.display=id?'':'none';localFloor.setAttribute('aria-hidden',String(!id));
     const team=officeTeamDetail(id);localFloor.innerHTML=team?renderOfficeTeamFloor(team,{uid,plant}):'';
     if(team)for(const [seatId,el]of positionElements)if(ORGANIZATION_POSITION_META[seatId]?.teamId===id)localSeats.append(el);
-    syncLegacyHumanVisibility();for(const entry of presenceMotion.entries.values())setPresencePoint(entry);ambient?.resume();
+    syncLegacyHumanVisibility();withPresenceBatch(()=>{for(const entry of presenceMotion.entries.values())setPresencePoint(entry);});ambient?.resume();
   }
   function focusRegion(region){
     const team=officeTeamDetail(region.id);onNavigationContext(team?.id||region.id);setLocalTeam(team?.id||null);if(team){focusedDepartmentId='ai_data';focusedTeamId=team.id;region=team.detailBounds;}
@@ -636,10 +641,10 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   }
 
   function syncLevelOfDetail(){
-    const seats=officeSeatsForView({zoom:1,focusedDepartmentId,focusedTeamId:localTeamId||null}),visible=new Set(seats.map(seat=>seat.id));let redrawn=false;
+    const seats=officeSeatsForView({zoom:1,focusedDepartmentId:departmentScope||focusedDepartmentId,focusedTeamId:localTeamId||null}),visible=new Set(seats.map(seat=>seat.id));let redrawn=false;
     for(const [id,element]of positionElements){const show=visible.has(id);if(element.dataset.visible!==String(show)){element.dataset.visible=String(show);element.style.display=show?'':'none';element.setAttribute('aria-hidden',String(!show));element.setAttribute('tabindex',show?'0':'-1');if(!show){if(element===greetingElement)clearGreeting();element.innerHTML='';delete element.dataset.geometry;displayedPositions.delete(id);}}}
     for(const seat of seats){const element=positionElements.get(seat.id);if(!element)continue;displayedPositions.set(seat.id,seat);const occupant=organizationOccupant(seat),key=JSON.stringify([seat.x,seat.y,seat.scale,seat.desk,occupant?.name,occupant?.title]);if(element.dataset.geometry!==key){redrawn=true;if(element===greetingElement)clearGreeting();element.dataset.geometry=key;element.innerHTML=renderOrganizationPositionContents(seat,{use,seated});const room=OFFICE_ROOMS.find(room=>room.id===seat.departmentId);element.setAttribute('aria-label',`${room.title}，${occupant?.name||seat.label}`);}}
-    svg.dataset.visiblePosts=String(seats.length);svg.dataset.focusDepartment=focusedDepartmentId||'';svg.dataset.focusTeam=localTeamId||'';for(const entry of presenceMotion.entries.values())if(entry.person.posture==='seated'&&!entry.motion)setPresencePoint(entry);syncNameLabels();if(redrawn&&ambient?.active){ambient.pause();ambient.resume();}else ambient?.refresh();
+    svg.dataset.visiblePosts=String(seats.length);svg.dataset.focusDepartment=departmentScope||focusedDepartmentId||'';svg.dataset.focusTeam=localTeamId||'';withPresenceBatch(()=>{for(const entry of presenceMotion.entries.values())setPresencePoint(entry);});if(redrawn&&ambient?.active){ambient.pause();ambient.resume();}else ambient?.refresh();
   }
   const unsubscribeOccupants=subscribeOrganizationOccupants(()=>{if(!destroyed){syncLevelOfDetail();scheduleViewChange();}});
   function releaseDetailScope(nextScale){if(nextScale<OFFICE_DETAIL_ZOOM){focusedDepartmentId=null;focusedTeamId=null;}}

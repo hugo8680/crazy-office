@@ -20,6 +20,42 @@ function headBounds(group,seatId){
  return bounds;
 }
 
+test('department detail shows every canonical AI workplace and restores the compact representative overview without rebuilding',()=>{
+ const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets),overview=[...layout.visibleSeatIds].sort(),instances=layout.statistics.staticInstances,roots=layout.root.children.length,group=layout.root.getObjectByName('organization-department-ai_data');
+  assert.equal(ai.seats.filter(seat=>layout.isSeatVisible(seat.id)).length,21);assert.equal(group.visible,false);assert.equal(layout.setDepartmentDetail('ai_data'),true);
+  assert.equal(layout.departmentDetailId,'ai_data');assert.equal(layout.localTeamId,null);assert.equal(group.visible,true);assert.equal(ai.seats.filter(seat=>layout.isSeatVisible(seat.id)).length,206);
+  assert.equal(layout.visibleSeatIds.size,OFFICE_SEATS.length);assert.deepEqual([...owners(group)].sort(),ai.seats.map(seat=>seat.id).sort());
+  for(const seat of ai.seats){assert.equal(layout.seatGeometry(seat.id),seat);assert.ok(seat.desk.x>=ai.x&&seat.desk.x<=ai.x+ai.w);assert.ok(seat.y>=ai.y&&seat.y<=ai.y+ai.h);}
+  const hiddenBefore=ai.seats.find(seat=>!seat.overviewVisible);assert.ok(headBounds(group,hiddenBefore.id).getSize(new THREE.Vector3()).y>2);
+  assert.equal(layout.setDepartmentDetail('ai_data'),false);assert.equal(layout.root.children.length,roots);assert.equal(layout.statistics.staticInstances,instances);
+  assert.equal(layout.setDepartmentDetail('finance'),true);assert.equal(group.visible,false);assert.deepEqual([...layout.visibleSeatIds].sort(),overview);
+  layout.setDepartmentDetail('ai_data');layout.enterTeam(ai.teamZones[0].id);assert.equal(layout.departmentDetailId,null);assert.equal(layout.visibleSeatIds.size,41);layout.exitTeam();assert.deepEqual([...layout.visibleSeatIds].sort(),overview);
+ }finally{assets.dispose();}
+});
+
+test('full department poses and away seats affect the full roster once and never restore hidden representatives',()=>{
+ const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets),seat=ai.seats.find(seat=>!seat.overviewVisible&&seat.role==='staff'),group=layout.root.getObjectByName('organization-department-ai_data');
+  layout.setDepartmentDetail('ai_data');assert.equal(layout.setIdlePose(seat.id,'wave'),true);layout.tickIdlePoses(1000);assert.ok(layout.tickIdlePoses(1500)>0);layout.setAwaySeats([seat.id]);assert.equal(layout.hasIdlePoses,false);assert.equal(headBounds(group,seat.id).isEmpty(),true);layout.setAwaySeats([]);assert.equal(headBounds(group,seat.id).isEmpty(),false);
+  assert.equal(layout.setIdlePose(seat.id,'typing'),true);layout.setDepartmentDetail(null);assert.equal(layout.hasIdlePoses,false);assert.equal(layout.isSeatVisible(seat.id),false);
+ }finally{assets.dispose();}
+});
+
+test('AI inspection removes only the foreground public board and restores its exact static matrices afterward',()=>{
+ const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets),entries=layout.root.children.filter(mesh=>mesh.isInstancedMesh).map(mesh=>({mesh,before:Float32Array.from(mesh.instanceMatrix.array)}));
+  assert.equal(layout.isBulletinOccluded,false);layout.setDepartmentDetail('ai_data');assert.equal(layout.isBulletinOccluded,true);let changed=0;
+  for(const {mesh,before}of entries)for(let index=0;index<mesh.count;index++){
+   const actual=Array.from(mesh.instanceMatrix.array.slice(index*16,index*16+16)),original=Array.from(before.slice(index*16,index*16+16));
+   if(mesh.userData.facilityOwners?.[index]==='bulletin'){assert.deepEqual(actual,new THREE.Matrix4().makeScale(0,0,0).toArray());changed++;}
+   else assert.deepEqual(actual,original,'public benches, floor, landscape and other furniture retain their original transforms');
+  }
+  assert.equal(changed,11);layout.setDepartmentDetail('finance');assert.equal(layout.isBulletinOccluded,false);for(const {mesh,before}of entries)assert.deepEqual(mesh.instanceMatrix.array,before);
+  layout.setDepartmentDetail('ai_data');layout.setDepartmentDetail(null);assert.equal(layout.isBulletinOccluded,false);for(const {mesh,before}of entries)assert.deepEqual(mesh.instanceMatrix.array,before);
+ }finally{assets.dispose();}
+});
+
 test('AI team details build all forty staff and their head at normal scale without changing logical employees or campus bounds',()=>{
  const assets=createOffice3DAssets();try{
   const layout=createOffice3DLayout(assets);
@@ -97,7 +133,7 @@ test('local team idle poses and presence replacement never reveal another team o
 test('shared quiet team finishes leave every desk and colleague footprint intact and stay under the existing instance budget',async()=>{
  const {officeTeamInterior,OFFICE_TEAM_MATERIALS}=await import('../src/office-team-interior.mjs'),{renderOfficeTeamFloor}=await import('../src/scene-floor2d.mjs');
  const assets=createOffice3DAssets();try{
-  const layout=createOffice3DLayout(assets);assert.ok(layout.statistics.staticInstances<19000,`instance count ${layout.statistics.staticInstances}`);
+  const layout=createOffice3DLayout(assets);assert.ok(layout.statistics.staticInstances<31000,`instance count ${layout.statistics.staticInstances}`);
   for(const team of ai.teamZones){
    const original=team.seats.map(seat=>({x:seat.x,y:seat.y,detail:JSON.stringify(seat.detailGeometry)})),interior=officeTeamInterior(team),bounds=team.detailBounds;
    assert.equal(interior.islands.length,4);assert.equal(interior.plants.length,2);

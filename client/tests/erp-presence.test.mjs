@@ -10,10 +10,32 @@ import {HUMAN_EMPLOYEES} from '../src/people.js';
 const person=(id,nodeId='workstations',extra={})=>({id,name:'员工'+id,title:'项目专员',nodeId,online:true,...extra});
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 
-test('在线人物只展示已登录身份，离线/重复项剔除，最多20人并保留本人',()=>{
+test('在线人物保留完整有效名单，离线和重复项剔除，本人排序优先',()=>{
  const people=Array.from({length:30},(_,i)=>person('user-'+i));people.push(person('offline','meeting',{online:false}),person('user-1','finance'));
- const state=normalizeOfficePresence({enabled:true,people,currentUserId:'user-29'});assert.equal(state.people.length,MAX_OFFICE_PEOPLE);assert.equal(state.people[0].id,'user-29');assert.equal(state.people[0].current,true);assert.equal(state.people.some(p=>p.id==='offline'),false);assert.equal(new Set(state.people.map(p=>p.id)).size,20);
+ const state=normalizeOfficePresence({enabled:true,people,currentUserId:'user-29'});assert.equal(state.people.length,30);assert.equal(state.people[0].id,'user-29');assert.equal(state.people[0].current,true);assert.equal(state.people.some(p=>p.id==='offline'),false);assert.equal(new Set(state.people.map(p=>p.id)).size,30);
  assert.notEqual(state.people[0].title,'老板');assert.equal(normalizeOfficePresence({people}).enabled,false);assert.equal(normalizeOfficePresence({enabled:true,people:[person('valid','bad-node')]}).people[0].nodeId,'hr_admin');
+});
+
+test('公司249个真实身份均保留，超出绘制保护范围时也不会挤掉当前员工',()=>{
+ const primary=OFFICE_SEATS.filter(seat=>seat.primarySeat),people=primary.map(seat=>person(seat.personId,seat.departmentId,{x:seat.x,y:seat.y,appearanceKey:seat.id}));assert.equal(primary.length,249);
+ const state=normalizeOfficePresence({enabled:true,currentUserId:people.at(-1).id,people:[null,{},person('offline','finance',{online:false}),...people,people[0]]});
+ assert.equal(state.people.length,249);assert.equal(new Set(state.people.map(item=>item.id)).size,249);assert.equal(state.people[0].id,people.at(-1).id);
+ assert.deepEqual(state.people.map(item=>item.id).sort(),people.map(item=>item.id).sort());assert.ok(state.people.every(item=>item.point&&Number.isFinite(item.point.x)&&Number.isFinite(item.point.y)));
+ const overflow=Array.from({length:MAX_OFFICE_PEOPLE+17},(_,index)=>person('overflow-'+index)),last=overflow.at(-1).id;
+ const bounded=normalizeOfficePresence({enabled:true,currentUserId:last,people:overflow});assert.equal(bounded.people.length,MAX_OFFICE_PEOPLE);assert.equal(bounded.people[0].id,last);assert.equal(bounded.people[0].current,true);assert.equal(new Set(bounded.people.map(item=>item.id)).size,MAX_OFFICE_PEOPLE);
+});
+
+test('249个在线身份的中途位置、心跳与隐私清理不受人数采样影响',()=>{
+ let time=0;const changes=[],motion=createOfficePresenceMotion({now:()=>time,onChange:entry=>changes.push(entry.person.id)}),primary=OFFICE_SEATS.filter(seat=>seat.primarySeat);
+ const people=primary.map((seat,index)=>person(seat.personId,'research',{x:500+index*.2,y:1058,revision:1})),currentUserId=people.at(-1).id;
+ try{
+  motion.set({enabled:true,currentUserId,people});assert.equal(motion.entries.size,249);assert.equal(Object.keys(motion.snapshot().positions).length,249);assert.equal(motion.busy,false);
+  const destinations=people.map(item=>({...item,x:item.x+2,revision:2}));motion.set({enabled:true,currentUserId,people:destinations});assert.equal(motion.busy,true);
+  time=400;motion.tick(time);assert.equal(new Set(changes).size,249);const moving=motion.snapshot().positions,last=motion.entries.get(currentUserId),started=last.motion.started;
+  motion.set({enabled:true,currentUserId,people:destinations});assert.equal(last.motion.started,started);assert.deepEqual(motion.snapshot().positions,moving);
+  time=20000;motion.tick(time);assert.equal(motion.busy,false);assert.equal(motion.entries.size,249);for(const target of destinations)assert.deepEqual(motion.entries.get(target.id).point,{x:target.x,y:target.y});
+  motion.set({enabled:false,currentUserId:null,people:destinations});assert.equal(motion.entries.size,0);assert.deepEqual(motion.snapshot(),{positions:{}});
+ }finally{motion.destroy();}assert.equal(motion.entries.size,0);
 });
 
 test('所有在线员工目的地都在现有办公室通道中，拥挤时仍不穿越墙体',()=>{

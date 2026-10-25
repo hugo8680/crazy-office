@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createFloorRouter,createFreeFloorRouter,floorSegmentClear} from '../src/floor-routing.mjs';
-import {OFFICE_ROOMS,departmentWorkPoint,OFFICE_WALKING_SEGMENTS,OFFICE_FITTINGS,OFFICE_LANDSCAPE} from '../src/organization.mjs';
-import {routeBetweenPoints,routeLength} from '../src/scene-motion.js';
+import {OFFICE_ROOMS,departmentWorkPoint,OFFICE_WALKING_SEGMENTS,OFFICE_FITTINGS,OFFICE_LANDSCAPE,OFFICE_RECREATION_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_DATA_CENTER} from '../src/organization.mjs';
+import {routeBetweenPoints,routeLength,resolveFloorDestination,walkingDuration,walkingSample} from '../src/scene-motion.js';
 
 test('compiled routing keeps intermediate projections and takes the shortest connected lane',()=>{
  const router=createFloorRouter([[[0,0],[100,0]],[[0,0],[0,100]],[[100,0],[100,100]],[[0,100],[100,100]]]);
@@ -44,4 +44,42 @@ test('same-room walks across desk rows stay in the room and avoid every padded f
  for(const room of OFFICE_ROOMS){const obstacles=boxesFor(room),inside=p=>p.x>room.x&&p.x<room.x+room.w&&p.y>room.y&&p.y<room.y+room.h;const samples=[{x:room.x+8,y:room.y+12},{x:room.x+room.w-8,y:room.y+12},{x:room.x+8,y:room.y+room.h-12},{x:room.x+room.w-8,y:room.y+room.h-12},departmentWorkPoint(room.id)].filter(p=>floorSegmentClear(p,p,obstacles));
   for(const start of samples)for(const end of samples){const path=routeBetweenPoints(start,end);assert.deepEqual(path.at(-1),end,room.id+' endpoint');assert.ok(path.every(inside),room.id+' local walk must not exit');for(let i=1;i<path.length;i++)assert.ok(floorSegmentClear(path[i-1],path[i],obstacles),room.id+' collision');}
  }
+});
+
+test('furniture clicks resolve to nearby reachable floor in the same department without moving a clear target',()=>{
+ for(const room of OFFICE_ROOMS){
+  const start=departmentWorkPoint(room.id),clearTarget={x:room.x+8,y:room.y+room.h-12};
+  if(floorSegmentClear(clearTarget,clearTarget,boxesFor(room)))assert.deepEqual(resolveFloorDestination(start,clearTarget),clearTarget,room.id+' clear ground stays exact');
+  for(const furniture of OFFICE_FITTINGS.filter(item=>item.roomId===room.id&&['sofa','cabinet'].includes(item.kind))){
+   const target={x:furniture.x,y:furniture.y},resolved=resolveFloorDestination(start,target);assert.ok(resolved,room.id+' '+furniture.id);assert.notDeepEqual(resolved,target);
+   assert.ok(Math.hypot(resolved.x-target.x,resolved.y-target.y)<=64);assert.ok(resolved.x>room.x&&resolved.x<room.x+room.w&&resolved.y>room.y&&resolved.y<room.y+room.h,'a furniture click cannot select a floor across the wall');
+   const path=routeBetweenPoints(start,resolved);assert.deepEqual(path.at(-1),resolved);for(let i=1;i<path.length;i++)assert.ok(floorSegmentClear(path[i-1],path[i],boxesFor(room)));
+  }
+ }
+});
+
+test('shared amenity and data-center objects resolve outside their occupied footprint without entering another department',()=>{
+ const start=departmentWorkPoint('research');
+ for(const item of[OFFICE_RECREATION_AREA.poolTable,OFFICE_CONVENIENCE_AREA.counter,OFFICE_DATA_CENTER.racks[0]]){
+  const target={x:item.x,y:item.y},resolved=resolveFloorDestination(start,target),box={x:item.x-item.w/2-1.5,y:item.y-item.h/2-1.5,w:item.w+3,h:item.h+3};
+  assert.ok(resolved);assert.ok(floorSegmentClear(resolved,resolved,[box]));assert.deepEqual(routeBetweenPoints(start,resolved).at(-1),resolved);assert.ok(Math.hypot(resolved.x-target.x,resolved.y-target.y)<=64);
+  assert.ok(!OFFICE_ROOMS.some(room=>resolved.x>room.x&&resolved.x<room.x+room.w&&resolved.y>room.y&&resolved.y<room.y+room.h));
+ }
+});
+
+test('unreachable or distant replacement destinations fail instead of inventing an arrival',()=>{
+ const sofa=OFFICE_FITTINGS.find(item=>item.id==='legal_sofa_1'),inside={x:sofa.x,y:sofa.y},start=departmentWorkPoint('legal');
+ assert.equal(resolveFloorDestination(start,inside,{maxDistance:5}),null,'a click cannot jump beyond the requested local correction budget');
+ assert.deepEqual(resolveFloorDestination(inside,start),start,'an old position inside a sofa can leave by the restricted recovery leg');
+ assert.equal(resolveFloorDestination(start,{x:NaN,y:200}),null);
+});
+
+test('a legacy position inside a sofa walks out through one short clear edge before normal collision-aware travel',()=>{
+ const sofa=OFFICE_FITTINGS.find(item=>item.id==='legal_sofa_1'),room=OFFICE_ROOMS.find(room=>room.id==='legal'),start={x:sofa.x,y:sofa.y},end={x:782.5,y:210},path=routeBetweenPoints(start,end),obstacles=boxesFor(room);
+ assert.deepEqual(path[0],start);assert.deepEqual(path.at(-1),end);assert.ok(path.length>2);assert.ok(Math.hypot(path[1].x-start.x,path[1].y-start.y)<=64);assert.ok(floorSegmentClear(path[1],path[1],obstacles));
+ const others=obstacles.filter(box=>floorSegmentClear(start,start,[box]));assert.ok(floorSegmentClear(path[0],path[1],others),'the recovery leg cannot cross a second object');
+ for(let i=2;i<path.length;i++)assert.ok(floorSegmentClear(path[i-1],path[i],obstacles),'all segments after leaving the old footprint use normal obstacle rules');
+ const duration=walkingDuration(path),first=walkingSample(path,duration*.05,duration);assert.equal(first.arrived,false);assert.ok(first.y<start.y&&first.y>path[1].y,'the first frames walk out gradually rather than jumping to the edge');
+ const last=walkingSample(path,duration,duration);assert.equal(last.arrived,true);assert.deepEqual({x:last.x,y:last.y},end);
+ assert.deepEqual(resolveFloorDestination(start,end),end,'navigation preflight and rendered walking share the repaired route');
 });

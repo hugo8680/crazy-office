@@ -2,7 +2,10 @@ import {employeeAppearance,employeeAppearanceKey} from './employee-appearance.mj
 import {OFFICE_ROOMS,OFFICE_WORLD,OFFICE_BULLETIN_AREA,OFFICE_SEATS,OFFICE_RECREATION_AREA,OFFICE_CONVENIENCE_AREA,OFFICE_DATA_CENTER,canonicalDepartmentId} from './organization.mjs';
 import {routeBetweenPoints,walkingDuration,walkingSample} from './scene-motion.js';
 
-export const MAX_OFFICE_PEOPLE=20;
+// Presence is a live employee directory, not an overview sample. Retain the
+// complete company roster with bounded headroom for new accounts; renderers
+// manage visibility and animation budgets independently of identity retention.
+export const MAX_OFFICE_PEOPLE=512;
 export const PRESENCE_NODE_IDS=Object.freeze([...OFFICE_ROOMS.map(room=>room.id),'bulletin']);
 const nodes=new Set(PRESENCE_NODE_IDS);
 const presenceArea=value=>['bulletin','courtyard','shared_lounge','recreation','convenience','data_center'].includes(value)?(value==='shared_lounge'?'courtyard':value):canonicalDepartmentId(value);

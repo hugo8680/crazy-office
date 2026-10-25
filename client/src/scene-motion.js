@@ -24,7 +24,7 @@ const dataCenterRouter=createFloorRouter(OFFICE_DATA_CENTER_WALKING_SEGMENTS.sli
 const dataCenterEntry={x:OFFICE_DATA_CENTER.door.x,y:OFFICE_DATA_CENTER.door.y+10};
 const inDataCenter=p=>p.x>=OFFICE_DATA_CENTER.x&&p.x<=OFFICE_DATA_CENTER.x+OFFICE_DATA_CENTER.w&&p.y>=OFFICE_DATA_CENTER.y&&p.y<=OFFICE_DATA_CENTER.y+OFFICE_DATA_CENTER.h;
 const compact=route=>route.filter((p,index)=>!index||!same(p,route[index-1]));
-export function routeBetweenPoints(start,end){
+function routeBetweenClearPoints(start,end){
  start=point(start);end=point(end);if(same(start,end))return[start];
  const fromAnnex=inDataCenter(start),toAnnex=inDataCenter(end);if(fromAnnex&&toAnnex)return dataCenterRouter.route(start,end);
  const fromRoom=!fromAnnex&&roomAt(start),toRoom=!toAnnex&&roomAt(end);
@@ -37,6 +37,58 @@ export function routeBetweenPoints(start,end){
  if(approach.length&&!same(approach.at(-1),from)||departure.length&&!same(departure.at(-1),end))return[start];
  const middle=officeRouter.route(from,to);if(!same(middle.at(-1),to))return[start];
  return compact([...approach,...middle,...departure]);
+}
+
+function floorContext(at){
+ const annex=inDataCenter(at),room=!annex&&OFFICE_ROOMS.find(room=>at.x>=room.x&&at.x<=room.x+room.w&&at.y>=room.y&&at.y<=room.y+room.h);
+ const bounds=annex?OFFICE_DATA_CENTER:room||{x:20,y:20,w:1350,h:1060};
+ const obstacles=annex?[...OFFICE_DATA_CENTER.racks,OFFICE_DATA_CENTER.serviceConsole,OFFICE_DATA_CENTER.cooling,OFFICE_DATA_CENTER.ups].map(item=>rectangle(item)):room?roomObstacles.get(room.id):outsideObstacles;
+ const sameZone=p=>annex?inDataCenter(p):room?roomAt(p)?.id===room.id:!inDataCenter(p)&&!roomAt(p);
+ const clear=p=>p.x>=bounds.x+3&&p.x<=bounds.x+bounds.w-3&&p.y>=bounds.y+3&&p.y<=bounds.y+bounds.h-3&&sameZone(p)&&floorSegmentClear(p,p,obstacles);
+ return{bounds,obstacles,clear};
+}
+const clampFloor=(value,min,max)=>Math.max(min,Math.min(max,value));
+function footprintEdges(at,box){
+ const left=box.x-2,right=box.x+box.w+2,top=box.y-2,bottom=box.y+box.h+2;
+ return[{x:clampFloor(at.x,left,right),y:top},{x:clampFloor(at.x,left,right),y:bottom},{x:left,y:clampFloor(at.y,top,bottom)},{x:right,y:clampFloor(at.y,top,bottom)},{x:left,y:top},{x:right,y:top},{x:left,y:bottom},{x:right,y:bottom}];
+}
+
+export function routeBetweenPoints(start,end){
+ start=point(start);end=point(end);if(same(start,end))return[start];
+ const {obstacles,clear}=floorContext(start),occupied=obstacles.filter(box=>!floorSegmentClear(start,start,[box]));
+ if(!occupied.length)return routeBetweenClearPoints(start,end);
+ // Older clients could save a point inside a sofa. The first small segment
+ // may leave only the footprints already containing the person. It still
+ // cannot cross a wall or another object, and the remainder uses normal
+ // collision rules. This is an actual walk out, not a teleport on refresh.
+ const others=obstacles.filter(box=>!occupied.includes(box)),seen=new Set(),exits=[];
+ for(const box of occupied)for(const p of footprintEdges(start,box)){
+  const key=p.x+':'+p.y;if(seen.has(key)||distance(start,p)>64||!clear(p)||!floorSegmentClear(start,p,others))continue;
+  seen.add(key);exits.push(p);
+ }
+ exits.sort((a,b)=>distance(start,a)-distance(start,b)||distance(end,a)-distance(end,b));
+ for(const exit of exits){const remainder=routeBetweenClearPoints(exit,end);if(same(remainder.at(-1),end))return compact([start,...remainder]);}
+ return[start];
+}
+
+// A visible tabletop or sofa can project onto occupied floor in the 3D view.
+// Reserve only a position that the shared walker can actually reach. Snapping
+// stays close to that object and in the requested room, never across a wall.
+export function resolveFloorDestination(start,requested,{maxDistance=64}={}){
+ if(!start||!requested||![start.x,start.y,requested.x,requested.y].every(Number.isFinite))return null;
+ start=point(start);requested=point(requested);
+ const {bounds,obstacles,clear}=floorContext(requested);
+ const reachable=p=>{const path=routeBetweenPoints(start,p);return same(path.at(-1),p);};
+ if(clear(requested))return reachable(requested)?requested:null;
+ const radius=Number.isFinite(maxDistance)?Math.max(0,Math.min(64,maxDistance)):64,candidates=[],seen=new Set();
+ const add=p=>{const key=p.x+':'+p.y;if(!seen.has(key)&&distance(requested,p)<=radius&&clear(p)){seen.add(key);candidates.push(p);}};
+ add({x:clampFloor(requested.x,bounds.x+3,bounds.x+bounds.w-3),y:clampFloor(requested.y,bounds.y+3,bounds.y+bounds.h-3)});
+ for(const box of obstacles){
+  if(floorSegmentClear(requested,requested,[box]))continue;
+  for(const p of footprintEdges(requested,box))add(p);
+ }
+ candidates.sort((a,b)=>distance(requested,a)-distance(requested,b)||distance(start,a)-distance(start,b));
+ return candidates.find(reachable)||null;
 }
 
 export function routeLength(route) { return route.slice(1).reduce((sum,p,i)=>sum+distance(route[i],p),0); }
