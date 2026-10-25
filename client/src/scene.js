@@ -4,7 +4,7 @@ import { HUMAN_EMPLOYEES } from './people.js';
 import { routeBetweenPoints, routeLength, pointAlongRoute, createDeliveryQueue, deliveryParticipants, deliveryKey, motionUpdatePolicy, walkingDuration, walkingSample, handoffTiming, createViewTween } from './scene-motion.js';
 import {createOfficePresenceMotion} from './erp-presence.js';
 import {officeArea} from './office-navigation.mjs';
-import {clampOfficeScale,officeWheelScale,officePinchScale,officeCameraChanged,OFFICE_DEPARTMENT_CAMERA_POLICY} from './office-camera.mjs';
+import {clampOfficeScale,officeWheelScale,officePinchScale,officeCameraChanged,createOfficeWheelInput,officeScreenDirection,OFFICE_DEPARTMENT_CAMERA_POLICY} from './office-camera.mjs';
 import {greetingForPerson} from './person-greeting.mjs';
 import {mountOfficeAmbient} from './office-ambient.mjs';
 import {employeeAppearance,employeeAppearanceKey,employeeAppearanceStyle} from './employee-appearance.mjs';
@@ -23,7 +23,7 @@ const NETWORK_IDS=new Set(['internet','firewall','core','server','storage','ups'
 let sceneCounter = 0;
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-export function mountScene(container, { onSelectNode = () => {}, onEnterArea = () => {}, onNavigationContext = () => {}, onPresenceStep = () => {}, onCameraIntent = () => {}, onDepartmentHover = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
+export function mountScene(container, { onSelectNode = () => {}, onEnterArea = () => {}, onNavigationContext = () => {}, onPresenceStep = () => {}, onCameraIntent = () => {}, onDepartmentHover = () => {}, onSelectBulletin = () => {}, onHoverBulletin = () => {}, onLeaveBulletin = () => {}, onSelectAgent = () => {}, onSelectHuman = () => {}, onSelectSeat = () => {}, onSelectPostEmployee = () => {}, onMovePoint = () => {}, onDelivery = () => {}, onViewChange = () => {} } = {}) {
   const uid = `cnl-office-${++sceneCounter}`;
   const symbolBounds = { plant:[-20,-44,40,53], person:[-25,-25,50,71], seated:[-26,-59,52,63], desk:[-3,-3,114,65], server:[-3,-5,58,110], switch:[-40,-14,80,35], cup:[-6,-8,16,19], sofa:[-4,-4,99,50], chair:[-14,-12,28,35],empty_seat:[-26,-59,52,63] };
   const use = (name, x, y, scale = 1, extra = '') => {
@@ -131,7 +131,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     <g class="cnl-local-floor" style="display:none"></g><g class="cnl-local-seats"></g>
     <g class="cnl-links">${linkMarkup}</g>
     <g class="cnl-node-layer">${hotspots}</g>
-    <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g><g class="cnl-presence-layer"></g>
+    <g class="cnl-handoff-layer"></g><g class="cnl-human-layer"></g><g class="cnl-navigation-target" pointer-events="none" aria-hidden="true" style="display:none"><circle r="9" fill="#fffdf4" fill-opacity=".7" stroke="#3d816d" stroke-width="1.5"/><circle r="3" fill="#3d816d"/></g><g class="cnl-presence-layer"></g>
     <g class="cnl-human-approval" transform="translate(${HUMAN_EMPLOYEES[0].x} ${HUMAN_EMPLOYEES[0].y-21})" tabindex="0" role="button" aria-label="你，需要审批" aria-hidden="true"><circle class="cnl-human-halo" r="34"/><circle class="cnl-human-ring" r="27"/><g transform="translate(-51 -72)"><rect width="102" height="31" rx="9"/><text x="51" y="13" text-anchor="middle">需要你审批</text><text class="cnl-human-sub" data-approval-human-name="" x="51" y="24" text-anchor="middle">你</text></g></g><g class="cnl-agent-layer"></g><g class="cnl-name-layer" aria-hidden="true" pointer-events="none"></g><g class="cnl-greeting-layer" aria-hidden="true" style="display:none"></g>
   </g>
   </svg>`;
@@ -164,8 +164,9 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   const humanPositions = new Map(HUMAN_EMPLOYEES.map(h => [h.id,{x:h.x,y:h.y}]));
   const presenceLayer=svg.querySelector('.cnl-presence-layer');
   const greetingLayer=svg.querySelector('.cnl-greeting-layer');
-  const nameLayer=svg.querySelector('.cnl-name-layer'),nameElements=new Map();let nameScale='';
-  const presenceElements=new Map();let presenceState={enabled:false,people:[]},presenceFrame=0,presenceHiddenAt=null,lastPresenceStep=null,presenceBatchDepth=0;
+  const nameLayer=svg.querySelector('.cnl-name-layer'),nameElements=new Map();nameLayer.setAttribute('aria-hidden','false');let nameScale='';
+  const presenceElements=new Map(),localPresencePoints=new Map();let presenceState={enabled:false,people:[]},presenceFrame=0,presenceHiddenAt=null,lastPresenceStep=null,presenceBatchDepth=0,lastPresenceValue={};
+  const navigationMarker=svg.querySelector('.cnl-navigation-target');let navigationTarget=null;
   const compactRoomScales=new Map(OFFICE_ROOMS.filter(room=>room.seats.some(post=>!post.overviewVisible)).map(room=>[room.id,Math.min(...room.seats.map(post=>post.scale))]));
   const agentElements = new Map();
   const agentPositions = new Map();
@@ -194,14 +195,14 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   let viewFrame = 0;
   let motionUntil = 0;
   let destroyed = false,active=true,inactiveAt=null,ambient=null;
-  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null,lastViewBox=INITIAL_VIEW_BOX,localTransitionFrame=0;
+  let cameraMotionFrame=0,hoveredObject=null,wheelAnchor=null,lastViewBox=INITIAL_VIEW_BOX,localTransitionFrame=0,lastManualCameraAt=-Infinity,pendingPresenceFocus=null;
   let greetingElement=null,greetingAnimation=null,departmentHint=null,hintScaleBase=1,hintBounds={half:64,top:-88,bottom:-37};
   const feedbackAnimations=new WeakMap();
   const viewTween=createViewTween({read:()=>({scale,panX,panY}),write:value=>{({scale,panX,panY}=value);if(wheelAnchor){panX=wheelAnchor.world.x-WORLD_CX-wheelAnchor.offsetX/scale;panY=wheelAnchor.world.y-WORLD_CY-wheelAnchor.offsetY/scale;}applyView();}});
-  function beginManualCamera(kind){onCameraIntent('manual');if(cameraOwner!==kind)stopCamera();cameraOwner=kind;focusedDepartmentId=null;focusedTeamId=null;}
+  function beginManualCamera(kind){pendingPresenceFocus=null;lastManualCameraAt=performance.now();onCameraIntent('manual');if(cameraOwner!==kind)stopCamera();cameraOwner=kind;focusedDepartmentId=null;focusedTeamId=null;}
   function animateView(patch,anchor=null,{manual=false}={}){onLeaveBulletin();if(!manual)cameraOwner='automatic';if(!officeCameraChanged(viewTween.target,{...viewTween.target,...patch}))return viewTween.target;wheelAnchor=anchor?{...anchor,offsetX:(anchor.world.x-WORLD_CX-panX)*scale,offsetY:(anchor.world.y-WORLD_CY-panY)*scale}:null;const next=viewTween.start({...viewTween.target,...patch},{immediate:reducedMotion||!active,duration:manual?160:520,easing:manual?'out':'smooth'});if(active&&viewTween.active&&!cameraMotionFrame)cameraMotionFrame=requestAnimationFrame(tickCamera);if(!viewTween.active)wheelAnchor=null;return next;}
-  function tickCamera(time){cameraMotionFrame=0;if(destroyed||!active||document.hidden)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else wheelAnchor=null;}
-  function stopCamera(){wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
+  function tickCamera(time){cameraMotionFrame=0;if(destroyed||!active||document.hidden)return;viewTween.tick(time);if(viewTween.active)cameraMotionFrame=requestAnimationFrame(tickCamera);else {wheelAnchor=null;if(pendingPresenceFocus){const id=pendingPresenceFocus;pendingPresenceFocus=null;ensurePresenceVisible(id,{immediate:true});}}}
+  function stopCamera(){pendingPresenceFocus=null;wheelAnchor=null;viewTween.cancel();cancelAnimationFrame(cameraMotionFrame);cameraMotionFrame=0;}
   function objectFeedback(element,press=false){if(!element?.animate||reducedMotion||destroyed)return;feedbackAnimations.get(element)?.cancel();feedbackAnimations.set(element,element.animate([{translate:'0 0',filter:'brightness(1)'},{translate:press?'0 1px':'0 -2px',filter:'brightness(1.08)'},{translate:'0 0',filter:'brightness(1)'}],{duration:press?250:320,easing:'cubic-bezier(.2,.7,.2,1)'}));}
   function stopGreetingWave(){greetingAnimation?.cancel();greetingAnimation=null;}
   function clearGreeting(){
@@ -275,24 +276,24 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
       greetingAnimation=arm.animate(element.dataset.position?[{transform:'rotate(0deg)',offset:0},{transform:'rotate(-14deg)',offset:.2},{transform:'rotate(12deg)',offset:.4},{transform:'rotate(-12deg)',offset:.6},{transform:'rotate(10deg)',offset:.8},{transform:'rotate(0deg)',offset:1}]:[{transform:'rotate(0deg)',offset:0},{transform:'rotate(-130deg)',offset:.27},{transform:'rotate(-108deg)',offset:.4},{transform:'rotate(-143deg)',offset:.53},{transform:'rotate(-110deg)',offset:.66},{transform:'rotate(-134deg)',offset:.78},{transform:'rotate(0deg)',offset:1}],{duration:920,easing:'ease-in-out',iterations:1});
     }
   }
-  for(const [id,element]of positionElements){const select=event=>{event.stopPropagation();if(destroyed||element.dataset.visible==='false'||performance.now()<suppressClickUntil)return;cancelFloorClick();for(const [otherId,other]of positionElements){other.dataset.selected=String(otherId===id);other.setAttribute('aria-pressed',String(otherId===id));}const seat=displayedPositions.get(id)||ORGANIZATION_POSITION_META[id],personHit=event.target?.closest?.('.cnl-position-person');if(!personHit){const canonical=ORGANIZATION_POSITION_META[id];onSelectSeat(id,{x:canonical.x,y:canonical.y,nodeId:canonical.departmentId});};showGreeting(element);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
+  for(const [id,element]of positionElements){const select=event=>{event.stopPropagation();if(destroyed||element.dataset.visible==='false'||performance.now()<suppressClickUntil)return;cancelFloorClick();for(const [otherId,other]of positionElements){other.dataset.selected=String(otherId===id);other.setAttribute('aria-pressed',String(otherId===id));}const personHit=event.target?.closest?.('.cnl-position-person');if(personHit||event.key){onSelectPostEmployee(id);}else{const canonical=ORGANIZATION_POSITION_META[id];onSelectSeat(id,{x:canonical.x,y:canonical.y,nodeId:canonical.departmentId});}showGreeting(element);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select(event);}});}
   const presenceMotion=createOfficePresenceMotion({reducedMotion,onChange:entry=>setPresencePoint(entry)});
   function renderPresencePerson(element,person,{sitting=false,size=.66,atSeat=false}={}){
-    const signature=JSON.stringify([person.name,person.title,person.current,person.color,person.hair,person.posture,person.seatId,sitting,size,atSeat]);if(element.dataset.signature===signature)return;
+    const signature=JSON.stringify([person.name,person.title,person.current,person.color,person.hair,person.posture,person.seatId,person.outfitId,person.appearanceKey,sitting,size,atSeat]);if(element.dataset.signature===signature)return;
     if(element===greetingElement)stopGreetingWave();element.dataset.signature=signature;element.classList.toggle('is-seated',sitting);
     const ratio=size/.66;
     element.innerHTML=`<title>${esc(person.name)}${person.title?' · '+esc(person.title):''} · 在线员工</title><rect x="${-15*ratio}" y="${-40*ratio}" width="${30*ratio}" height="${54*ratio}" fill="transparent"/><g class="cnl-presence-body">${avatar(person.color,person.hair,{sitting,scale:size,standingOffset:-22*ratio,back:false,chair:!atSeat,resting:sitting&&!atSeat,appearance:employeeAppearance({id:person.appearanceKey||person.id,outfitId:person.outfitId})})}<g transform="scale(${ratio})">${ambientProps}${sitting?'':'<path d="M-2-18L0-12L2-18" fill="none" stroke="#f0e4d0" stroke-width=".8"/><rect x="-2" y="-12" width="4" height="5" rx=".7" fill="#f7f0df" stroke="#8b7966" stroke-width=".5"/>'}</g></g><text class="cnl-presence-name" y="13" text-anchor="middle">${esc(person.name.slice(0,9))}${person.name.length>9?'…':''}${person.current?' · 你':''}</text>`;
   }
-  function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample,person}=entry,seat=person.seatId&&(displayedPositions.get(person.seatId)||ORGANIZATION_POSITION_META[person.seatId]),sitting=person.posture==='seated'&&!entry.motion;
+  function setPresencePoint(entry){const el=presenceElements.get(entry.person.id);if(!el)return;const {point,sample,person}=entry,walking=!!entry.motion||localPresencePoints.get(person.id)?.moving===true,seat=person.seatId&&(displayedPositions.get(person.seatId)||ORGANIZATION_POSITION_META[person.seatId]),sitting=person.posture==='seated'&&!walking;
     const canonicalSeat=ORGANIZATION_POSITION_META[person.seatId||person.appearanceKey],sampledOut=sitting&&!person.current&&!localTeamId&&canonicalSeat&&!canonicalSeat.overviewVisible&&departmentScope!==canonicalSeat.departmentId;
     const visible=!sampledOut&&(!localTeamId||(sitting&&seat?seat.teamId===localTeamId:officePointInTeam(point,localTeamId)));el.style.display=visible?'':'none';el.setAttribute('aria-hidden',String(!visible));el.setAttribute('tabindex',visible?'0':'-1');
     const displayPoint=sitting&&seat?{x:seat.x,y:seat.y}:officeDisplayPoint(point,localTeamId),denseRoom=OFFICE_ROOMS.find(room=>compactRoomScales.has(room.id)&&room.teamZones.some(team=>point.x>=team.x&&point.x<=team.x+team.w&&point.y>=team.y&&point.y<=team.y+team.h));
     renderPresencePerson(el,person,{sitting,atSeat:!!(sitting&&seat),size:sitting&&seat?seat.scale*.6:localTeamId?.432:denseRoom?compactRoomScales.get(denseRoom.id)*.6:.66});
-    el.setAttribute('transform',`translate(${displayPoint.x} ${displayPoint.y})`);humanPositions.set(person.id,{...displayPoint});el.dataset.walking=String(!!entry.motion);el.dataset.x=displayPoint.x.toFixed(2);el.dataset.y=displayPoint.y.toFixed(2);
+    el.setAttribute('transform',`translate(${displayPoint.x} ${displayPoint.y})`);humanPositions.set(person.id,{...displayPoint});el.dataset.walking=String(walking);el.dataset.x=displayPoint.x.toFixed(2);el.dataset.y=displayPoint.y.toFixed(2);
     if(el===greetingElement){if(entry.motion||deliveryQueue.locked(person.id))stopGreetingWave();syncGreetingPoint();}if(!presenceBatchDepth)syncNameLabels();
     const body=el.querySelector('.cnl-presence-body');if(body)body.style.transform=`translateY(${sample?.bob||0}px) rotate(${sample?.lean||0}deg)`;
     for(const [selector,sign]of[['.cnl-person-leg-left',1],['.cnl-person-leg-right',-1],['.cnl-person-arm-left',-.65],['.cnl-person-arm-right',.65]]){const limb=el.querySelector(selector);if(limb)limb.style.transform=`rotate(${(sample?.stride||0)*sign}deg)`;}
-    if(person.current&&active&&!destroyed&&!document.hidden){const walking=!!entry.motion,arrived=sample?.arrived===true||!!(reducedMotion&&!entry.motion&&entry.target&&Math.abs(point.x-entry.target.x)<.001&&Math.abs(point.y-entry.target.y)<.001),key=`${person.id}:${point.x}:${point.y}:${walking}:${arrived}`;if(lastPresenceStep!==key){lastPresenceStep=key;onPresenceStep({point:{x:point.x,y:point.y},person:{...person},walking,arrived});}}
+    if(person.current&&active&&!destroyed&&!document.hidden){const arrived=!localPresencePoints.has(person.id)&&(sample?.arrived===true||!!(reducedMotion&&!entry.motion&&entry.target&&Math.abs(point.x-entry.target.x)<.001&&Math.abs(point.y-entry.target.y)<.001)),key=`${person.id}:${point.x}:${point.y}:${walking}:${arrived}`;if(lastPresenceStep!==key){lastPresenceStep=key;onPresenceStep({point:{x:point.x,y:point.y},person:{...person},walking,arrived});}}
   }
   function withPresenceBatch(change){presenceBatchDepth++;try{return change();}finally{if(--presenceBatchDepth===0)syncNameLabels();}}
   function ensurePresenceFrame(){if(!presenceFrame&&active&&!destroyed&&!document.hidden&&presenceMotion.busy)presenceFrame=requestAnimationFrame(tickPresence);}
@@ -315,7 +316,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
       if(hidden&&element===greetingElement)clearGreeting();
     }
   }
-  function setPresence(value={}){if(destroyed)return;presenceState=presenceMotion.set(value);syncPresenceWorkplaces();const present=new Set(presenceMotion.entries.keys());
+  function setPresence(value={}){if(destroyed)return;lastPresenceValue=value;if(!value.enabled)localPresencePoints.clear();presenceState=presenceMotion.set({...value,people:(value.people||[]).map(person=>{const point=localPresencePoints.get(person.id);return point?{...person,x:point.x,y:point.y,posture:'standing',seatId:''}:person;})});syncPresenceWorkplaces();const present=new Set(presenceMotion.entries.keys());
     for(const [id,el]of presenceElements)if(!present.has(id)){if(el===greetingElement)clearGreeting();el.remove();presenceElements.delete(id);humanElements.delete(id);humanPositions.delete(id);}
     syncLegacyHumanVisibility();
     withPresenceBatch(()=>{for(const [id,entry]of presenceMotion.entries){let el=presenceElements.get(id);if(!el){el=document.createElementNS('http://www.w3.org/2000/svg','g');el.classList.add('cnl-presence');el.dataset.human=id;el.setAttribute('tabindex','0');el.setAttribute('role','button');const select=e=>{e.stopPropagation();if(destroyed||!presenceState.enabled||el.style.display==='none'||performance.now()<suppressClickUntil)return;const person=presenceMotion.entries.get(id)?.person;if(person){setSelectedHuman(id);presenceState.onSelectEmployee({...person});}};el.addEventListener('click',select);el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(e);}});presenceLayer.append(el);presenceElements.set(id,el);humanElements.set(id,el);}
@@ -324,6 +325,13 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     }});
     ensurePresenceFrame();ambient?.refresh();scheduleViewChange();
   }
+  function setLocalPresencePoint(id,point,{heading='down',moving=true}={}){
+    const entry=presenceMotion.entries.get(id);if(!entry||!point||![point.x,point.y].every(Number.isFinite))return false;
+    const wasSeated=entry.person.posture==='seated';localPresencePoints.set(id,{x:point.x,y:point.y,moving});entry.point={x:point.x,y:point.y};entry.target={...entry.point};entry.motion=null;entry.person={...entry.person,posture:'standing',seatId:''};const wave=moving&&!reducedMotion?Math.sin(performance.now()*.014):0;entry.sample={heading,stride:wave*18,bob:Math.abs(wave)*.7,lean:0,arrived:false};setPresencePoint(entry);if(wasSeated)syncPresenceWorkplaces();if(moving&&entry.person.current)ensurePresenceVisible(id);scheduleViewChange();return true;
+  }
+  function ensurePresenceVisible(id,{immediate=false,afterFit=false}={}){if(afterFit&&viewTween.active&&cameraOwner==='automatic'){pendingPresenceFocus=id;return true;}const entry=presenceMotion.entries.get(id);if(!entry||!active||!immediate&&(drag||touchGesture||nativeGesture||performance.now()-lastManualCameraAt<600))return false;const rect=svg.getBoundingClientRect(),p=officeDisplayPoint(entry.point,localTeamId),at=projectPoint(p);if(!at)return false;const marginX=Math.min(150,rect.width*.18),top=Math.min(100,rect.height*.16),bottom=Math.max(top,rect.height-Math.min(160,rect.height*.25)),dx=Math.max(marginX,Math.min(rect.width-marginX,at.x))-at.x,dy=Math.max(top,Math.min(bottom,at.y))-at.y;if(Math.hypot(dx,dy)<.5)return false;stopCamera();const factor=immediate?1:.2,from=worldPoint(rect.left,rect.top),to=worldPoint(rect.left+dx*factor,rect.top+dy*factor);panX+=from.x-to.x;panY+=from.y-to.y;applyView();return true;}
+  function clearLocalPresencePoint(id){if(!localPresencePoints.delete(id))return;setPresence(lastPresenceValue);}
+  function setNavigationTarget(point){navigationTarget=point&&[point.x,point.y].every(Number.isFinite)?{...point}:null;navigationMarker.style.display=navigationTarget?'':'none';if(navigationTarget){const p=officeDisplayPoint(navigationTarget,localTeamId);navigationMarker.setAttribute('transform',`translate(${p.x} ${p.y})`);}return !!navigationTarget;}
 
   const scheduleViewChange = (duration = 0) => {
     motionUntil = Math.max(motionUntil, performance.now() + duration);
@@ -628,6 +636,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     clearGreeting();onLeaveBulletin();ambient?.pause();
     for(const [seatId,el]of positionElements){const parent=positionParents.get(seatId);if(parent&&(el.parentNode||el.parent)!==parent)parent.append(el);}
     localTeamId=id;svg.dataset.localTeam=id||'';
+    setNavigationTarget(navigationTarget);
     for(const layer of campusLayers){layer.style.display=id?'none':'';layer.setAttribute('aria-hidden',String(!!id));}
     localFloor.style.display=id?'':'none';localFloor.setAttribute('aria-hidden',String(!id));
     const team=officeTeamDetail(id);localFloor.innerHTML=team?renderOfficeTeamFloor(team,{uid,plant}):'';
@@ -643,12 +652,12 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   function syncLevelOfDetail(){
     const seats=officeSeatsForView({zoom:1,focusedDepartmentId:departmentScope||focusedDepartmentId,focusedTeamId:localTeamId||null}),visible=new Set(seats.map(seat=>seat.id));let redrawn=false;
     for(const [id,element]of positionElements){const show=visible.has(id);if(element.dataset.visible!==String(show)){element.dataset.visible=String(show);element.style.display=show?'':'none';element.setAttribute('aria-hidden',String(!show));element.setAttribute('tabindex',show?'0':'-1');if(!show){if(element===greetingElement)clearGreeting();element.innerHTML='';delete element.dataset.geometry;displayedPositions.delete(id);}}}
-    for(const seat of seats){const element=positionElements.get(seat.id);if(!element)continue;displayedPositions.set(seat.id,seat);const occupant=organizationOccupant(seat),key=JSON.stringify([seat.x,seat.y,seat.scale,seat.desk,occupant?.name,occupant?.title]);if(element.dataset.geometry!==key){redrawn=true;if(element===greetingElement)clearGreeting();element.dataset.geometry=key;element.innerHTML=renderOrganizationPositionContents(seat,{use,seated});const room=OFFICE_ROOMS.find(room=>room.id===seat.departmentId);element.setAttribute('aria-label',`${room.title}，${occupant?.name||seat.label}`);}}
+    for(const seat of seats){const element=positionElements.get(seat.id);if(!element)continue;displayedPositions.set(seat.id,seat);const occupant=organizationOccupant(seat),key=JSON.stringify([seat.x,seat.y,seat.scale,seat.desk,occupant?.name,occupant?.title,occupant?.outfitId]);if(element.dataset.geometry!==key){redrawn=true;if(element===greetingElement)clearGreeting();element.dataset.geometry=key;element.innerHTML=renderOrganizationPositionContents(seat,{use,seated});const room=OFFICE_ROOMS.find(room=>room.id===seat.departmentId);element.setAttribute('aria-label',`${room.title}，${occupant?.name||seat.label}`);}}
     svg.dataset.visiblePosts=String(seats.length);svg.dataset.focusDepartment=departmentScope||focusedDepartmentId||'';svg.dataset.focusTeam=localTeamId||'';withPresenceBatch(()=>{for(const entry of presenceMotion.entries.values())setPresencePoint(entry);});if(redrawn&&ambient?.active){ambient.pause();ambient.resume();}else ambient?.refresh();
   }
   const unsubscribeOccupants=subscribeOrganizationOccupants(()=>{if(!destroyed){syncLevelOfDetail();scheduleViewChange();}});
   function releaseDetailScope(nextScale){if(nextScale<OFFICE_DETAIL_ZOOM){focusedDepartmentId=null;focusedTeamId=null;}}
-  function resetOfficeView(){departmentScope=null;onNavigationContext(null);setLocalTeam(null);focusedDepartmentId=null;focusedTeamId=null;clearGreeting();animateView({scale:1,panX:0,panY:0});syncLevelOfDetail();}
+  function resetOfficeView(){pendingPresenceFocus=null;departmentScope=null;onNavigationContext(null);setLocalTeam(null);focusedDepartmentId=null;focusedTeamId=null;clearGreeting();animateView({scale:1,panX:0,panY:0});syncLevelOfDetail();}
 
   function applyView() {
     const width = OFFICE_WORLD.width / scale;
@@ -684,12 +693,12 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   function gesturePoint(event){if(Number.isFinite(event.clientX)&&Number.isFinite(event.clientY))return {x:event.clientX,y:event.clientY};const rect=svg.getBoundingClientRect();return {x:rect.left+rect.width/2,y:rect.top+rect.height/2};}
   function releasePointer(id){if(svg.hasPointerCapture?.(id))svg.releasePointerCapture(id);}
   function cancelFloorClick(){if(floorClickTimer!==null){clearTimeout(floorClickTimer);floorClickTimer=null;}}
-  function isFloorTarget(target){const shared=target?.closest?.('[data-shared-space]');if(shared&&shared.dataset?.sharedSpace!=='data_center')return false;return !target?.closest?.('[data-device], [data-agent], [data-human], [data-position], [data-team], [data-data-center-rack], [data-data-center-fixture], .cnl-office-fitting, .cnl-landscape, .cnl-department-heading, .cnl-room-glazing, .cnl-human-approval');}
+  function isFloorTarget(target){const shared=target?.closest?.('[data-shared-space]');if(shared&&shared.dataset?.sharedSpace!=='data_center')return false;return !target?.closest?.('[data-device], [data-agent], [data-human], [data-position], [data-team], [data-name-for], [data-data-center-rack], [data-data-center-fixture], .cnl-office-fitting, .cnl-landscape, .cnl-department-heading, .cnl-room-glazing, .cnl-human-approval');}
   function queueFloorMove(event,nodeId){
     cancelFloorClick();if(event.detail>1||!Number.isFinite(event.clientX)||!Number.isFinite(event.clientY))return;
     let point=worldPoint(event.clientX,event.clientY);if(localTeamId){const team=officeTeamDetail(localTeamId),b=team.detailBounds;if(point.x<b.x||point.x>b.x+b.w||point.y<b.y||point.y>b.y+b.h)return;point=officeCanonicalPoint(point,localTeamId);point={x:Math.max(team.x+1,Math.min(team.x+team.w-1,point.x)),y:Math.max(team.y+1,Math.min(team.y+team.h-1,point.y))};}const dc=OFFICE_DATA_CENTER,inDataCenter=point.x>=dc.x&&point.x<=dc.x+dc.w&&point.y>=dc.y&&point.y<=dc.y+dc.h;if((point.x<0&&!inDataCenter)||point.y<0||point.x>OFFICE_WORLD.width||point.y>OFFICE_WORLD.height)return;
     const room=OFFICE_ROOMS.find(item=>point.x>item.x&&point.x<item.x+item.w&&point.y>item.y&&point.y<item.y+item.h),target={x:point.x,y:point.y,nodeId:inDataCenter?'data_center':nodeId||room?.id||'shared_lounge',...(localTeamId?{teamId:localTeamId}:{})};
-    floorClickTimer=setTimeout(()=>{floorClickTimer=null;if(!destroyed&&!document.hidden&&!drag&&!touchGesture&&!nativeGesture)onMovePoint(target);},260);
+    if(!destroyed&&!document.hidden&&!drag&&!touchGesture&&!nativeGesture)onMovePoint(target);
   }
   function resetInput(){setHoveredDepartment(null);cancelFloorClick();stopCamera();const ids=[...touches.keys()];if(drag)ids.push(drag.id);touches.clear();touchGesture=null;nativeGesture=null;drag=null;svg.classList.remove('is-panning');for(const id of ids)releasePointer(id);}
   function listenInput(target,type,handler,options){target?.addEventListener?.(type,handler,options);inputDisposers.push(()=>target?.removeEventListener?.(type,handler,options));}
@@ -697,13 +706,13 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   const onPointerDown = e => {
     onLeaveBulletin();
     if(destroyed)return;
-    cancelFloorClick();clearGreeting();
+    cancelFloorClick();clearGreeting();stopCamera();
     if(e.pointerType==='touch'){
       touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
       if(touches.size>1){e.preventDefault();const next=sampleTouches();setHoveredDepartment(departmentAt(worldPoint(next.x,next.y)));beginManualCamera('touch');nativeGesture=null;touchGesture=next;drag=null;svg.classList.add('is-panning');for(const id of touches.keys())svg.setPointerCapture?.(id);suppressClickUntil=performance.now()+200;return;}
     }
     const object=e.target.closest('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-team], [data-employee], .cnl-human-approval');if(object&&!ROOM_IDS.has(object.dataset.node)&&!object.dataset.position)objectFeedback(object,true);
-    if (e.button !== 0) return;
+    if (![0,1].includes(e.button)) return;
     const deferControl=true;
     svg.focus?.({preventScroll:true});
     drag = { id:e.pointerId, x:e.clientX, y:e.clientY, lastX:e.clientX, lastY:e.clientY, moved:false,deferControl };ambient?.refresh();
@@ -741,11 +750,15 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   };
   const onMapDoubleClick=e=>{cancelFloorClick();e.preventDefault();e.stopPropagation();};
   const onMapKey=e=>{if(e.key==='Home'){onCameraIntent('manual');cancelFloorClick();e.preventDefault();resetOfficeView();}};
+  const wheelInput=createOfficeWheelInput();
   const onWheel = e => {
     if(destroyed)return;cancelFloorClick();
     e.preventDefault();
     if(nativeGesture||touches.size>1)return;
-    const rect=svg.getBoundingClientRect(),amount=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?(svg.clientHeight||rect.height):1);
+    const rect=svg.getBoundingClientRect(),input=wheelInput({...e,deltaX:e.deltaX,deltaY:e.deltaY,deltaMode:e.deltaMode,ctrlKey:e.ctrlKey,metaKey:e.metaKey,height:svg.clientHeight||rect.height}),amount=input.dy;
+    if(input.kind==='pan'){
+      if(!input.dx&&!input.dy)return;beginManualCamera('trackpad');stopCamera();const from=worldPoint(e.clientX,e.clientY),to=worldPoint(e.clientX-input.dx,e.clientY-input.dy);panX+=from.x-to.x;panY+=from.y-to.y;setHoveredDepartment(null);applyView();return;
+    }
     if(!Number.isFinite(amount)||!amount)return;
     setHoveredDepartment(departmentForEvent(e));beginManualCamera('wheel');if(viewTween.active&&Math.sign(viewTween.target.scale-scale)&&Math.sign(viewTween.target.scale-scale)!==-Math.sign(amount))stopCamera();const next=officeWheelScale(viewTween.target.scale,e.deltaY,e.deltaMode,svg.clientHeight||rect.height);if(!officeCameraChanged(viewTween.target,{scale:next}))return;const world=worldPoint(e.clientX,e.clientY);
     if(departmentZoom(next,-Math.sign(amount)))return;releaseDetailScope(next);animateView({scale:next,panX:world.x-WORLD_CX-(world.x-WORLD_CX-panX)*scale/next,panY:world.y-WORLD_CY-(world.y-WORLD_CY-panY)*scale/next},{x:e.clientX,y:e.clientY,world},{manual:true});
@@ -754,6 +767,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   const onGestureChange=e=>{if(destroyed)return;e.preventDefault();if(touches.size>1){nativeGesture=null;return;}if(!nativeGesture||!Number.isFinite(e.scale)||e.scale<=0)return;const point=gesturePoint(e),next=officePinchScale(scale,e.scale/nativeGesture.lastScale);const direction=Math.sign(e.scale-nativeGesture.lastScale);nativeGesture.lastScale=e.scale;if(!departmentZoom(next,direction))scaleAt(next,point.x,point.y,nativeGesture.anchor);suppressClickUntil=performance.now()+200;};
   const onGestureEnd=e=>{if(destroyed)return;e.preventDefault();nativeGesture=null;suppressClickUntil=performance.now()+200;ambient?.refresh();};
   listenInput(svg,'pointerdown',onPointerDown);
+  listenInput(svg,'contextmenu',e=>e.preventDefault());
   listenInput(svg,'dblclick',onMapDoubleClick);
   listenInput(svg,'keydown',onMapKey);
   const onObjectHover=e=>{setHoveredDepartment(departmentForEvent(e));const object=e.target.closest?.('[data-node], [data-device], [data-agent], [data-human], [data-position], [data-employee]');if(object!==hoveredObject){hoveredObject=object;if(object&&!ROOM_IDS.has(object.dataset.node)&&!object.dataset.agent&&!object.dataset.human&&!object.dataset.position)objectFeedback(object);}showObjectHint(e);};
@@ -768,7 +782,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
   svg.addEventListener('focusout',onPersonBlur);
   listenInput(svg,'pointermove',onPointerMove);
   listenInput(svg,'pointerup',onPointerEnd);
-  listenInput(svg,'pointercancel',onPointerEnd);
+  listenInput(svg,'pointercancel',()=>{resetInput();suppressClickUntil=performance.now()+200;});
   listenInput(svg,'lostpointercapture',onPointerEnd);
   listenInput(svg,'click',onBlankClick,true);
   listenInput(svg,'wheel',onWheel,{passive:false});
@@ -796,9 +810,9 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     const labels=selectOfficeNameLabels(candidates,{width,height,gap:4,fontSize:9}),selected=new Set(labels.map(label=>label.id));
     const nextScale=String(1/pixelUnit);if(nameScale!==nextScale){nameScale=nextScale;nameLayer.style.setProperty('--name-scale',nextScale);}
     for(const [id,element]of nameElements)if(!selected.has(id)){element.remove();nameElements.delete(id);}
-    for(const label of labels){let element=nameElements.get(label.id);if(!element){element=document.createElementNS('http://www.w3.org/2000/svg','g');element.classList.add('cnl-permanent-name');element.dataset.nameFor=label.id;nameLayer.append(element);nameElements.set(label.id,element);}
+    for(const label of labels){let element=nameElements.get(label.id);if(!element){element=document.createElementNS('http://www.w3.org/2000/svg','g');element.classList.add('cnl-permanent-name');element.dataset.nameFor=label.id;element.style.pointerEvents='auto';element.style.cursor='pointer';element.setAttribute('role','button');element.setAttribute('tabindex','0');const select=event=>{event.preventDefault();event.stopPropagation();if(performance.now()<suppressClickUntil)return;const [kind,...keys]=label.id.split(':'),id=keys.join(':');if(kind==='post')onSelectPostEmployee(id);else if(kind==='human'){const person=presenceMotion.entries.get(id)?.person;if(person)presenceState.onSelectEmployee({...person});}else if(kind==='virtual')onSelectAgent(id);};element.addEventListener('click',select);element.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){select(event);}});nameLayer.append(element);nameElements.set(label.id,element);}
       const position=`translate(${label.wx} ${label.wy})`;if(element.dataset.position!==position){element.dataset.position=position;element.setAttribute('transform',position);}
-      if(element.dataset.name!==label.name||element.dataset.fontSize!==String(label.fontSize)){element.dataset.name=label.name;element.dataset.fontSize=String(label.fontSize);element.innerHTML=`<g class="cnl-name-scale"><text class="cnl-name-text" style="font-size:${label.fontSize}px" text-anchor="middle">${esc(label.name)}</text></g>`;}
+      if(element.dataset.name!==label.name||element.dataset.fontSize!==String(label.fontSize)){element.dataset.name=label.name;element.dataset.fontSize=String(label.fontSize);const hitWidth=Math.max(24,label.box.w+8),hitHeight=Math.max(16,label.fontSize+8);element.innerHTML=`<g class="cnl-name-scale"><rect class="cnl-name-hit" x="${-hitWidth/2}" y="${-hitHeight+4}" width="${hitWidth}" height="${hitHeight}" fill="transparent" style="pointer-events:all"/><text class="cnl-name-text" style="font-size:${label.fontSize}px;pointer-events:none" text-anchor="middle">${esc(label.name)}</text></g>`;}
     }
   }
   function ambientPeople(){
@@ -850,7 +864,7 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     if(destroyed||active===!!value)return;
     active=!!value;
     if(!active){
-      inactiveAt=performance.now();cancelAnimationFrame(localTransitionFrame);localTransitionFrame=0;ambient?.pause();clearGreeting();if(cameraOwner==='automatic')viewTween.finish();resetInput();stopCamera();
+      inactiveAt=performance.now();cancelAnimationFrame(localTransitionFrame);localTransitionFrame=0;ambient?.pause();clearGreeting();resetInput();stopCamera();
       cancelAnimationFrame(viewFrame);viewFrame=0;cancelAnimationFrame(presenceFrame);presenceFrame=0;
       resetMotions();
     }else{
@@ -859,12 +873,14 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     }
   }
   return {
-    update,prepare,setActive,
+    update,prepare,paintFrame:prepare,setActive,
     setTopology(visible) { svg.classList.toggle('cnl-topology-off', !visible); },
     setSelectedNode,
     setSelectedAgent,
     setSelectedHuman,
-    setPresence,getPresenceState:()=>presenceMotion.snapshot(),getLocalTeamId:()=>localTeamId,getDepartmentScope:()=>departmentScope,
+    setPresence,getPresenceState:()=>presenceMotion.snapshot(),setLocalPresencePoint,clearLocalPresencePoint,setNavigationTarget,ensurePresenceVisible,screenDirectionToWorld:(dx,dy)=>officeScreenDirection(dx,dy),getLocalTeamId:()=>localTeamId,getDepartmentScope:()=>departmentScope,
+    getCameraContext(){const rect=svg.getBoundingClientRect(),unit=Math.min((svg.clientWidth||rect.width)/OFFICE_WORLD.width,(svg.clientHeight||rect.height)/OFFICE_WORLD.height);return {center:officeCanonicalPoint({x:WORLD_CX+panX,y:WORLD_CY+panY},localTeamId),scale,worldPerPixel:1/(Math.max(.0001,unit)*scale),scope:localTeamId||departmentScope||null};},
+    restoreCameraContext(context){if(!context?.center||![context.center.x,context.center.y].every(Number.isFinite))return false;stopCamera();const point=officeDisplayPoint(context.center,localTeamId),rect=svg.getBoundingClientRect(),unit=Math.min((svg.clientWidth||rect.width)/OFFICE_WORLD.width,(svg.clientHeight||rect.height)/OFFICE_WORLD.height);scale=clampOfficeScale(context.worldPerPixel>0?1/(context.worldPerPixel*unit):context.scale);panX=point.x-WORLD_CX;panY=point.y-WORLD_CY;cameraOwner='manual';applyView();return true;},
     getHumanAnchor(id='owner') { const el=humanElements.get(id);return el?projectPoint({x:0,y:-15},el):null; },
     focusHuman(id='owner',nextScale) { const point=humanPositions.get(id);if(!point)return false;const value=Number.isFinite(nextScale)?clampOfficeScale(nextScale,{automatic:true}):scale;focusedDepartmentId=null;focusedTeamId=null;animateView({scale:value,panX:point.x-WORLD_CX,panY:point.y-WORLD_CY+52/value});return true; },
     focusPoint(point,nextScale=scale){if(!point||!Number.isFinite(point.x)||!Number.isFinite(point.y))return false;cancelFloorClick();focusedDepartmentId=null;focusedTeamId=null;const value=clampOfficeScale(Number.isFinite(nextScale)?nextScale:scale,{automatic:true});animateView({scale:value,panX:point.x-WORLD_CX,panY:point.y-WORLD_CY+32/value});return true;},

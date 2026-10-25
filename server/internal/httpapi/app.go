@@ -471,6 +471,20 @@ func (a *App) erp(w http.ResponseWriter, r *http.Request, actor *identity.Actor)
 		}
 		write(w, 201, out)
 		return nil
+	case path == "/api/erp/identity/appearance" && r.Method == "POST":
+		p, e := body(w, r, 2048)
+		if e != nil {
+			return e
+		}
+		outfit, valid := p["outfitId"].(string)
+		if !valid {
+			return fail(400, "请选择有效搭配。")
+		}
+		if _, e = a.Identity.SetAppearance(actor, outfit); e != nil {
+			return e
+		}
+		write(w, 200, M{"ok": true, "session": a.Access.PublicSession(r)})
+		return nil
 	case path == "/api/erp/identity/password" && r.Method == "POST":
 		p, e := body(w, r, 8192)
 		if e != nil {

@@ -70,20 +70,27 @@ export function createOfficePresenceMotion({onChange=()=>{},now=()=>performance.
 
 /** Presence is presentation only. This module never submits a business task or
  * an approval, and receives no other employee's private work records. */
-export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},onError=()=>{},onReady=()=>{},document:doc=globalThis.document,intervalMs=3000,setTimer=globalThis.setInterval,clearTimer=globalThis.clearInterval,now=()=>Date.now()}={}){
+export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},onError=()=>{},onReady=()=>{},onUpdate=()=>{},document:doc=globalThis.document,intervalMs=3000,setTimer=globalThis.setInterval,clearTimer=globalThis.clearInterval,requestTimeoutMs=12000,setDeadline=globalThis.setTimeout,clearDeadline=globalThis.clearTimeout,now=()=>Date.now()}={}){
   if(!scene?.setPresence||typeof request!=='function')throw new TypeError('缺少办公室在线员工接口');
   const currentUserId=clean(session?.actor?.id||session?.user?.id||session?.id);let nodeId=canonicalDepartmentId(session?.actor?.department||session?.user?.department)||'hr_admin',destroyed=false,timer=null,inflight=null,unauthorized=false,lastSuccess=now(),first=true;
-  let people=[],operations=Promise.resolve();
+  let people=[],operations=Promise.resolve(),activeRequest=null,activeDeadline=null;
   const self=()=>people.find(p=>p.id===currentUserId)||null;
   const publish=()=>{if(!destroyed)scene.setPresence({enabled:!!currentUserId,people,currentUserId,onSelectEmployee});};
-  function receive(result){if(destroyed)return;lastSuccess=now();people=Array.isArray(result?.online)?result.online:Array.isArray(result?.people)?result.people:[];nodeId=self()?.nodeId||nodeId;publish();if(first&&self()){first=false;onReady(self());}}
+  function receive(result){if(destroyed)return;lastSuccess=now();people=Array.isArray(result?.online)?result.online:Array.isArray(result?.people)?result.people:[];nodeId=self()?.nodeId||nodeId;publish();onUpdate(self(),people);if(first&&self()){first=false;onReady(self());}}
   function failed(error){if(destroyed)return;if(error?.status===401){unauthorized=true;if(timer!==null)clearTimer(timer);timer=null;people=[];scene.setPresence({enabled:false,people:[],currentUserId:null});}else if(now()-lastSuccess>=45000){people=[];publish();}}
   // All office requests share one queue. A slow heartbeat cannot overwrite a
   // later move or reservation, and commands use the revision just received.
   function enqueue(operation){const job=operations.then(()=>destroyed||unauthorized||!currentUserId?null:operation());operations=job.catch(()=>null);return job;}
+  async function send(payload){
+    const controller=new AbortController(),milliseconds=Number.isFinite(requestTimeoutMs)?Math.max(1000,Math.min(60000,requestTimeoutMs)):12000;
+    let expired=false;const timer=setDeadline(()=>{expired=true;controller.abort();},milliseconds);timer?.unref?.();activeRequest=controller;activeDeadline=timer;
+    try{return await request('/api/erp/presence','PUT',payload,{signal:controller.signal});}
+    catch(error){if(expired)throw new Error('连接超时，请重试。');throw error;}
+    finally{clearDeadline(timer);if(activeRequest===controller){activeRequest=null;activeDeadline=null;}}
+  }
   async function heartbeat(){
     if(destroyed||unauthorized||!currentUserId||doc?.hidden)return null;
-    try{const result=await request('/api/erp/presence','PUT',{operation:'heartbeat',nodeId});receive(result);return result;}catch(error){failed(error);return null;}
+    try{const result=await send({operation:'heartbeat',nodeId});receive(result);return result;}catch(error){failed(error);return null;}
   }
   function refresh(){
     if(destroyed||unauthorized||!currentUserId||doc?.hidden)return Promise.resolve(null);
@@ -92,7 +99,7 @@ export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},
   }
   function command(payload,{shouldRun=()=>true}={}){return enqueue(async()=>{
     if(!shouldRun())return false;
-    try{const me=self(),result=await request('/api/erp/presence','PUT',{...payload,...(Number.isSafeInteger(me?.revision)?{expectedRevision:me.revision}:{})});receive(result);return !destroyed;}
+    try{const me=self(),result=await send({...payload,...(Number.isSafeInteger(me?.revision)?{expectedRevision:me.revision}:{})});receive(result);return !destroyed;}
     catch(error){failed(error);if(!destroyed&&error?.status!==401){onError(error.message);await heartbeat();}return false;}
   }).then(value=>value===true);}
   function schedule(){if(timer!==null){clearTimer(timer);timer=null;}if(!destroyed&&!unauthorized&&currentUserId&&!doc?.hidden)timer=setTimer(()=>void refresh(),Math.max(1000,intervalMs));}
@@ -105,6 +112,6 @@ export function mountErpPresence({scene,request,session,onSelectEmployee=()=>{},
     sitAt(point){if(!validPoint(point)||point.x<20||point.y<20)return Promise.resolve(false);return command({operation:'sit',x:point.x,y:point.y});},
     stand(){return command({operation:'stand'});},
     get nodeId(){return nodeId;},get self(){return self();},get people(){return people;},
-    destroy(){if(destroyed)return;destroyed=true;if(timer!==null)clearTimer(timer);timer=null;doc?.removeEventListener?.('visibilitychange',visibility);scene.setPresence({enabled:false,people:[],currentUserId:null});},
+    destroy(){if(destroyed)return;destroyed=true;activeRequest?.abort();activeRequest=null;if(activeDeadline!==null)clearDeadline(activeDeadline);activeDeadline=null;if(timer!==null)clearTimer(timer);timer=null;doc?.removeEventListener?.('visibilitychange',visibility);scene.setPresence({enabled:false,people:[],currentUserId:null});},
   };
 }

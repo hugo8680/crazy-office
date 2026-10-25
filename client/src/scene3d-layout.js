@@ -3,6 +3,7 @@ import * as THREE from './vendor/three.module.js';
 
 import { OFFICE_WORLD, OFFICE_BULLETIN_AREA, OFFICE_CONVENIENCE_AREA, OFFICE_RECREATION_AREA, OFFICE_DATA_CENTER, OFFICE_ROOMS, OFFICE_SEATS, officeSeatForView, officeTeamDetail, officeDisplayPoint, officeCanonicalPoint, OFFICE_FITTINGS, OFFICE_SHARED_AREAS, OFFICE_LANDSCAPE, OFFICE_WALKING_SEGMENTS, OFFICE_AGENT_HOMES, OFFICE_WORK_POSITIONS, OFFICE_NODE_ANCHORS } from './organization.mjs';
 import { employeeAppearance } from './employee-appearance.mjs';
+import { organizationOccupant } from './organization-occupants.mjs';
 import { OFFICE_EXTERIOR } from './office-environment.mjs';
 import {OFFICE_TEAM_MATERIALS,officeTeamInterior} from './office-team-interior.mjs';
 
@@ -269,7 +270,7 @@ export function createOffice3DLayout(assets) {
   // Their geometry is separate from authenticated names and business state.
   function seatedPost(seat,index) {
     const primaryId=primarySeatId(seat);activeBodySeatId=primaryId;activeBodyPart='torso';
-    const s=seat.scale,x=seat.x,z=seat.y,appearance=employeeAppearance({id:primaryId,outfitId:seat.outfitId}),uniform=appearance.uniform;
+    const s=seat.scale,x=seat.x,z=seat.y,appearance=employeeAppearance({id:primaryId,outfitId:organizationOccupant(seat)?.outfitId||seat.outfitId}),uniform=appearance.uniform;
     const skin=appearance.skin,hair=appearance.hair,garment=appearance.garment;
     const body=(kind,color,dx,y,dz,w,h,d,rx=0)=>part(kind,color,x+dx*s,1.9+y*s,z+dz*s,w*s,h*s,d*s,rx);
     body('round',uniform,0,23,-2,11.5,14,6.5);
@@ -523,9 +524,27 @@ export function createOffice3DLayout(assets) {
   }
   let detailed=new Set(),away=new Set(),localTeamId=null,departmentDetailId=null,bulletinOccluded=false;
   const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)&&child!==departmentHover).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
-  for(const map of[overviewBatches,...detailBatches.values(),...departmentBatches.values()])for(const batch of map.values())batch.bodyParts.forEach((part,index)=>{
+  function indexPoseParts(){poseParts.clear();for(const map of[overviewBatches,...detailBatches.values(),...departmentBatches.values()])for(const batch of map.values())batch.bodyParts.forEach((part,index)=>{
     if(!part||part==='legs')return;const id=batch.owners[index];if(!poseParts.has(id))poseParts.set(id,[]);poseParts.get(id).push({batch,index,part,overview:map===overviewBatches,department:[...departmentBatches].find(([,value])=>value===map)?.[0],groupId:seatGroupById.get(id)});
-  });
+  });}indexPoseParts();
+  const appearanceFor=seat=>employeeAppearance({id:primarySeatId(seat),outfitId:organizationOccupant(seat)?.outfitId||seat.outfitId}).outfitId;
+  const appearanceSignatures=new Map(OFFICE_SEATS.filter(seat=>seat.occupantVisible).map(seat=>[seat.id,appearanceFor(seat)]));
+  function refreshAppearances(){
+    const changed=new Set();for(const seat of OFFICE_SEATS)if(seat.occupantVisible){const signature=appearanceFor(seat);if(appearanceSignatures.get(seat.id)!==signature){appearanceSignatures.set(seat.id,signature);changed.add(seat.id);}}
+    if(!changed.size)return false;clearIdlePoses();const peopleCount=statistics.people;
+    for(const map of[overviewBatches,...detailBatches.values(),...departmentBatches.values()]){
+      const owners=new Set([...map.values()].flatMap(batch=>batch.bodyOwners.filter(Boolean))),affected=OFFICE_SEATS.filter(seat=>changed.has(seat.id)&&owners.has(primarySeatId(seat)));if(!affected.length)continue;
+      const parent=map.values().next().value.mesh.parent;
+      for(const batch of map.values()){
+        const keep=batch.matrices.map((_,index)=>index).filter(index=>!changed.has(batch.bodyOwners[index]));statistics.staticInstances-=batch.matrices.length-keep.length;
+        for(const field of['matrices','colors','owners','bodyOwners','bodyParts'])batch[field]=keep.map(index=>batch[field][index]);parent.remove(batch.mesh);batch.mesh.dispose();
+      }
+      activeBatches=map;for(const seat of affected){activeSeatId=seat.id;const geometry=map===overviewBatches?officeSeatForView(seat):[...departmentBatches.values()].includes(map)?seat:officeSeatForView(seat,{detail:true});seatedPost(geometry);}
+      emit(map,parent);
+      for(const batch of map.values()){batch.owners.forEach((id,index)=>{const seat=seatsById.get(id),hidden=away.has(batch.bodyOwners[index])||map===overviewBatches&&(detailed.has(seatGroupById.get(id))||departmentBatches.has(departmentDetailId)&&seat?.departmentId===departmentDetailId);if(hidden)batch.mesh.setMatrixAt(index,zeroMatrix);});batch.mesh.instanceMatrix.needsUpdate=true;batch.mesh.updateMatrixWorld(true);batch.mesh.matrixAutoUpdate=false;batch.mesh.matrixWorldAutoUpdate=false;}
+    }
+    activeBatches=batches;activeSeatId=null;statistics.people=peopleCount;indexPoseParts();return true;
+  }
   const idlePartSets={look:new Set(['head']),nod:new Set(['head']),typing:new Set(['head','leftLower','rightLower']),wave:new Set(['head','leftUpper','leftLower']),stretch:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower']),settle:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower'])};
   const poseMatrix=new THREE.Matrix4(),bodyPose=new THREE.Matrix4(),headPose=new THREE.Matrix4(),leftUpperPose=new THREE.Matrix4(),leftLowerPose=new THREE.Matrix4(),rightUpperPose=new THREE.Matrix4(),rightLowerPose=new THREE.Matrix4(),pivotMatrix=new THREE.Matrix4(),poseEuler=new THREE.Euler();
   function pivot(matrix,x,y,z,rx=0,ry=0,rz=0){matrix.makeRotationFromEuler(poseEuler.set(rx,ry,rz));const e=matrix.elements;e[12]=x-e[0]*x-e[4]*y-e[8]*z;e[13]=y-e[1]*x-e[5]*y-e[9]*z;e[14]=z-e[2]*x-e[6]*y-e[10]*z;return matrix;}
@@ -612,7 +631,7 @@ export function createOffice3DLayout(assets) {
   function enterTeam(id){const team=officeTeamDetail(id);if(!team)return null;setDetailGroups([team.id]);return team;}
   function exitTeam(){return localTeamId?setDetailGroups([]):false;}
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDepartmentDetail,get departmentDetailId(){return departmentDetailId;},get isBulletinOccluded(){return bulletinOccluded;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,refreshAppearances,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDepartmentDetail,get departmentDetailId(){return departmentDetailId;},get isBulletinOccluded(){return bulletinOccluded;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
     get awaySeatIds(){return new Set(away);},

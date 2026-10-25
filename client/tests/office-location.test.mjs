@@ -4,7 +4,7 @@ import {mountOfficeLocation} from '../src/office-location.js';
 import {OFFICE_SEATS} from '../src/organization.mjs';
 import {panelDom,deferred} from './fixtures/office-panel-dom.mjs';
 const own=OFFICE_SEATS.find(s=>s.departmentId==='business'&&s.primarySeat),other=OFFICE_SEATS.find(s=>s.departmentId==='business'&&s.id!==own.id&&s.primarySeat),foreign=OFFICE_SEATS.find(s=>s.departmentId==='finance');
-function harness(){const dom=panelDom(),calls=[],errors=[],closes=[];let result=async()=>true,me={id:'me',name:'王敏',department:'商务部',nodeId:'business',appearanceKey:own.id,posture:'standing',x:1000,y:180},others=[];const presence={get self(){return me;},get people(){return[me,...others].filter(Boolean);},async sit(id){calls.push(['sit',id]);return result();},async stand(){calls.push(['stand']);return result();},async sitAt(point){calls.push(['sitAt',point]);return result();}},scene={getPresenceState(){return{positions:me?{[me.id]:{x:1001,y:181}}:{}};}},works=[];const ui=mountOfficeLocation({container:dom.container,presence,scene,onError:error=>errors.push(error),onClose:()=>closes.push(dialog.open),onWork:()=>works.push('desk')}),dialog=dom.container.children[0];return{...dom,ui,dialog,calls,errors,closes,works,scene,person(value){me=value;},others(value){others=value;},respond(fn){result=fn;},click(action){const button=dialog.buttons.find(button=>button.dataset.location===action)||{dataset:{location:action},closest(){return this;}};return dialog.emit('click',button);},destroy(){ui.destroy();dom.restore();}};}
+function harness(){const dom=panelDom(),calls=[],errors=[],closes=[];let result=async()=>true,me={id:'me',name:'王敏',department:'商务部',nodeId:'business',appearanceKey:own.id,posture:'standing',x:1000,y:180},others=[],actor=null;const presence={get self(){return me;},get people(){return[me,...others].filter(Boolean);},async sit(id){calls.push(['sit',id]);return result();},async stand(){calls.push(['stand']);return result();},async sitAt(point){calls.push(['sitAt',point]);return result();}},scene={getPresenceState(){return{positions:me?{[me.id]:{x:1001,y:181}}:{}};}},works=[];const ui=mountOfficeLocation({container:dom.container,presence,scene,getActor:()=>actor,onError:error=>errors.push(error),onClose:()=>closes.push(dialog.open),onWork:()=>works.push('desk')}),dialog=dom.container.children[0];return{...dom,ui,dialog,calls,errors,closes,works,scene,person(value){me=value;},actor(value){actor=value;},others(value){others=value;},respond(fn){result=fn;},click(action){const button=dialog.buttons.find(button=>button.dataset.location===action)||{dataset:{location:action},closest(){return this;}};return dialog.emit('click',button);},destroy(){ui.destroy();dom.restore();}};}
 
 test('seat choices reflect actual occupancy and department access, and self sitting exposes stand instead of another reservation',async()=>{const h=harness();try{h.others([{id:'other',name:'<img src=x onerror=bad>',posture:'seated',seatId:other.id}]);h.ui.openSeat(other.id);assert.match(h.dialog.innerHTML,/&lt;img/);assert.doesNotMatch(h.dialog.innerHTML,/<img/);await h.click('sit-seat');assert.equal(h.calls.length,0);h.others([]);h.ui.openSeat(foreign.id);assert.match(h.dialog.innerHTML,/本部门/);await h.click('sit-seat');assert.equal(h.calls.length,0);h.ui.openSeat(own.id);await h.click('sit-seat');assert.deepEqual(h.calls,[['sit',own.id]]);assert.equal(h.ui.isOpen,false);h.person({id:'me',name:'王敏',department:'商务部',posture:'seated',seatId:own.id});h.ui.openSeat(own.id);assert.match(h.dialog.innerHTML,/已在此工位/);await h.click('stand');assert.deepEqual(h.calls.at(-1),['stand']);}finally{h.destroy();}});
 
@@ -42,5 +42,40 @@ test('native closure invalidates an old seat request without closing or notifyin
   h.dialog.close();await h.dialog.emit('close',h.dialog);assert.deepEqual(h.closes,[false]);
   h.ui.openSeat(other.id);slow.resolve(true);await pending;assert.equal(h.ui.isOpen,true);assert.deepEqual(h.closes,[false]);
   h.ui.destroy();assert.deepEqual(h.closes,[false]);
+ }finally{h.destroy();}
+});
+
+test('authoritative memberships override old appearance seats and unknown departments fail closed',async()=>{
+ const h=harness();try{
+  h.actor({id:'me',department:'财务部',departmentIds:['finance']});h.ui.openSeat(own.id);assert.match(h.dialog.innerHTML,/本部门/);await h.click('sit-seat');assert.equal(h.calls.length,0);
+  h.ui.openSeat(foreign.id);await h.click('sit-seat');assert.deepEqual(h.calls.at(-1),['sit',foreign.id]);
+  h.actor(null);h.person({id:'new',name:'新同事',department:'尚未分配'});h.ui.openSeat(own.id);await h.click('sit-seat');assert.equal(h.calls.length,1);assert.match(h.dialog.innerHTML,/本部门/);
+  h.actor({id:'old',department:'商务部'});h.ui.openSeat(own.id);assert.match(h.dialog.innerHTML,/本部门/);
+ }finally{h.destroy();}
+});
+
+test('every assigned department seat remains selectable, including hidden overview desks and shared memberships',async()=>{
+ const h=harness();try{
+  h.person({id:'me',name:'数据同事',department:'AI数据算法部',appearanceKey:'ai_data_staff_200',posture:'standing'});
+  h.actor({id:'me',department:'AI数据算法部',departmentIds:['ai_data','research']});
+  const seats=OFFICE_SEATS.filter(seat=>['ai_data','research'].includes(seat.departmentId));
+  assert.equal(seats.filter(seat=>seat.departmentId==='ai_data').length,206);
+  for(const seat of seats){assert.equal(h.ui.openSeat(seat.id),true);assert.doesNotMatch(h.dialog.innerHTML,/本部门/);await h.click('sit-seat');assert.deepEqual(h.calls.at(-1),['sit',seat.id]);}
+  h.ui.openSeat(foreign.id);assert.match(h.dialog.innerHTML,/本部门/);assert.equal(h.calls.length,seats.length);
+ }finally{h.destroy();}
+});
+
+test('occupancy changes refresh the open panel and prevent a stale empty-seat click from writing',async()=>{
+ const h=harness();try{
+  h.ui.openSeat(other.id);const oldContent=h.dialog.innerHTML;h.ui.refresh();assert.equal(h.dialog.innerHTML,oldContent);
+  h.others([{id:'visitor',name:'另一位同事',posture:'seated',seatId:other.id}]);await h.click('sit-seat');assert.equal(h.calls.length,0);assert.match(h.dialog.innerHTML,/另一位同事 正在使用/);assert.equal(h.dialog.buttons.find(button=>button.dataset.location==='sit-seat').disabled,true);
+  h.others([]);h.ui.refresh();assert.match(h.dialog.innerHTML,/该位置空闲/);assert.equal(h.dialog.buttons.find(button=>button.dataset.location==='sit-seat').disabled,false);await h.click('sit-seat');assert.deepEqual(h.calls,[['sit',other.id]]);
+ }finally{h.destroy();}
+});
+
+test('sign-out or a different account closes an old position surface without submitting under the new identity',async()=>{
+ const h=harness();try{
+  h.ui.openSeat(own.id);h.person({id:'new-user',name:'新账户',department:'商务部'});await h.click('sit-seat');assert.deepEqual(h.calls,[]);assert.equal(h.ui.isOpen,false);assert.match(h.errors.at(-1),/身份已更新/);
+  h.ui.openSelf();h.person(null);h.ui.refresh();assert.equal(h.ui.isOpen,false);assert.deepEqual(h.calls,[]);
  }finally{h.destroy();}
 });

@@ -68,7 +68,7 @@ export function renderExteriorEnvironment(environment=OFFICE_EXTERIOR) {
 }
 
 export function renderOrganizationPositionContents(seat,{use,seated}) {
-  const post=ORGANIZATION_POSITION_META[seat.id],{desk}=seat,compact=seat.scale<.7;
+  const original=ORGANIZATION_POSITION_META[seat.id],outfit=employeeAppearance({id:original.primarySeatId,outfitId:organizationOccupant(seat)?.outfitId}),post={...original,color:outfit.uniform,hair:outfit.hair,appearance:outfit},{desk}=seat,compact=seat.scale<.7;
   const seatScale=Math.max(.2,seat.scale*.6);
   const manager=seat.role!=='staff',occupant=organizationOccupant(seat),label=occupant?.name||(seat.primarySeat?seat.label:'兼任工位');
   const furniture=`<g transform="translate(${desk.x-desk.w/2} ${desk.y-desk.h/2}) scale(${desk.w/108} ${desk.h/43})">${use('desk',0,0,1,`style="--screen:${manager?'#b4c8b9':'#b4d4ce'}"`)}</g>`;

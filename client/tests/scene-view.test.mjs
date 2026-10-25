@@ -184,3 +184,12 @@ test('latest deferred office navigation and sign-out take precedence over copied
   }finally{f.controller.destroy();}
  }
 });
+
+test('switch commit synchronously samples the latest camera, location and local override after delayed GPU preparation',async()=>{
+ const gate=deferred();let painted;const f=fixture(mount=>{
+  const withContext=mode=>(layer,callbacks)=>{const scene=mount(mode)(layer,callbacks);scene.context={center:{x:100,y:100},scale:1};scene.getCameraContext=()=>structuredClone(scene.context);scene.restoreCameraContext=value=>{scene.context=structuredClone(value);};scene.setLocalPresencePoint=(id,point)=>{scene.positions={...scene.positions,[id]:{...point}};return true;};scene.clearLocalPresencePoint=()=>{};scene.paintFrame=()=>{painted=structuredClone(scene.context);};if(mode==='3d')scene.prepare=()=>gate.promise;return scene;};return {mount2D:withContext('2d'),load3D:async()=>({mountScene3D:withContext('3d')})};
+ });try{
+  await f.controller.ready;f.controller.setPresence({enabled:true,currentUserId:'me',people:[{id:'me'}]});const switching=f.controller.setMode('3d');await settle();f.scenes[0].context={center:{x:900,y:850},scale:4,worldPerPixel:.5};f.controller.setLocalPresencePoint('me',{x:910,y:860},{moving:true});gate.resolve();await switching;
+  assert.deepEqual(f.scenes[1].context,f.scenes[0].context);assert.deepEqual(painted,f.scenes[0].context);assert.deepEqual(f.scenes[1].positions.me,{x:910,y:860});assert.equal(f.controller.pending,false);
+ }finally{f.controller.destroy();}
+});

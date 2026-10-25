@@ -64,8 +64,26 @@ function heartbeatFixture(request,options={}){
 }
 
 test('在线心跳使用三秒协议、读取真实名单，部门移动提交明确坐标',async()=>{
- const f=heartbeatFixture(async(_path,_method,body)=>({online:[person('me',body.nodeId),person('other','finance')]}));await f.presence.refresh();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0],['/api/erp/presence','PUT',{operation:'heartbeat',nodeId:'hr_admin'}]);assert.equal([...f.timers.values()][0].ms,3000);assert.equal(f.values.at(-1).people.length,2);assert.equal(f.values.at(-1).currentUserId,'me');
+ const f=heartbeatFixture(async(_path,_method,body)=>({online:[person('me',body.nodeId),person('other','finance')]}));await f.presence.refresh();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0].slice(0,3),['/api/erp/presence','PUT',{operation:'heartbeat',nodeId:'hr_admin'}]);assert.ok(f.calls[0][3].signal instanceof AbortSignal);assert.equal([...f.timers.values()][0].ms,3000);assert.equal(f.values.at(-1).people.length,2);assert.equal(f.values.at(-1).currentUserId,'me');
  await f.presence.moveTo('meeting');assert.equal(f.calls.at(-1)[2].nodeId,'research');assert.equal(f.calls.at(-1)[2].operation,'move');assert.deepEqual({x:f.calls.at(-1)[2].x,y:f.calls.at(-1)[2].y},presencePosition('research'));assert.equal(await f.presence.moveTo('unknown'),false);assert(f.calls.every(([url])=>url==='/api/erp/presence'));f.presence.destroy();assert.equal(f.timers.size,0);assert.equal(f.listeners.size,0);assert.equal(f.values.at(-1).enabled,false);
+});
+
+test('presence updates notify the current seat and person surfaces after publishing the authoritative response',async()=>{
+ let update=0,revision=0;const observed=[];
+ const f=heartbeatFixture(async()=>({online:[person('me','finance',{revision:++revision}),person('other','finance',{posture:'seated',seatId:'finance_staff_001'})]}),{onUpdate(me,people){update++;observed.push({revision:me.revision,seat:people[1].seatId});}});
+ await f.presence.ready;assert.equal(update,1);assert.deepEqual(observed,[{revision:1,seat:'finance_staff_001'}]);assert.equal(f.values.at(-1).people[0].revision,1);
+ await f.presence.refresh();assert.equal(update,2);assert.equal(observed.at(-1).revision,2);f.presence.destroy();await f.presence.refresh();assert.equal(update,2);
+});
+
+test('an aborted heartbeat deadline releases the serialized queue, and destroy aborts a current request without a stale publish',async()=>{
+ const deadlines=new Map(),signals=[];let sequence=0,attempt=0;
+ const f=heartbeatFixture(async(_path,_method,body,{signal})=>{
+  signals.push(signal);if(++attempt===1)return new Promise((_yes,no)=>signal.addEventListener('abort',()=>no(Object.assign(new Error('aborted'),{name:'AbortError'})),{once:true}));
+  return{online:[person('me','finance',{x:body.x||145,y:body.y||520,revision:attempt})]};
+ },{setDeadline:(fn,ms)=>{assert.equal(ms,12000);deadlines.set(++sequence,fn);return sequence;},clearDeadline:id=>deadlines.delete(id)});
+ await flush();const move=f.presence.movePoint({x:285,y:710});assert.equal(f.calls.length,1);assert.equal(deadlines.size,1);[...deadlines.values()][0]();assert.equal(await move,true);assert.equal(signals[0].aborted,true);assert.equal(f.calls.length,2);assert.deepEqual({x:f.presence.self.x,y:f.presence.self.y},{x:285,y:710});assert.equal(deadlines.size,0);f.presence.destroy();
+ const quiet=[],g=heartbeatFixture((_path,_method,_body,{signal})=>new Promise((_yes,no)=>signal.addEventListener('abort',()=>no(new Error('aborted')),{once:true})),{onUpdate:()=>quiet.push('publish'),setDeadline:(fn)=>{deadlines.set(++sequence,fn);return sequence;},clearDeadline:id=>deadlines.delete(id)});
+ await flush();const signal=g.calls[0][3].signal;assert.equal(signal.aborted,false);g.presence.destroy();await g.presence.ready;assert.equal(signal.aborted,true);assert.deepEqual(quiet,[]);assert.equal(deadlines.size,0);assert.equal(g.values.at(-1).enabled,false);
 });
 
 test('后台暂停心跳，前台立即刷新，销毁后迟到响应不能恢复在线人物',async()=>{

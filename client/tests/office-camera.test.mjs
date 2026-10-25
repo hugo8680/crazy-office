@@ -21,3 +21,11 @@ test('incremental pinch immediately reverses at limits and no-op camera targets 
   for(const invalid of[NaN,Infinity,0,-1])assert.equal(officePinchScale(4,invalid),4);
   assert.equal(officeCameraChanged({scale:24,panX:1},{scale:24,panX:1}),false);assert.equal(officeCameraChanged({scale:24},{scale:24-1e-9}),false);assert.equal(officeCameraChanged({scale:24},{scale:23.9}),true);
 });
+
+test('wheel input distinguishes two-finger scroll from pinch and retains momentum type until the sequence ends',async()=>{
+ const {createOfficeWheelInput,officeScreenDirection}=await import('../src/office-camera.mjs');let time=0;const input=createOfficeWheelInput({now:()=>time});
+ assert.equal(input({deltaMode:0,deltaY:3.5}).kind,'pan');time+=16;assert.equal(input({deltaMode:0,deltaY:96}).kind,'pan');
+ time+=200;assert.equal(input({deltaMode:0,deltaY:-120}).kind,'zoom');time+=16;assert.equal(input({deltaMode:0,deltaY:4}).kind,'zoom','small reversal immediately reverses a mouse wheel zoom');
+ assert.equal(input({deltaMode:0,deltaY:4,ctrlKey:true}).kind,'zoom');assert.equal(input({deltaMode:0,deltaX:12,deltaY:4}).kind,'pan');
+ assert.deepEqual(officeScreenDirection(0,-1),{x:0,y:-1});assert.deepEqual(officeScreenDirection(1,0,{right:{x:0,y:1},up:{x:1,y:0}}),{x:0,y:1});
+});

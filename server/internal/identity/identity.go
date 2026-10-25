@@ -51,6 +51,7 @@ type PublicEmployee struct {
 	DepartmentIDs        []string `json:"departmentIds,omitempty"`
 	OrganizationSeatIDs  []string `json:"organizationSeatIds,omitempty"`
 	Placeholder          bool     `json:"placeholder,omitempty"`
+	OutfitID             string   `json:"outfitId,omitempty"`
 }
 type Actor struct {
 	PublicEmployee
@@ -74,6 +75,7 @@ type employee struct {
 	DepartmentIDs        []string `json:"departmentIds,omitempty"`
 	OrganizationSeatIDs  []string `json:"organizationSeatIds,omitempty"`
 	Placeholder          bool     `json:"placeholder,omitempty"`
+	OutfitID             string   `json:"outfitId,omitempty"`
 }
 type invitation struct {
 	ID         string  `json:"id"`
@@ -262,7 +264,7 @@ func PasswordMatches(password, passwordHash string) (bool, error) {
 	return e == nil && shape && subtle.ConstantTimeCompare(candidate, key) == 1, e
 }
 func public(e employee) PublicEmployee {
-	return PublicEmployee{ID: e.ID, Username: e.Username, Name: e.Name, Department: e.Department, Title: e.Title, Roles: append([]string{}, e.Roles...), Active: e.Status == "active", Status: e.Status, Source: e.Source, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, Departments: append([]string(nil), e.Departments...), OrganizationPersonID: e.OrganizationPersonID, DepartmentIDs: append([]string(nil), e.DepartmentIDs...), OrganizationSeatIDs: append([]string(nil), e.OrganizationSeatIDs...), Placeholder: e.Placeholder}
+	return PublicEmployee{ID: e.ID, Username: e.Username, Name: e.Name, Department: e.Department, Title: e.Title, Roles: append([]string{}, e.Roles...), Active: e.Status == "active", Status: e.Status, Source: e.Source, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, Departments: append([]string(nil), e.Departments...), OrganizationPersonID: e.OrganizationPersonID, DepartmentIDs: append([]string(nil), e.DepartmentIDs...), OrganizationSeatIDs: append([]string(nil), e.OrganizationSeatIDs...), Placeholder: e.Placeholder, OutfitID: e.OutfitID}
 }
 func trusted(e employee) *Actor { return &Actor{public(e), e.Epoch} }
 func clone(d state) state       { b, _ := json.Marshal(d); var v state; _ = json.Unmarshal(b, &v); return v }
@@ -371,6 +373,9 @@ func validateState(d state) error {
 	ids, names, organizationIDs, organizationSeats := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	admin := false
 	for _, e := range d.Employees {
+		if e.OutfitID != "" && !validOutfit(e.OutfitID) {
+			return bad()
+		}
 		u, err := usernameOf(e.Username)
 		if err != nil || u != e.Username || ids[e.ID] || names[e.Username] || !idPattern.MatchString(e.ID) || e.Epoch < 1 || e.Epoch > 9007199254740991 || !contains([]string{"active", "invited", "disabled"}, e.Status) || !contains([]string{"legacy", "employee"}, e.Source) {
 			return bad()

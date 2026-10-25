@@ -1,8 +1,12 @@
+import {EMPLOYEE_WARDROBE,employeeAppearance,employeeAppearanceKey} from './employee-appearance.mjs';
+
 const ROLE_NAMES = Object.freeze({admin:'管理员',manager:'负责人',procurement:'采购',warehouse:'仓管',project_manager:'项目经理',employee:'员工',finance:'财务',hr:'人事'});
+
+const outfitPreview=style=>`<svg class="session-outfit-art" viewBox="0 0 82 70" aria-hidden="true"><path d="M24 21 9 30l7 19 9-5v20h32V44l9 5 7-19-15-9-8-2H32Z" fill="${style.jacket}"/><path d="m32 19 9 9 9-9-3 31H35Z" fill="${style.shirt}"/>${['jacket','cardigan','overshirt'].includes(style.garment)?`<path d="m32 19-3 15 8-3 4 26M50 19l3 15-8-3-4 26" stroke="${style.trim}" fill="none"/>`:style.garment==='hoodie'?`<path d="M29 21q12 18 24 0M34 28v11m14-11v11M31 49h20" stroke="${style.trim}" fill="none"/>`:`<path d="M32 20q9 12 18 0M27 57h28" stroke="${style.trim}" fill="none"/>`}<path d="M25 64h32" stroke="${style.trousers}" stroke-width="5"/></svg>`;
 
 // requestRaw has the native fetch signature and returns a Response. The caller
 // receives public session data only; credentials are never retained or logged.
-export function mountSession({container=document.body,requestRaw=(...args)=>fetch(...args),onAuthenticated=()=>{},onSignedOut=()=>{},onSessionExpired=()=>{},onChange=()=>{},onClose=()=>{}}={}) {
+export function mountSession({container=document.body,requestRaw=(...args)=>fetch(...args),onAuthenticated=()=>{},onSignedOut=()=>{},onSessionExpired=()=>{},onChange=()=>{},onClose=()=>{},onLocate=()=>{}}={}) {
   const dialog=document.createElement('dialog');
   dialog.className='session-dialog';
   dialog.dataset.view='login';
@@ -26,11 +30,17 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button>
     </form>
     <section id="session-profile" hidden>
-      <div class="session-profile-card"><div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div class="session-person-copy"><h2 id="session-name"></h2><p id="session-account"></p></div></div>
+      <div class="session-profile-card"><div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div class="session-person-copy"><h2 id="session-name"></h2><p id="session-account"></p></div><button type="button" class="session-locate" data-session-action="locate" aria-label="定位自己" title="定位自己"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button></div>
       <dl class="session-facts"><div><dt>部门</dt><dd id="session-department"></dd></div><div><dt>岗位</dt><dd id="session-position"></dd></div><div><dt>角色</dt><dd id="session-roles"></dd></div></dl></div>
       <p class="session-error" id="session-profile-error" role="alert" hidden></p>
+      <button type="button" data-session-action="appearance" id="session-appearance-entry" class="session-appearance-entry"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4-6 4 3 6 3-2v8h8v-8l3 2 3-6-6-4a4 4 0 0 1-8 0Z"/></svg><span>着装<span id="session-current-outfit"></span></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
       <div class="session-profile-actions"><button type="button" data-session-action="password" id="session-password-entry" class="session-secondary"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="4"/><path d="m11 11 9 9m-3-3 2-2m-5-1 2-2"/></svg>修改密码</button><button type="button" data-session-action="signout" id="session-signout-submit" class="session-signout">${spinner('session-signout-spinner')}<span id="session-signout-label">退出登录</span></button></div>
     </section>
+    <form id="session-appearance-form" class="session-form" hidden>
+      <div class="session-wardrobe" role="radiogroup" aria-label="着装搭配">${EMPLOYEE_WARDROBE.map(style=>`<button type="button" id="session-outfit-${style.id}" class="session-outfit" role="radio" aria-checked="false" tabindex="-1" data-session-action="choose-outfit" data-outfit="${style.id}">${outfitPreview(style)}<span>${style.label}</span><svg class="session-outfit-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 12 4 4 8-8"/></svg></button>`).join('')}</div>
+      <p class="session-error" id="session-appearance-error" role="alert" hidden></p>
+      <div class="session-form-actions"><button type="button" data-session-action="profile" class="session-secondary">取消</button><button id="session-appearance-submit" class="session-primary" type="submit">${spinner('session-appearance-spinner')}<span id="session-appearance-label">保存搭配</span></button></div>
+    </form>
     <form id="session-password-form" class="session-form" hidden>
       <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-current"><span class="session-field-label">原密码</span><span class="session-input">${fieldIcon('password')}<input id="session-current" name="currentPassword" type="password" autocomplete="current-password" required></span></label>
       <label for="session-new"><span class="session-field-label">新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-new" name="newPassword" type="password" autocomplete="new-password" minlength="12" required></span><span class="session-field-note">至少 12 个字符</span></label>
@@ -48,11 +58,12 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   </section>`;
   container.append(dialog);
   const q=selector=>dialog.querySelector(selector);
-  const login=q('#session-login-form'),profile=q('#session-profile'),passwordForm=q('#session-password-form'),invitationForm=q('#session-invitation-form');
+  const login=q('#session-login-form'),profile=q('#session-profile'),passwordForm=q('#session-password-form'),invitationForm=q('#session-invitation-form'),appearanceForm=q('#session-appearance-form');
   const username=q('#session-username'),password=q('#session-password'),current=q('#session-current'),next=q('#session-new'),confirmation=q('#session-confirm');
   const invitationPassword=q('#session-invitation-password'),invitationConfirmation=q('#session-invitation-confirm');
-  const pendingActions=[['login','login','进入办公室','正在进入'],['profile','signout','退出登录','正在退出'],['password','password','保存密码','正在保存'],['invitation','invitation','设置密码','正在保存']];
-  let session=null,mode='login',pending=false,destroyed=false,generation=0,expiryTimer=null,returnFocus=null,closeTimer=null,closing=false,surfaceOpen=false,surfaceGeneration=0,closeGeneration=0,restoreCloseFocus=true;
+  const pendingActions=[['login','login','进入办公室','正在进入'],['profile','signout','退出登录','正在退出'],['password','password','保存密码','正在保存'],['invitation','invitation','设置密码','正在保存'],['appearance','appearance','保存搭配','正在保存']];
+  let session=null,mode='login',pending=false,destroyed=false,generation=0,expiryTimer=null,returnFocus=null,closeTimer=null,closing=false,surfaceOpen=false,surfaceGeneration=0,closeGeneration=0,restoreCloseFocus=true,selectedOutfit='',afterClose=null;
+  const outfitIds=new Set(EMPLOYEE_WARDROBE.map(style=>style.id));
   const fragment=new URLSearchParams(window.location.hash.slice(1));
   const hasToken=fragment.has('token'),tokenValues=fragment.getAll('token');
   let invitationToken=tokenValues.length===1&&/^[A-Za-z0-9_-]{43}$/.test(tokenValues[0])?tokenValues[0]:'';
@@ -78,19 +89,26 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       q(`#session-${id}-spinner`).hidden=!active;
     }
   }
+  function chooseOutfit(id,{focus=false}={}){
+    if(!outfitIds.has(id))return false;
+    selectedOutfit=id;
+    for(const style of EMPLOYEE_WARDROBE){const button=q(`#session-outfit-${style.id}`),active=style.id===id;button.setAttribute('aria-checked',String(active));button.setAttribute('tabindex',active?'0':'-1');if(active&&focus)button.focus();}
+    return true;
+  }
   function didClose(){
     if(destroyed||dialog.open||!surfaceOpen)return;
     surfaceOpen=false;surfaceGeneration++;closeGeneration++;clearTimeout(closeTimer);closeTimer=null;closing=false;delete dialog.dataset.closing;clearPasswords();setPending(pending);
     const focus=returnFocus;returnFocus=null;if(restoreCloseFocus&&focus?.isConnected)focus.focus();restoreCloseFocus=true;
-    notify(onClose);
+    const after=afterClose;afterClose=null;notify(onClose);if(after)notify(after);
   }
   function cancelClose(){
     closeGeneration++;if(!closing)return;
-    clearTimeout(closeTimer);closeTimer=null;closing=false;delete dialog.dataset.closing;setPending(pending);
+    clearTimeout(closeTimer);closeTimer=null;closing=false;afterClose=null;delete dialog.dataset.closing;setPending(pending);
   }
-  function dismiss(restoreFocus=true){
+  function dismiss(restoreFocus=true,after=null){
     clearPasswords();
     if(!dialog.open||closing)return;
+    afterClose=after;
     const ticket=++closeGeneration,surface=surfaceGeneration;restoreCloseFocus=restoreFocus;
     const finish=()=>{
       if(destroyed||ticket!==closeGeneration||surface!==surfaceGeneration||!dialog.open)return;
@@ -101,6 +119,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     closeTimer=setTimeout(finish,140);
   }
   function setSession(value){
+    const previousActor=session?.actor||session,nextActor=value?.actor||value,preserveOutfit=mode==='appearance'&&dialog.open&&previousActor?.id===nextActor?.id&&outfitIds.has(selectedOutfit);
     session=value?.authenticated===true?value:null;
     clearTimeout(expiryTimer);expiryTimer=null;
     if(session){
@@ -114,30 +133,37 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       q('#session-card-department').textContent=actor.department||'莱森购办公室';
       q('#session-roles').textContent=(actor.roles||[]).map(role=>ROLE_NAMES[role]).filter(Boolean).join('、')||'—';
       q('#session-password-entry').hidden=actor.source==='legacy';
+      const appearance=employeeAppearance({id:employeeAppearanceKey(actor),outfitId:actor.outfitId});
+      q('#session-current-outfit').textContent=appearance.label;
+      if(!preserveOutfit)chooseOutfit(appearance.outfitId);
       const expiry=Date.parse(session.expiresAt||actor.expiresAt||'');
       if(Number.isFinite(expiry))expiryTimer=setTimeout(()=>requireLogin('登录已过期，请重新登录。'),Math.min(2147483647,Math.max(0,expiry-Date.now())));
     }else{
       q('#session-card-name').textContent='莱森购办公室';q('#session-card-department').textContent='吉林云投莱森购数字科技有限公司';
-      for(const selector of ['#session-initial','#session-name','#session-account','#session-department','#session-position','#session-roles'])q(selector).textContent='';
+      selectedOutfit='';
+      for(const style of EMPLOYEE_WARDROBE){q(`#session-outfit-${style.id}`).setAttribute('aria-checked','false');q(`#session-outfit-${style.id}`).setAttribute('tabindex','-1');}
+      for(const selector of ['#session-initial','#session-name','#session-account','#session-department','#session-position','#session-roles','#session-current-outfit'])q(selector).textContent='';
     }
     notify(onChange,session);
   }
   function show(view,notice='',reset=false){
     if(destroyed)return;
+    if((view==='profile'||view==='password'||view==='appearance')&&!session)view='login';
     const opened=dialog.open,changed=mode!==view,reopening=closing,entering=!opened||changed||reopening||reset;
     cancelClose();
     mode=view;
     dialog.dataset.view=view;
-    login.hidden=view!=='login';profile.hidden=view!=='profile';passwordForm.hidden=view!=='password';invitationForm.hidden=view!=='invitation';
-    q('#session-title').textContent=view==='login'?'登录':view==='password'?'修改密码':view==='invitation'?'设置密码':'账户';
+    login.hidden=view!=='login';profile.hidden=view!=='profile';passwordForm.hidden=view!=='password';invitationForm.hidden=view!=='invitation';appearanceForm.hidden=view!=='appearance';
+    q('#session-title').textContent=view==='login'?'登录':view==='password'?'修改密码':view==='invitation'?'设置密码':view==='appearance'?'着装':'账户';
     if(entering){
       message('#session-message',notice);
-      for(const selector of ['#session-login-error','#session-profile-error','#session-password-error','#session-invitation-error'])message(selector);
+      for(const selector of ['#session-login-error','#session-profile-error','#session-password-error','#session-invitation-error','#session-appearance-error'])message(selector);
       clearPasswords();
+      if(view==='appearance'){const actor=session.actor||session;chooseOutfit(employeeAppearance({id:employeeAppearanceKey(actor),outfitId:actor.outfitId}).outfitId);}
     }else if(notice)message('#session-message',notice);
     if(view==='login'&&!username.value)username.value=session?.username||'';
     if(!dialog.open){returnFocus=document.activeElement;dialog.showModal();surfaceOpen=true;surfaceGeneration++;restoreCloseFocus=true;}
-    const focus=view==='login'?(username.value?password:username):view==='password'?current:view==='invitation'?invitationPassword:q('.session-close');
+    const focus=view==='login'?(username.value?password:username):view==='password'?current:view==='invitation'?invitationPassword:view==='appearance'?q(`#session-outfit-${selectedOutfit}`):q('.session-close');
     if(entering)focus.focus();
   }
   function close(){if(pending||destroyed)return;dismiss();}
@@ -153,7 +179,8 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     const timeout=setTimeout(()=>controller.abort(),15000);
     controllers.set(controller,timeout);
     try{
-      const response=await requestRaw(url,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal,headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+      const actorId=session?.actor?.id||session?.id;
+      const response=await requestRaw(url,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal,headers:{Accept:'application/json',...(body===undefined?{}:{'Content-Type':'application/json'}),...(body!==undefined&&actorId?{'X-Office-Actor':actorId}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
       const data=await response.json().catch(()=>({}));
       if(!response.ok)throw Object.assign(new Error('request failed'),{status:response.status,data});
       return data;
@@ -230,6 +257,23 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       else message('#session-invitation-error',errorText(error,'invitation'));
     }}finally{credentials.token='';credentials.password='';if(!destroyed&&stamp===generation){clearPasswords();setPending(false);}}
   }
+  async function submitAppearance(event){
+    event.preventDefault();if(pending||destroyed||!session||mode!=='appearance'||!outfitIds.has(selectedOutfit))return;
+    const actor=session.actor||session,outfitId=selectedOutfit,personId=actor.id,stamp=++generation,surface=surfaceGeneration;
+    setPending(true);message('#session-appearance-error');
+    try{
+      const data=await request('/api/erp/identity/appearance',{outfitId});
+      if(destroyed||stamp!==generation)return;
+      const next=data.session,nextActor=next?.actor||next;
+      if(data.ok!==true||next?.authenticated!==true||nextActor?.id!==personId||nextActor?.outfitId!==outfitId)throw new Error('invalid appearance response');
+      // Updating a personal preference must preserve the current walk, seat and
+      // camera. onChange refreshes presence without running login callbacks.
+      setSession(next);setPending(false);if(dialog.open&&surface===surfaceGeneration)show('profile','搭配已保存。');
+    }catch(error){if(!destroyed&&stamp===generation){
+      if(error.status===401)requireLogin('登录已过期，请重新登录。');
+      else message('#session-appearance-error',error.status===400?'请选择有效的搭配。':'搭配未保存，请重试。');
+    }}finally{if(!destroyed&&stamp===generation)setPending(false);}
+  }
   async function refresh(){
     if(destroyed||pending)return session;
     const stamp=++generation;
@@ -247,16 +291,22 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   function onClick(event){
     const button=event.target.closest('[data-session-action]');
     if(!button||pending)return;
-    switch(button.dataset.sessionAction){case 'toggle-password':{const visible=password.type==='password';password.type=visible?'text':'password';button.setAttribute('aria-label',visible?'隐藏密码':'显示密码');button.setAttribute('aria-pressed',String(visible));password.focus();break;}case 'close':close();break;case 'password':show('password');break;case 'profile':show(session?'profile':'login');break;case 'signout':void signOut();break;}
+    switch(button.dataset.sessionAction){case 'toggle-password':{const visible=password.type==='password';password.type=visible?'text':'password';button.setAttribute('aria-label',visible?'隐藏密码':'显示密码');button.setAttribute('aria-pressed',String(visible));password.focus();break;}case 'close':close();break;case 'locate':if(session){const personId=(session.actor||session).id;dismiss(false,()=>{if((session?.actor||session)?.id===personId)notify(onLocate,session);});}break;case 'password':show('password');break;case 'appearance':show('appearance');break;case 'choose-outfit':if(session&&mode==='appearance')chooseOutfit(button.dataset.outfit);break;case 'profile':show(session?'profile':'login');break;case 'signout':void signOut();break;}
+  }
+  function onWardrobeKey(event){
+    if(pending||destroyed||!session||mode!=='appearance'||!['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+    const button=event.target.closest('[data-session-action="choose-outfit"]');if(!button)return;
+    event.preventDefault();const index=EMPLOYEE_WARDROBE.findIndex(style=>style.id===selectedOutfit),offset=event.key==='ArrowRight'?1:event.key==='ArrowLeft'?-1:event.key==='ArrowDown'?2:-2;
+    chooseOutfit(EMPLOYEE_WARDROBE[event.key==='Home'?0:event.key==='End'?EMPLOYEE_WARDROBE.length-1:(index+offset+EMPLOYEE_WARDROBE.length)%EMPLOYEE_WARDROBE.length].id,{focus:true});
   }
   function onCancel(event){event.preventDefault();if(!pending)close();}
   function onVisibility(){if(!destroyed&&!document.hidden&&session)void refresh();}
   dialog.addEventListener('click',onClick);dialog.addEventListener('cancel',onCancel);dialog.addEventListener('close',didClose);
-  login.addEventListener('submit',submitLogin);passwordForm.addEventListener('submit',submitPassword);invitationForm.addEventListener('submit',submitInvitation);
+  login.addEventListener('submit',submitLogin);passwordForm.addEventListener('submit',submitPassword);invitationForm.addEventListener('submit',submitInvitation);appearanceForm.addEventListener('submit',submitAppearance);appearanceForm.addEventListener('keydown',onWardrobeKey);
   document.addEventListener('visibilitychange',onVisibility);
   const ready=invitationToken?(show('invitation'),Promise.resolve(null)):invalidInvitation?(show('login','链接已失效，请联系管理员。'),Promise.resolve(null)):refresh();
   return {ready,open,close,requireLogin,refresh,signOut,get session(){return session;},get isOpen(){return dialog.open;},destroy(){
-    if(destroyed)return;destroyed=true;generation++;invitationToken='';clearTimeout(expiryTimer);clearTimeout(closeTimer);closeTimer=null;for(const [controller,timeout] of controllers){clearTimeout(timeout);controller.abort();}controllers.clear();clearPasswords();
-    login.removeEventListener('submit',submitLogin);passwordForm.removeEventListener('submit',submitPassword);invitationForm.removeEventListener('submit',submitInvitation);dialog.removeEventListener('click',onClick);dialog.removeEventListener('cancel',onCancel);dialog.removeEventListener('close',didClose);document.removeEventListener('visibilitychange',onVisibility);dialog.close();dialog.remove();session=null;
+    if(destroyed)return;destroyed=true;generation++;invitationToken='';afterClose=null;clearTimeout(expiryTimer);clearTimeout(closeTimer);closeTimer=null;for(const [controller,timeout] of controllers){clearTimeout(timeout);controller.abort();}controllers.clear();clearPasswords();
+    login.removeEventListener('submit',submitLogin);passwordForm.removeEventListener('submit',submitPassword);invitationForm.removeEventListener('submit',submitInvitation);appearanceForm.removeEventListener('submit',submitAppearance);appearanceForm.removeEventListener('keydown',onWardrobeKey);dialog.removeEventListener('click',onClick);dialog.removeEventListener('cancel',onCancel);dialog.removeEventListener('close',didClose);document.removeEventListener('visibilitychange',onVisibility);dialog.close();dialog.remove();session=null;selectedOutfit='';
   }};
 }

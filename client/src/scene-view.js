@@ -18,6 +18,8 @@ export function createSceneViewController(container, callbacks = {}, options = {
   let selectedAgent = null, selectedHuman = null, presence = null, version = 0;
   let module3D = null, warmHandle = null, warmingMode = null;
   let deferredFocus = null;
+  let navigationTarget = null;
+  const localPresencePoints = new Map();
   const notify = () => { if (!disposed) onChange({ mode, pending }); };
   const ownsInput = entry => !disposed && current === entry && entry.valid && entry.active;
   const invoke = (method, ...args) => current?.valid ? current.scene?.[method]?.(...args) : undefined;
@@ -112,6 +114,8 @@ export function createSceneViewController(container, callbacks = {}, options = {
     scene.setSelectedAgent?.(selectedAgent);
     scene.setSelectedHuman?.(selectedHuman);
     applyPresence(entry, positions, true);
+    for(const [id,override]of localPresencePoints)entry.scene.setLocalPresencePoint?.(id,override.point,override.options);
+    entry.scene.setNavigationTarget?.(navigationTarget);
     entry.preparedVersion = version;
   }
   const localScope = entry => {
@@ -129,7 +133,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
       if (!entry.valid || disposed) return;
       source = current?.valid ? current : null;
       scope = localScope(source);
-      const positions = source?.scene.getPresenceState?.()?.positions;
+      const positions = source?.scene.getPresenceState?.()?.positions, cameraContext=source?.scene.getCameraContext?.();
       restore(entry, positions);
       // A local office is shared navigation context. Keep each renderer's own
       // manual camera when that context matches; only fit on an actual change.
@@ -137,6 +141,7 @@ export function createSceneViewController(container, callbacks = {}, options = {
         if (scope) entry.scene.focusArea?.(scope);
         else entry.scene.resetView?.();
       }
+      if(entry!==source&&cameraContext)entry.scene.restoreCameraContext?.(cameraContext);
       await entry.scene.prepare?.();
     } while (!disposed && entry.valid && (entry.preparedVersion !== version
       || source !== (current?.valid ? current : null) || scope !== localScope(current)));
@@ -186,6 +191,14 @@ export function createSceneViewController(container, callbacks = {}, options = {
       if (disposed || ticket !== epoch) return mode;
       if (!candidate.valid) throw candidate.failed || new Error('场景未能载入。');
       const previous = current;
+      // No await between this final snapshot and reveal: GPU compilation may
+      // have overlapped a user's ongoing gesture or continuous keyboard walk.
+      if(previous?.valid&&previous!==candidate){
+        const scope=localScope(previous);restore(candidate,previous.scene.getPresenceState?.()?.positions);
+        if(scope!==undefined&&localScope(candidate)!==scope){if(scope)candidate.scene.focusArea?.(scope);else candidate.scene.resetView?.();}
+        const cameraContext=previous.scene.getCameraContext?.();if(cameraContext)candidate.scene.restoreCameraContext?.(cameraContext);
+        candidate.scene.paintFrame?.();
+      }
       if (previous?.valid) activate(previous, false);
       current = candidate; mode = next;
       expose(candidate, true);
@@ -235,10 +248,18 @@ export function createSceneViewController(container, callbacks = {}, options = {
       presence = { ...value, people: Array.isArray(value?.people) ? value.people.map(person => ({ ...person })) : [] };
       version++;
       if (current?.valid) applyPresence(current);
+      for(const [id,override]of localPresencePoints)current?.scene?.setLocalPresencePoint?.(id,override.point,override.options);
       // Expired or signed-out identities must also disappear from a cached view.
-      if (!presence.enabled || !presence.people.length) for (const entry of entries.values()) if (entry !== current) applyPresence(entry);
+      if (!presence.enabled || !presence.people.length){localPresencePoints.clear();navigationTarget=null;for (const entry of entries.values()){entry.scene?.setNavigationTarget?.(null);if(entry!==current)applyPresence(entry);}}
     },
     getPresenceState: () => invoke('getPresenceState'),
+    setNavigationTarget(point){navigationTarget=point&&Number.isFinite(point.x)&&Number.isFinite(point.y)?{...point}:null;invoke('setNavigationTarget',navigationTarget);},
+    screenDirectionToWorld:(...args)=>invoke('screenDirectionToWorld',...args),
+    setLocalPresencePoint(id,point,options){if(!point||![point.x,point.y].every(Number.isFinite))return false;localPresencePoints.set(id,{point:{...point},options:{...options}});return invoke('setLocalPresencePoint',id,point,options);},
+    clearLocalPresencePoint(id){localPresencePoints.delete(id);for(const entry of entries.values())entry.scene?.clearLocalPresencePoint?.(id);},
+    getCameraContext:()=>invoke('getCameraContext'),
+    restoreCameraContext:context=>invoke('restoreCameraContext',context),
+    ensurePresenceVisible:(...args)=>invoke('ensurePresenceVisible',...args),
     getHumanAnchor: (...args) => invoke('getHumanAnchor', ...args),
     getNodeAnchor: (...args) => invoke('getNodeAnchor', ...args),
     getAgentAnchor: (...args) => invoke('getAgentAnchor', ...args),

@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 
 const foundation=await readFile(new URL('../src/ui-foundation.css',import.meta.url),'utf8');
 const css=await readFile(new URL('../src/session-ui.css',import.meta.url),'utf8');
+const workspace=await readFile(new URL('../src/workspace.css',import.meta.url),'utf8');
 const declarations=body=>Object.fromEntries(body.split(';').filter(Boolean).map(item=>{const index=item.indexOf(':');return[item.slice(0,index).trim(),item.slice(index+1).trim()];}));
 const base=declarations(css.match(/^\.session-dialog\{([^}]+)\}/m)[1]);
 const mobile=declarations(css.match(/@media\(max-width:620px\)\{\.session-dialog\{([^}]+)\}/)[1]);
@@ -22,8 +23,8 @@ function length(value,layout,visible){
   assert.match(expression.replace(/Math\.min/g,''),/^[\d\s.,+*/()\-]+$/);
   return Function(`return (${expression});`)();
 }
-function frame(layout,visible,contentHeight=700){
-  const rules={...base,...(layout.width<=620?mobile:{})},viewport=visible||{left:0,top:0,width:layout.width,height:layout.height,scale:1};
+function frame(layout,visible,contentHeight=700,override){
+  const rules=override||{...base,...(layout.width<=620?mobile:{})},viewport=visible||{left:0,top:0,width:layout.width,height:layout.height,scale:1};
   const width=length(rules.width,layout,visible),height=Math.min(contentHeight,length(rules['max-height'],layout,visible));
   const centerX=length(rules.left,layout,visible),centerY=length(rules.top,layout,visible);
   const inverse=length(rules.scale,layout,visible),screenScale=inverse*viewport.scale;
@@ -62,4 +63,14 @@ test('mobile pinch preserves the compact dialog size and changing keyboard heigh
     const zoomed=frame(layout,visible);contained(zoomed);assert.equal(zoomed.width,normal.width);assert.equal(zoomed.height,normal.height);
   }
   const keyboard=frame(layout,{left:90,top:180,width:195,height:140,scale:2});contained(keyboard);assert.equal(keyboard.width,normal.width);assert.equal(keyboard.height,256);
+});
+
+test('seat choices and colleague cards use the same independent viewport geometry at every map or browser zoom',()=>{
+ const location=declarations(workspace.match(/\.office-location-dialog\{([^}]+)\}/)[1]),person={...location,...declarations(workspace.match(/\.office-person-dialog\{([^}]+)\}/)[1])};
+ for(const [rules,width]of [[location,340],[person,360]]){
+  for(const [layout,visible]of [[{width:1440,height:900},{left:0,top:0,width:1440,height:900,scale:1}],[{width:1440,height:900},{left:300,top:150,width:480,height:300,scale:3}],[{width:390,height:844},{left:80,top:100,width:195,height:210,scale:2}],[{width:3840,height:2160},{left:0,top:0,width:3840,height:2160,scale:1}]]){
+   const bounds=frame(layout,visible,380,rules);contained(bounds);assert.equal(bounds.width,Math.min(width,visible.width*visible.scale-36));
+  }
+  assert.equal(rules.position,'fixed');assert.equal(rules.margin,'0');assert.equal(rules.overflow,'auto');assert.equal(rules['overscroll-behavior'],'contain');
+ }
 });

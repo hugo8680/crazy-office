@@ -10,6 +10,45 @@ const PASSWORD='employee-password-2026',TOKEN='t'.repeat(43);
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};};
 const response=(data,status=200)=>({ok:status>=200&&status<300,status,json:async()=>data});
 
+test('账户内选择实际搭配，保存后的公开会话立即更新，不重复登录或重置位置',async()=>{
+  const h=harness({session:{...AUTH,actor:{...AUTH.actor,outfitId:'plum'}}});await h.ui.ready;h.ui.open();h.click('appearance');
+  assert.equal(h.element('#session-title').textContent,'着装');assert.equal(h.element('#session-appearance-form').hidden,false);assert.equal(h.element('#session-outfit-plum').getAttribute('aria-checked'),'true');
+  h.outfit('cloud');assert.equal(h.element('#session-outfit-cloud').getAttribute('aria-checked'),'true');assert.equal(h.element('#session-outfit-plum').getAttribute('aria-checked'),'false');
+  const waiting=deferred();h.setResponder(()=>waiting.promise);const first=h.saveOutfit();await h.saveOutfit();
+  assert.equal(h.requests.length,2);assert.equal(h.requests.at(-1).url,'/api/erp/identity/appearance');assert.deepEqual(JSON.parse(h.requests.at(-1).options.body),{outfitId:'cloud'});assert.equal(h.requests.at(-1).options.headers['X-Office-Actor'],AUTH.actor.id,'bind writes to the employee displayed by this tab');assert.equal(h.element('#session-appearance-label').textContent,'正在保存');
+  waiting.resolve(response({ok:true,session:{...AUTH,actor:{...AUTH.actor,outfitId:'cloud'}}}));await first;
+  assert.equal(h.ui.session.actor.outfitId,'cloud');assert.equal(h.events.authenticated.length,1,'changing clothing must not run login callbacks');assert.equal(h.events.changes.length,2);assert.equal(h.element('#session-title').textContent,'账户');assert.equal(h.element('#session-current-outfit').textContent,'城市轻装');assert.equal(h.events.closed,0);h.destroy();
+});
+
+test('搭配可取消、用键盘选择且不发送无效项，失败保留选择供重试',async()=>{
+  const h=harness({session:{...AUTH,actor:{...AUTH.actor,outfitId:'atelier'}}});await h.ui.ready;h.ui.open();h.click('appearance');
+  assert.equal(h.outfitKey('ArrowDown'),true);assert.equal(h.element('#session-outfit-marine').getAttribute('aria-checked'),'true');assert.equal(h.element('#session-outfit-marine').focused,1);
+  assert.equal(h.outfitKey('End'),true);assert.equal(h.element('#session-outfit-cloud').getAttribute('tabindex'),'0');
+  h.outfit('<img>');h.click('profile');assert.equal(h.requests.length,1);h.click('appearance');assert.equal(h.element('#session-outfit-atelier').getAttribute('aria-checked'),'true');
+  h.outfit('linen');h.setResponder(async()=>response({error:'internal private diagnostics'},503));await h.saveOutfit();assert.equal(h.element('#session-appearance-error').textContent,'搭配未保存，请重试。');assert.equal(h.element('#session-outfit-linen').getAttribute('aria-checked'),'true');assert.equal(h.ui.session.actor.outfitId,'atelier');assert.equal(h.element('#session-appearance-submit').disabled,false);h.destroy();
+});
+
+test('换装过期及过时响应无法恢复旧身份，跨账号或不完整成功响应不生效',async()=>{
+  const h=harness({session:AUTH});await h.ui.ready;h.ui.open();h.click('appearance');h.outfit('linen');
+  for(const data of [{ok:true,session:{...AUTH,actor:{...AUTH.actor,id:'other',outfitId:'linen'}}},{ok:true,session:{...AUTH,actor:{...AUTH.actor,outfitId:'cloud'}}},{ok:true}]){
+    h.setResponder(async()=>response(data));await h.saveOutfit();assert.equal(h.ui.session.actor.id,AUTH.actor.id);assert.equal(h.events.changes.length,1);assert.equal(h.element('#session-appearance-error').hidden,false);
+  }
+  const late=deferred();h.setResponder(()=>late.promise);const pending=h.saveOutfit();h.ui.requireLogin();late.resolve(response({ok:true,session:{...AUTH,actor:{...AUTH.actor,outfitId:'linen'}}}));await pending;
+  assert.equal(h.ui.session,null);assert.equal(h.element('#session-title').textContent,'登录');assert.equal(h.events.authenticated.length,1);assert.equal(h.element('#session-current-outfit').textContent,'');h.destroy();
+  const expired=harness({session:AUTH});await expired.ui.ready;expired.ui.open();expired.click('appearance');expired.outfit('plum');expired.setResponder(async()=>response({},401));await expired.saveOutfit();assert.equal(expired.ui.session,null);assert.equal(expired.events.expired,1);expired.destroy();
+});
+
+test('本人定位等待账户窗口实际关闭，重开或身份过期会取消旧定位',async()=>{
+  const h=harness({session:AUTH,reducedMotion:false});await h.ui.ready;h.ui.open();h.click('locate');assert.equal(h.events.located.length,0);assert.equal(h.dialog.open,true);h.runTimer(140);assert.equal(h.events.located.length,1);assert.equal(h.events.closed,1);
+  h.ui.open();h.click('locate');h.ui.open();assert.equal(h.timers.size,1,'only the session expiry timer remains');assert.equal(h.events.located.length,1);h.click('locate');h.ui.requireLogin();assert.equal(h.events.located.length,1);assert.equal([...h.timers.values()].some(timer=>timer.delay===140),false);h.destroy();
+});
+
+test('会话探测保留尚未保存的搭配，关闭后晚到的保存响应不重开窗口',async()=>{
+ const h=harness({session:{...AUTH,actor:{...AUTH.actor,outfitId:'atelier'}}});await h.ui.ready;h.ui.open();h.click('appearance');h.outfit('plum');await h.ui.refresh();assert.equal(h.element('#session-outfit-plum').getAttribute('aria-checked'),'true');assert.equal(h.element('#session-current-outfit').textContent,'工装外套');
+ const late=deferred();h.setResponder(()=>late.promise);const pending=h.saveOutfit();h.dialog.close();h.dialog.listeners.get('close')();late.resolve(response({ok:true,session:{...AUTH,actor:{...AUTH.actor,outfitId:'plum'}}}));await pending;
+ assert.equal(h.dialog.open,false);assert.equal(h.ui.session.actor.outfitId,'plum');assert.equal(h.events.closed,1);h.destroy();
+});
+
 test('密码可按需查看，关闭与重开时恢复掩码并清空，不保留上次明文状态',async()=>{
   const h=harness();await h.ui.ready;
   const field=h.element('#session-password');field.value=PASSWORD;

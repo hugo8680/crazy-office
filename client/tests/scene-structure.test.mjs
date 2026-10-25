@@ -191,12 +191,12 @@ test('2D drag and wheel stay attached to the pointer through a scaled stage and 
 test('2D wheel units are normalized and a continuous stream retargets smoothly without changing drag habits',()=>{
  const endpoints=[];
  for(const input of[{deltaMode:0,deltaY:-16},{deltaMode:1,deltaY:-1},{deltaMode:2,deltaY:-16/900}]){
-  const f=sceneFixture({}, {frames:true,layoutHeight:900});try{f.drain();f.input('wheel',input);f.drain();endpoints.push(sceneScale(f));}finally{f.destroy();}
+  const f=sceneFixture({}, {frames:true,layoutHeight:900});try{f.drain();f.input('wheel',{...input,ctrlKey:true});f.drain();endpoints.push(sceneScale(f));}finally{f.destroy();}
  }
  almost(endpoints[0],endpoints[1]);almost(endpoints[0],endpoints[2]);
  const f=sceneFixture({}, {frames:true});try{
   f.drain();const world={x:300,y:220},anchor=f.screen(world);let previous=sceneScale(f);
-  for(let i=0;i<12;i++){f.input('wheel',{deltaY:-12,clientX:anchor.x,clientY:anchor.y});f.frame();f.frame();const current=sceneScale(f);assert.ok(current>=previous);previous=current;almost(f.screen(world).x,anchor.x);almost(f.screen(world).y,anchor.y);}
+  for(let i=0;i<12;i++){f.input('wheel',{deltaY:-12,ctrlKey:true,clientX:anchor.x,clientY:anchor.y});f.frame();f.frame();const current=sceneScale(f);assert.ok(current>=previous);previous=current;almost(f.screen(world).x,anchor.x);almost(f.screen(world).y,anchor.y);}
   f.drain();almost(sceneScale(f),Math.exp(12*12*.0016));assert.equal(f.pending.size,0);
   f.input('wheel',{deltaY:100000,clientX:anchor.x,clientY:anchor.y});f.drain();assert.ok(sceneScale(f)>.72&&sceneScale(f)<2.25);
   f.scene.resetView();f.drain();f.input('wheel',{deltaY:-100000});f.drain();assert.ok(sceneScale(f)<1.35,'one mouse wheel event is bounded rather than jumping to the limit');
@@ -577,7 +577,7 @@ test('only the finite active seated batch is promoted from shared use symbols an
 test('small permanent names appear without hover, use the authenticated roster, and clear when signing out',()=>{
  const f=sceneFixture();try{
   const labels=()=>f.layers.get('.cnl-name-layer').children;assert.ok(labels().some(label=>label.dataset.nameFor.startsWith('virtual:')));assert.ok(labels().every(label=>!label.dataset.nameFor.startsWith('post:')));
-  setOrganizationOccupants([{name:'陈青',personId:'business_channels_manager',username:'name@example.invalid',title:'经理',seatIds:['business_manager_001','channels_manager_001']}]);const named=labels().filter(label=>label.dataset.name==='陈青');assert.equal(named.length,1);assert.equal(named[0].dataset.nameFor,'post:business_manager_001');assert.match(named[0].innerHTML,/cnl-name-text/);assert.doesNotMatch(named[0].innerHTML,/<rect|<path|经理|真实|虚拟/);
+  setOrganizationOccupants([{name:'陈青',personId:'business_channels_manager',username:'name@example.invalid',title:'经理',seatIds:['business_manager_001','channels_manager_001']}]);const named=labels().filter(label=>label.dataset.name==='陈青');assert.equal(named.length,1);assert.equal(named[0].dataset.nameFor,'post:business_manager_001');assert.match(named[0].innerHTML,/cnl-name-text/);assert.doesNotMatch(named[0].innerHTML,/<path|经理|真实|虚拟/);
   const box=f.svg.attrs.viewBox;setOrganizationOccupants([]);assert.ok(labels().every(label=>label.dataset.name!=='陈青'));assert.equal(f.svg.attrs.viewBox,box);
  }finally{f.destroy();setOrganizationOccupants([]);}
 });
@@ -598,16 +598,13 @@ test('desk and chair selection requests the displayed seat while clicking a pers
  }finally{f.destroy();}
 });
 
-test('empty floor walking is deferred, uses map coordinates and yields to double click, camera gestures and object interaction',()=>{
+test('floor walking responds immediately while drags and furniture never create destinations',()=>{
  const moves=[],f=sceneFixture({onMovePoint:point=>moves.push(point)},{timers:true});try{
-  const point={x:490,y:740},client=f.screen(point);f.input('click',{clientX:client.x,clientY:client.y,detail:1});assert.equal(moves.length,0);f.advanceTimers(259);assert.equal(moves.length,0);f.advanceTimers(1);assert.equal(moves.length,1);almost(moves[0].x,point.x);almost(moves[0].y,point.y);assert.equal(moves[0].nodeId,'shared_lounge');
-  const queue=()=>f.input('click',{clientX:client.x,clientY:client.y,detail:1});queue();f.input('click',{clientX:client.x,clientY:client.y,detail:2});f.input('dblclick');f.advanceTimers(500);assert.equal(moves.length,1);
-  queue();f.input('wheel',{deltaY:-20});f.advanceTimers(500);assert.equal(moves.length,1);queue();f.input('keydown',{key:'Home'});f.advanceTimers(500);assert.equal(moves.length,1);
-  for(const selector of ['[data-device]','[data-position]','[data-human]','[data-shared-space]','.cnl-office-fitting','.cnl-landscape']){const target={closest:query=>query.includes(selector)?{}:null};f.input('click',{clientX:client.x,clientY:client.y,target});f.advanceTimers(300);assert.equal(moves.length,1,selector);}
-  f.input('click',{clientX:-3000,clientY:-3000});f.advanceTimers(300);assert.equal(moves.length,1);
-  queue();f.input('pointerdown',{clientX:client.x,clientY:client.y});f.input('pointermove',{clientX:client.x+20,clientY:client.y+12});f.input('pointerup');f.input('click',{clientX:client.x+20,clientY:client.y+12});f.advanceTimers(500);assert.equal(moves.length,1,'a pan cannot submit a walking destination');
+  const point={x:490,y:740},client=f.screen(point),timerCount=f.timers.size;f.input('click',{clientX:client.x,clientY:client.y,detail:1});assert.equal(moves.length,1);assert.equal(f.timers.size,timerCount);almost(moves[0].x,point.x);almost(moves[0].y,point.y);
+  f.input('click',{clientX:client.x,clientY:client.y,detail:2});f.input('dblclick');assert.equal(moves.length,1,'native double click does not issue another destination');
+  for(const selector of ['[data-device]','[data-position]','[data-human]','[data-name-for]','[data-shared-space]','.cnl-office-fitting','.cnl-landscape']){const target={closest:query=>query.includes(selector)?{}:null};f.input('click',{clientX:client.x,clientY:client.y,target});assert.equal(moves.length,1,selector);}
+  f.input('pointerdown',{clientX:client.x,clientY:client.y});f.input('pointermove',{clientX:client.x+20,clientY:client.y+12});f.input('pointerup');f.input('click',{clientX:client.x+20,clientY:client.y+12});assert.equal(moves.length,1,'panning never submits a walk');
  }finally{f.destroy();}
- assert.equal(f.timers.size,0);
 });
 
 test('blank department floors request movement inside the named department without opening its ERP dialog',()=>{
@@ -646,9 +643,9 @@ test('repeated physical network targets consume their own events without submitt
  }finally{f.destroy();}
 });
 
-test('selecting a public wall panel cancels a pending floor walk without triggering another action',()=>{
+test('opening a public wall panel does not enqueue a second floor walk',()=>{
  const selected=[],moves=[],f=sceneFixture({onSelectBulletin:id=>selected.push(id),onMovePoint:point=>moves.push(point)},{timers:true});try{
-  const point=f.screen({x:500,y:740});f.input('click',{clientX:point.x,clientY:point.y});const panel=f.groups.get('[data-bulletin-section]')[0];panel.listeners.get('click')({stopPropagation(){}});f.advanceTimers(500);assert.deepEqual(selected,['dashboard']);assert.deepEqual(moves,[]);
+  const point=f.screen({x:500,y:740});f.input('click',{clientX:point.x,clientY:point.y});const panel=f.groups.get('[data-bulletin-section]')[0];panel.listeners.get('click')({stopPropagation(){}});f.advanceTimers(500);assert.deepEqual(selected,['dashboard']);assert.equal(moves.length,1,'the already requested walk remains independent of opening content');
  }finally{f.destroy();}
 });
 
@@ -680,12 +677,11 @@ test('2D area framing leaves manual zoom available, and limits reverse immediate
  const f=sceneFixture({}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.drain();const fitted=sceneScale(f),world={x:960,y:520},at=f.screen(world);f.input('wheel',{deltaY:-80,clientX:at.x,clientY:at.y});f.drain();assert.ok(sceneScale(f)>fitted);almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);f.scene.zoom(100);f.drain();almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);f.input('wheel',{deltaY:-100});assert.equal(f.pending.size,0,'an exhausted limit does not start another camera animation');f.input('wheel',{deltaY:1});f.drain();assert.ok(sceneScale(f)<OFFICE_CAMERA_LIMITS.maxManualScale);f.input('gesturestart');f.input('gesturechange',{scale:100});almost(sceneScale(f),OFFICE_CAMERA_LIMITS.maxManualScale);f.input('gesturechange',{scale:99});assert.ok(sceneScale(f)<OFFICE_CAMERA_LIMITS.maxManualScale);f.input('gesturechange',{scale:.00001});almost(sceneScale(f),OFFICE_CAMERA_LIMITS.minScale);f.input('gesturechange',{scale:.000011});assert.ok(sceneScale(f)>OFFICE_CAMERA_LIMITS.minScale);f.input('gestureend');f.drain();}finally{f.destroy();}
 });
 test('2D manual input cancels an unfinished automatic journey at the visible frame and dragging works over teams and seats',()=>{
- const actions=[],f=sceneFixture({onEnterArea:id=>actions.push(id),onSelectSeat:id=>actions.push(id)}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.frame();f.frame();const visible=sceneScale(f),world={x:800,y:500},at=f.screen(world);f.input('wheel',{deltaY:-16,clientX:at.x,clientY:at.y});f.drain();almost(sceneScale(f),officeWheelScale(visible,-16));almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);f.scene.focusArea('ai_data_team_1');f.drain();const team=f.groups.get('[data-team]')[0],seat=f.groups.get('[data-position]').find(el=>el.dataset.visible==='true');for(const el of [team,seat]){const before=f.screen(world);f.input('pointerdown',{target:eventTarget(el),clientX:400,clientY:300});f.input('pointermove',{clientX:480,clientY:330});f.input('pointerup');const after=f.screen(world);almost(after.x,before.x+80);almost(after.y,before.y+30);const click=f.input('click',{target:eventTarget(el)});assert.equal(click.stopped,true);assert.deepEqual(actions,[]);f.frame();}f.drain();assert.equal(f.svg.captured.size,0);}finally{f.destroy();}
+ const actions=[],f=sceneFixture({onEnterArea:id=>actions.push(id),onSelectSeat:id=>actions.push(id)}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.frame();f.frame();const visible=sceneScale(f),world={x:800,y:500},at=f.screen(world);f.input('wheel',{deltaY:-16,ctrlKey:true,clientX:at.x,clientY:at.y});f.drain();almost(sceneScale(f),officeWheelScale(visible,-16));almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);f.scene.focusArea('ai_data_team_1');f.drain();const team=f.groups.get('[data-team]')[0],seat=f.groups.get('[data-position]').find(el=>el.dataset.visible==='true');for(const el of [team,seat]){const before=f.screen(world);f.input('pointerdown',{target:eventTarget(el),clientX:400,clientY:300});f.input('pointermove',{clientX:480,clientY:330});f.input('pointerup');const after=f.screen(world);almost(after.x,before.x+80);almost(after.y,before.y+30);const click=f.input('click',{target:eventTarget(el)});assert.equal(click.stopped,true);assert.deepEqual(actions,[]);f.frame();}f.drain();assert.equal(f.svg.captured.size,0);}finally{f.destroy();}
 });
-test('2D automatic framing finishes before caching while manual input keeps the exact visible state across switches',()=>{
- const f=sceneFixture({}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.frame();f.frame();f.scene.setActive(false);f.scene.setActive(true);f.drain();const completed=f.svg.attrs.viewBox;f.scene.focusArea('ai_data_team_1');f.drain();assert.equal(f.svg.attrs.viewBox,completed);f.input('wheel',{deltaY:-80});f.frame();f.frame();const manual=f.svg.attrs.viewBox;f.scene.setActive(false);f.scene.setActive(true);f.drain();assert.equal(f.svg.attrs.viewBox,manual);f.input('pointerdown',{clientX:400,clientY:300});f.input('pointermove',{clientX:450,clientY:320});f.doc.hidden=true;f.visibility.get('visibilitychange')();assert.equal(f.svg.captured.size,0);f.doc.hidden=false;f.visibility.get('visibilitychange')();const resumed=f.svg.attrs.viewBox;f.input('pointermove',{clientX:600,clientY:400});f.drain();assert.equal(f.svg.attrs.viewBox,resumed);}finally{f.destroy();}
+test('2D view caching preserves the exact visible camera even when automatic fit was incomplete',()=>{
+ const f=sceneFixture({}, {frames:true});try{f.drain();f.scene.focusArea('ai_data_team_1');f.frame();f.frame();const visible=f.svg.attrs.viewBox;f.scene.setActive(false);f.scene.setActive(true);f.drain();assert.equal(f.svg.attrs.viewBox,visible);f.scene.focusArea('ai_data_team_1');f.drain();f.input('wheel',{deltaY:-80});f.frame();f.frame();const manual=f.svg.attrs.viewBox;f.scene.setActive(false);f.scene.setActive(true);f.drain();assert.equal(f.svg.attrs.viewBox,manual);f.input('pointerdown',{clientX:400,clientY:300});f.input('pointermove',{clientX:450,clientY:320});f.doc.hidden=true;f.visibility.get('visibilitychange')();assert.equal(f.svg.captured.size,0);f.doc.hidden=false;f.visibility.get('visibilitychange')();const resumed=f.svg.attrs.viewBox;f.input('pointermove',{clientX:600,clientY:400});f.drain();assert.equal(f.svg.attrs.viewBox,resumed);}finally{f.destroy();}
 });
-
 
 test('reversing 2D wheel or zoom mid-animation changes direction from the visible frame immediately',()=>{
  const f=sceneFixture({}, {frames:true});try{f.drain();f.input('wheel',{deltaY:-180});f.frame();f.frame();const before=sceneScale(f);assert.ok(before>1);f.input('wheel',{deltaY:8});f.frame();f.frame();assert.ok(sceneScale(f)<before,'a small reverse input cannot continue toward the previous zoom-in target');f.drain();f.scene.zoom(5);f.frame();f.frame();const zoomed=sceneScale(f);f.scene.zoom(-.1);f.frame();f.frame();assert.ok(sceneScale(f)<zoomed);f.drain();}finally{f.destroy();}
@@ -813,4 +809,11 @@ test('249 online identities stay retained while overview and department visibili
   f.scene.focusArea('ai_data');f.drain();assert.equal(visible().length,249);assert.equal(Object.keys(f.scene.getPresenceState().positions).length,249);
   f.scene.zoom(1);f.drain();assert.equal(visible().length,249);f.scene.resetView();f.drain();assert.equal(visible().length,primary.filter(seat=>seat.overviewVisible).length);
  }finally{f.destroy();}
+});
+
+test('2D local movement withstands heartbeat and same-account outfit changes, while name hits open the person rather than the desk',()=>{
+ const selected=[],seats=[],f=sceneFixture({onSelectPostEmployee:id=>selected.push(id),onSelectSeat:id=>seats.push(id)},{frames:true});const post=OFFICE_OVERVIEW_SEATS.find(s=>s.departmentId==='research');try{
+  setOrganizationOccupants([{personId:post.personId,name:'同事',seatIds:[post.id],outfitId:'linen'}]);f.scene.update({animateEvents:false});const name=f.layers.get('.cnl-name-layer').children.find(el=>el.dataset.nameFor==='post:'+post.id);assert.ok(name);assert.match(name.innerHTML,/class="cnl-name-hit"[^>]+style="pointer-events:all"/);name.listeners.get('click')({preventDefault(){},stopPropagation(){}});assert.deepEqual(selected,[post.id]);assert.deepEqual(seats,[]);
+  const person={id:'me',name:'自己',online:true,x:500,y:740,nodeId:'research',outfitId:'linen'};f.scene.setPresence({enabled:true,currentUserId:'me',people:[person]});f.scene.setLocalPresencePoint('me',{x:520,y:740},{moving:true});f.scene.setPresence({enabled:true,currentUserId:'me',people:[{...person,outfitId:'marine'}]});assert.deepEqual(f.scene.getPresenceState().positions.me,{x:520,y:740});assert.match(f.layers.get('.cnl-presence-layer').children[0].innerHTML,/data-outfit="marine"/);f.scene.clearLocalPresencePoint('me');f.drain();assert.deepEqual(f.scene.getPresenceState().positions.me,{x:500,y:740});
+ }finally{setOrganizationOccupants([]);f.destroy();}
 });

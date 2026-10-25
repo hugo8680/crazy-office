@@ -272,6 +272,7 @@ type OrganizationMember struct {
 	SeatIDs             []string `json:"seatIds"`
 	Title               string   `json:"title"`
 	Placeholder         bool     `json:"placeholder"`
+	OutfitID            string   `json:"outfitId,omitempty"`
 }
 
 func (s *Store) ListOrganization(actorID string) ([]OrganizationMember, error) {
@@ -285,7 +286,7 @@ func (s *Store) ListOrganization(actorID string) ([]OrganizationMember, error) {
 		if e.Status != "active" || e.OrganizationPersonID == "" || len(e.OrganizationSeatIDs) == 0 || len(e.DepartmentIDs) == 0 {
 			continue
 		}
-		out = append(out, OrganizationMember{PersonID: e.OrganizationPersonID, Username: e.Username, Name: e.Name, PrimaryDepartmentID: e.DepartmentIDs[0], DepartmentIDs: append([]string(nil), e.DepartmentIDs...), Departments: append([]string(nil), e.Departments...), SeatIDs: append([]string(nil), e.OrganizationSeatIDs...), Title: e.Title, Placeholder: e.Placeholder})
+		out = append(out, OrganizationMember{PersonID: e.OrganizationPersonID, Username: e.Username, Name: e.Name, PrimaryDepartmentID: e.DepartmentIDs[0], DepartmentIDs: append([]string(nil), e.DepartmentIDs...), Departments: append([]string(nil), e.Departments...), SeatIDs: append([]string(nil), e.OrganizationSeatIDs...), Title: e.Title, Placeholder: e.Placeholder, OutfitID: e.OutfitID})
 	}
 	return out, nil
 }

@@ -176,6 +176,7 @@ func enrichPresence(p M, a *identity.Actor) {
 		key = a.OrganizationSeatIDs[0]
 	}
 	p["name"], p["department"], p["title"], p["appearanceKey"] = a.Name, a.Department, a.Title, key
+	p["outfitId"] = a.OutfitID
 }
 
 // LeaveOffice is retained for trusted server-side administrative cleanup.
