@@ -51,18 +51,20 @@ export function createOffice3DAssets() {
 
 export function createOffice3DLayout(assets) {
   const root=new THREE.Group();root.name='office-architecture';
-  const batches=new Map(),overviewBatches=new Map(),detailBatches=new Map(),departmentBatches=new Map(),departmentRoots=new Map(),object=new THREE.Object3D();let activeBatches=batches,activeSeatId=null,activeBodySeatId=null,activeBodyPart=null;const c=OFFICE3D_COLORS;
+  const batches=new Map(),overviewBatches=new Map(),detailBatches=new Map(),departmentBatches=new Map(),departmentRoots=new Map(),object=new THREE.Object3D();let activeBatches=batches,activeSeatId=null,activeBodySeatId=null,activeBodyPart=null,activeDepartmentId=null;const c=OFFICE3D_COLORS;
+  const roomsById=new Map(OFFICE3D_ROOMS.map(room=>[room.id,room])),hoverScales=new Map(),hoverTweens=new Map(),hoverEntries=new Map(),hoverMatrix=new THREE.Matrix4(),hoverResult=new THREE.Matrix4();let hoveredDepartmentId=null;
   const primarySeats=new Map(OFFICE_SEATS.filter(seat=>seat.primarySeat).map(seat=>[seat.personId,seat.id]));
   const primarySeatId=seat=>primarySeats.get(seat.personId)||seat.id;
-  const newBatch=kind=>({geometry:([...departmentBatches.values()].includes(activeBatches)&&assets.compactGeometries[kind])||assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],colors:[],owners:[],bodyOwners:[],bodyParts:[]});
+  const newBatch=kind=>({geometry:([...departmentBatches.values()].includes(activeBatches)&&assets.compactGeometries[kind])||assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],liveMatrices:[],colors:[],owners:[],bodyOwners:[],bodyParts:[],departments:[]});
   const statusLights=new Map(),nodeAnchors=new Map(),statistics={staticInstances:0,desks:0,people:0,racks:0,plants:0,rooms:OFFICE3D_ROOMS.length};
-  function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){const key=kind;if(!activeBatches.has(key))activeBatches.set(key,newBatch(kind));object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);activeBatches.get(key).bodyOwners.push(activeBodySeatId);activeBatches.get(key).bodyParts.push(activeBodyPart);statistics.staticInstances++;}
+  function recordPart(kind,color){if(!activeBatches.has(kind))activeBatches.set(kind,newBatch(kind));const batch=activeBatches.get(kind);batch.matrices.push(object.matrix.clone());batch.colors.push(color);batch.owners.push(activeSeatId);batch.bodyOwners.push(activeBodySeatId);batch.bodyParts.push(activeBodyPart);batch.departments.push(roomsById.has(activeDepartmentId)?activeDepartmentId:null);statistics.staticInstances++;}
+  function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();recordPart(kind,color);}
   const box=(color,x,y,z,w,h,d,ry=0)=>part('box',color,x,y,z,w,h,d,0,ry);
   const round=(color,x,y,z,w,h,d,ry=0)=>part('round',color,x,y,z,w,h,d,0,ry);
   const slab=(color,x,y,z,w,h,d,ry=0)=>part('slab',color,x,y,z,w,h,d,0,ry);
   const cyl=(color,x,y,z,r,h)=>part('cylinder',color,x,y,z,r,h,r);
   const ball=(color,x,y,z,rx,ry=rx,rz=rx)=>part('sphere',color,x,y,z,rx,ry,rz);
-  function stem(a,b,r,color){const from=new THREE.Vector3(...a),to=new THREE.Vector3(...b),mid=from.clone().add(to).multiplyScalar(.5);object.position.copy(mid);object.scale.set(r,from.distanceTo(to),r);object.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),to.sub(from).normalize());object.updateMatrix();const key='cylinder';if(!activeBatches.has(key))activeBatches.set(key,newBatch(key));activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);activeBatches.get(key).bodyOwners.push(activeBodySeatId);activeBatches.get(key).bodyParts.push(activeBodyPart);statistics.staticInstances++;}
+  function stem(a,b,r,color){const from=new THREE.Vector3(...a),to=new THREE.Vector3(...b),mid=from.clone().add(to).multiplyScalar(.5);object.position.copy(mid);object.scale.set(r,from.distanceTo(to),r);object.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),to.sub(from).normalize());object.updateMatrix();recordPart('cylinder',color);}
   function plant(x,z,s=1){statistics.plants++;cyl(c.pot,x,7*s,z,7*s,12*s);cyl('#b9aa91',x,13*s,z,6.3*s,1.3*s);cyl('#706c55',x,13.6*s,z,5.8*s,1*s);for(let i=0;i<6;i++){const a=i*2.399,high=(22+i*2.6)*s,dx=Math.cos(a)*(7+i%2*3)*s,dz=Math.sin(a)*(7+i%2*3)*s;stem([x,13*s,z],[x+dx,high,z+dz],.65*s,c.darkLeaf);part('sphere',i%2?c.leaf:c.darkLeaf,x+dx,high+3*s,z+dz,3.2*s,8*s,1.5*s,.3, -a,.35);}}
   function mug(x,z,y=27,s=1){cyl('#f8f6ed',x,y+3.4*s,z,2.8*s,6.4*s);cyl('#9a795d',x,y+6.7*s,z,2.2*s,.25*s);part('torus','#f8f6ed',x+2.8*s,y+3.5*s,z,2.1*s,2.1*s,2.1*s,0,0,0);}
   function paper(x,z,y=27,w=11,d=13,ry=0){round(c.paper,x,y,z,w,.6,d,ry);for(let i=0;i<3;i++)box('#b9bdb2',x,y+.35,z-3+i*2.2,w*.58,.14,.55,ry);}
@@ -168,6 +170,7 @@ export function createOffice3DLayout(assets) {
     side('right',x+w,z,z+d,13);side('bottom',z+d,x,x+w,8);
   }
   for(const room of OFFICE3D_ROOMS){
+    activeDepartmentId=room.id;
     slab(c.foundation,room.x+room.w/2,-5,room.z+room.d/2,room.w+10,10,room.d+10);
     slab(room.floor,room.x+room.w/2,.95,room.z+room.d/2,room.w,1.3,room.d);
     boundary(room);
@@ -179,6 +182,7 @@ export function createOffice3DLayout(assets) {
       box('#9aafa4',team.x+team.w/2,2.2,team.y+9,team.w-18,.25,.8);
     }
   }
+  activeDepartmentId=null;
   for(const area of OFFICE_SHARED_AREAS){
     slab('#b7bda7',area.x+area.w/2,-5,area.y+area.h/2,area.w+10,10,area.h+10);
     slab('#e4dcca',area.x+area.w/2,.9,area.y+area.h/2,area.w,1.5,area.h);
@@ -208,7 +212,7 @@ export function createOffice3DLayout(assets) {
       for(let at=-w*.43;at<=w*.43;at+=18)ball(at%36?'#95ae86':'#809e77',x+at,16,z,9,9,d*.52);
     }else if(item.kind==='stepping_stone')slab('#d8d9c7',x,2.2,z,w,2,d,yaw);
   }
-  OFFICE_LANDSCAPE.forEach(landscape);statistics.landscape=OFFICE_LANDSCAPE.length;
+  for(const item of OFFICE_LANDSCAPE){activeDepartmentId=item.roomId;landscape(item);}activeDepartmentId=null;statistics.landscape=OFFICE_LANDSCAPE.length;
   function furnishing(item) {
     const yaw=item.rotation*Math.PI/180,cs=Math.cos(yaw),sn=Math.sin(yaw),{x,y:z,w,h:d}=item;
     const local=(kind,color,dx,yy,dz,ww,hh,dd)=>part(kind,color,x+dx*cs+dz*sn,yy,z-dx*sn+dz*cs,ww,hh,dd,0,yaw);
@@ -248,7 +252,7 @@ export function createOffice3DLayout(assets) {
       local('round','#d4bb8d',w*.29,28,2.2,9,10,.3);
     }
   }
-  OFFICE_FITTINGS.forEach(furnishing);statistics.fittings=OFFICE_FITTINGS.length;
+  for(const item of OFFICE_FITTINGS){activeDepartmentId=item.roomId;furnishing(item);}activeDepartmentId=null;statistics.fittings=OFFICE_FITTINGS.length;
   const recreation=OFFICE_RECREATION_AREA;
   slab('#d6d7bf',recreation.x+recreation.w/2,1.2,recreation.y+recreation.h/2,recreation.w,1.8,recreation.h);
   // Rubber workout mat, a compact treadmill and a real barbell rack.
@@ -345,7 +349,7 @@ export function createOffice3DLayout(assets) {
     }
   }
   OFFICE_SEATS.forEach((seat,index)=>{
-    const key=seatGroupById.get(seat.id);activeSeatId=seat.id;
+    const key=seatGroupById.get(seat.id);activeSeatId=seat.id;activeDepartmentId=seat.departmentId;
     if(detailSeatIds.has(seat.id)){if(!detailBatches.has(key))detailBatches.set(key,new Map());activeBatches=detailBatches.get(key);workstation(officeSeatForView(seat,{detail:true}),index);}
     if(overviewSeatIds.has(seat.id)){activeBatches=overviewBatches;workstation(officeSeatForView(seat),index);}
     // The compact campus has fewer representative desks. Its focused
@@ -358,7 +362,7 @@ export function createOffice3DLayout(assets) {
   });
   // A full team is a separate local room. Its furniture uses display geometry;
   // its employee identities and canonical presence coordinates stay unchanged.
-  activeSeatId=null;
+  activeSeatId=null;activeDepartmentId=null;
   for(const info of seatGroups.values()){
     const bounds=info.region.detailBounds;if(!bounds)continue;
     if(!detailBatches.has(info.id))detailBatches.set(info.id,new Map());activeBatches=detailBatches.get(info.id);
@@ -471,9 +475,9 @@ export function createOffice3DLayout(assets) {
   function status(id,x,y,z){const mesh=new THREE.Mesh(assets.geometries.sphere,assets.material('#7d9e76'));mesh.scale.set(1.8,1.8,1.2);mesh.position.set(x,y,z);root.add(mesh);statusLights.set(id,mesh);nodeAnchors.set(id,{x,y,z});}
   const networkIds=new Set(['internet','firewall','core','server','storage','ups','access']);
   const network=OFFICE_NODE_ANCHORS;
-  rack(network.server.x-21,network.server.y);rack(network.server.x+21,network.server.y);
+  activeDepartmentId='maintenance';rack(network.server.x-21,network.server.y);rack(network.server.x+21,network.server.y);
   for(const [id,anchor]of Object.entries(network)){
-    if(id==='bulletin')continue;const {x,y:z}=anchor;
+    if(id==='bulletin')continue;activeDepartmentId=anchor.departmentId;const {x,y:z}=anchor;
     if(networkIds.has(id)){
       if(id==='firewall'){round('#e5decc',x,19,z,42,32,28);box('#b7a27c',x,20,z+14.5,30,15,1);for(const dx of[-16,16])cyl('#738575',x+dx,40,z-6,1,17);}
       else if(id==='ups'){round('#d5d3bc',x,21,z,30,39,24);round('#597264',x,28,z+12.5,20,9,1);box('#bba15f',x,15,z+13,4,8,.5);}
@@ -483,16 +487,24 @@ export function createOffice3DLayout(assets) {
     }
     status(id,x,id==='server'?69:networkIds.has(id)?25:6,z);
   }
+  activeDepartmentId=null;
   nodeAnchors.set('bulletin',{x:noticeBoard.x,y:35,z:noticeBoard.y});
   const detailMaterials=new Set();
+  function writeInstance(batch,index,matrix){
+    const live=batch.liveMatrices[index]||(batch.liveMatrices[index]=new THREE.Matrix4());if(live!==matrix)live.copy(matrix);
+    const room=roomsById.get(batch.departments[index]),factor=room?(hoverScales.get(room.id)||1):1;
+    if(factor===1)batch.mesh.setMatrixAt(index,live);
+    else{hoverMatrix.makeScale(factor,factor,factor);hoverMatrix.elements[12]=(room.x+room.w/2)*(1-factor);hoverMatrix.elements[14]=(room.y+room.h/2)*(1-factor);hoverResult.multiplyMatrices(hoverMatrix,live);batch.mesh.setMatrixAt(index,hoverResult);}
+  }
   function emit(map,parent){
     for(const batch of map.values()){
       const fadingLayer=[...departmentBatches.values()].includes(map);
       if(fadingLayer&&!batch.fadeMaterial){batch.fadeMaterial=batch.material.clone();detailMaterials.add(batch.fadeMaterial);}
       const instanced=new THREE.InstancedMesh(batch.geometry,batch.fadeMaterial||batch.material,batch.matrices.length);
       instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      batch.matrices.forEach((matrix,index)=>{instanced.setMatrixAt(index,matrix);instanced.setColorAt(index,new THREE.Color(batch.colors[index]));});
-      instanced.computeBoundingSphere();instanced.userData.bodySeats=Object.freeze([...batch.bodyOwners]);instanced.userData.bodyParts=Object.freeze([...batch.bodyParts]);batch.mesh=instanced;parent.add(instanced);
+      batch.mesh=instanced;batch.liveMatrices=[];
+      batch.matrices.forEach((matrix,index)=>{writeInstance(batch,index,matrix);instanced.setColorAt(index,new THREE.Color(batch.colors[index]));});
+      instanced.computeBoundingSphere();instanced.boundingSphere.radius+=22;instanced.userData.bodySeats=Object.freeze([...batch.bodyOwners]);instanced.userData.bodyParts=Object.freeze([...batch.bodyParts]);instanced.userData.departmentOwners=Object.freeze([...batch.departments]);parent.add(instanced);
       if(batch.owners.some(id=>id?.startsWith('facility:')))instanced.userData.facilityOwners=Object.freeze(batch.owners.map(id=>id?.startsWith('facility:')?id.slice(9):null));
     }
   }
@@ -500,38 +512,40 @@ export function createOffice3DLayout(assets) {
   const overviewRoot=new THREE.Group();overviewRoot.name='organization-overview';root.add(overviewRoot);emit(overviewBatches,overviewRoot);
   for(const [id,map]of detailBatches){const group=new THREE.Group();group.name=`organization-detail-${id}`;group.visible=false;root.add(group);seatGroups.get(id).root=group;emit(map,group);}
   for(const [id,map]of departmentBatches){const group=new THREE.Group();group.name=`organization-department-${id}`;group.visible=false;root.add(group);departmentRoots.set(id,group);emit(map,group);}
-  const departmentHover=new THREE.Group();departmentHover.name='department-hover';departmentHover.visible=false;
-  // The team platforms reach y=2.8. Keep the feedback above every floor,
-  // below furniture, and independent of the warm scene lighting. A four-piece
-  // inset rim has a real world-space width on all WebGL implementations.
-  const hoverFillMaterial=new THREE.MeshBasicMaterial({color:'#38a88b',transparent:true,opacity:.2,depthWrite:false,toneMapped:false});
-  const hoverRimMaterial=new THREE.MeshBasicMaterial({color:'#377e6c',transparent:true,opacity:.88,depthWrite:false,toneMapped:false});
-  const hoverPlane=new THREE.Mesh(assets.geometries.slab,hoverFillMaterial);hoverPlane.name='department-hover-fill';hoverPlane.position.y=3.04;hoverPlane.renderOrder=1;
-  const hoverRim=new THREE.InstancedMesh(assets.geometries.box,hoverRimMaterial,4);hoverRim.name='department-hover-rim';hoverRim.renderOrder=2;
-  departmentHover.add(hoverPlane,hoverRim);root.add(departmentHover);
-  const assetDispose=assets.dispose.bind(assets);assets.dispose=()=>{hoverFillMaterial.dispose();hoverRimMaterial.dispose();assetDispose();};
-  let hoveredDepartmentId=null;
-  function setHoveredDepartment(id){
-    const room=OFFICE3D_ROOMS.find(room=>room.id===id),next=localTeamId?null:room?.id||null;if(next===hoveredDepartmentId)return false;
-    hoveredDepartmentId=next;departmentHover.visible=!!next;
-    if(next){
-      departmentHover.position.set(room.x+room.w/2,0,room.y+room.h/2);hoverPlane.scale.set(room.w-14,.08,room.h-14);hoverPlane.updateMatrix();
-      const rimWidth=2.8,inset=7.5;
-      for(const [index,x,z,w,d]of[[0,0,-room.h/2+inset,room.w-inset*2,rimWidth],[1,0,room.h/2-inset,room.w-inset*2,rimWidth],[2,-room.w/2+inset,0,rimWidth,room.h-inset*2],[3,room.w/2-inset,0,rimWidth,room.h-inset*2]]){
-        object.position.set(x,3.16,z);object.rotation.set(0,0,0);object.scale.set(w,.2,d);object.updateMatrix();hoverRim.setMatrixAt(index,object.matrix);
-      }
-      hoverRim.instanceMatrix.needsUpdate=true;hoverRim.computeBoundingSphere();departmentHover.updateMatrix();
-      // The renderer freezes static world matrices after mounting. A hover is
-      // an explicit transform change, so compose its small dynamic subtree
-      // even when matrixWorldAutoUpdate is disabled for the architecture.
-      departmentHover.matrixWorld.multiplyMatrices(root.matrixWorld,departmentHover.matrix);
-      for(const child of departmentHover.children){child.updateMatrix();child.matrixWorld.multiplyMatrices(departmentHover.matrixWorld,child.matrix);child.matrixWorldNeedsUpdate=false;}
-      departmentHover.matrixWorldNeedsUpdate=false;
+  function indexHoverEntries(){
+    hoverEntries.clear();
+    for(const map of[batches,overviewBatches,...detailBatches.values(),...departmentBatches.values()])for(const batch of map.values()){
+      const grouped=new Map();batch.departments.forEach((id,index)=>{if(!id)return;if(!grouped.has(id))grouped.set(id,{batch,indices:[],ranges:[]});const entry=grouped.get(id),last=entry.ranges.at(-1);entry.indices.push(index);if(last&&last.start+last.count===index)last.count++;else entry.ranges.push({start:index,count:1});});
+      for(const [id,entry]of grouped){if(!hoverEntries.has(id))hoverEntries.set(id,[]);hoverEntries.get(id).push(entry);}
     }
+  }indexHoverEntries();
+  function applyDepartmentScale(id,factor){
+    if((hoverScales.get(id)||1)===factor)return false;if(factor===1)hoverScales.delete(id);else hoverScales.set(id,factor);
+    const room=roomsById.get(id);hoverMatrix.makeScale(factor,factor,factor);hoverMatrix.elements[12]=(room.x+room.w/2)*(1-factor);hoverMatrix.elements[14]=(room.y+room.h/2)*(1-factor);
+    for(const {batch,indices,ranges}of hoverEntries.get(id)||[]){
+      for(const index of indices){const live=batch.liveMatrices[index];if(factor===1)batch.mesh.setMatrixAt(index,live);else{hoverResult.multiplyMatrices(hoverMatrix,live);batch.mesh.setMatrixAt(index,hoverResult);}}
+      for(const range of ranges)batch.mesh.instanceMatrix.addUpdateRange(range.start*16,range.count*16);batch.mesh.instanceMatrix.needsUpdate=true;
+    }
+    for(const [key,mesh]of statusLights){const anchor=OFFICE_NODE_ANCHORS[key];if(anchor?.departmentId!==id)continue;const point=hoverPoint({x:anchor.x,y:anchor.y},key==='server'?69:networkIds.has(key)?25:6,id);mesh.position.set(point.x,point.height,point.y);mesh.scale.set(1.8*factor,1.8*factor,1.2*factor);mesh.updateMatrix();mesh.matrixWorld.multiplyMatrices(root.matrixWorld,mesh.matrix);mesh.matrixWorldNeedsUpdate=false;}
     return true;
   }
+  function pointRoom(point,id=null){return roomsById.get(id)||roomsById.get(point?.departmentId)||OFFICE3D_ROOMS.find(room=>point?.x>=room.x&&point.x<=room.x+room.w&&point?.y>=room.y&&point.y<=room.y+room.h)||null;}
+  function hoverScaleAt(point,departmentId=null){const room=pointRoom(point,departmentId);return room&&!localTeamId?(hoverScales.get(room.id)||1):1;}
+  function hoverPoint(point,altitude=0,departmentId=null){const room=pointRoom(point,departmentId),factor=hoverScaleAt(point,departmentId),cx=room?room.x+room.w/2:0,cy=room?room.y+room.h/2:0;return {x:cx+(point.x-cx)*factor,y:cy+(point.y-cy)*factor,height:altitude*factor};}
+  function inverseHoverPoint(point,departmentId=null){
+    const room=roomsById.get(departmentId)||OFFICE3D_ROOMS.find(room=>{const factor=hoverScales.get(room.id)||1,cx=room.x+room.w/2,cy=room.y+room.h/2;return factor>1&&point.x>=cx-room.w*factor/2&&point.x<=cx+room.w*factor/2&&point.y>=cy-room.h*factor/2&&point.y<=cy+room.h*factor/2;})||pointRoom(point),factor=room&&!localTeamId?(hoverScales.get(room.id)||1):1,cx=room?room.x+room.w/2:0,cy=room?room.y+room.h/2:0;
+    return {x:cx+(point.x-cx)/factor,y:cy+(point.y-cy)/factor};
+  }
+  function setHoveredDepartment(id,{animate=false}={}){
+    const next=!localTeamId&&roomsById.has(id)?id:null;if(next===hoveredDepartmentId&&(animate||!hoverTweens.size))return false;hoveredDepartmentId=next;
+    const ids=new Set([...hoverScales.keys(),...hoverTweens.keys(),...(next?[next]:[])]);
+    for(const key of ids){const from=hoverScales.get(key)||1,to=key===next?1.025:1;if(animate&&Math.abs(from-to)>1e-8)hoverTweens.set(key,{from,to,started:null});else{hoverTweens.delete(key);applyDepartmentScale(key,to);}}
+    return true;
+  }
+  function tickDepartmentHover(now=0){let changed=false;for(const [id,tween]of hoverTweens){tween.started??=now;const progress=Math.max(0,Math.min(1,(now-tween.started)/180)),eased=progress*progress*(3-2*progress);changed=applyDepartmentScale(id,progress===1?tween.to:tween.from+(tween.to-tween.from)*eased)||changed;if(progress===1)hoverTweens.delete(id);}return changed;}
+  function finishDepartmentHover(){if(!hoverTweens.size)return false;for(const [id,tween]of hoverTweens)applyDepartmentScale(id,tween.to);hoverTweens.clear();return true;}
   let detailed=new Set(),away=new Set(),localTeamId=null,departmentDetailId=null,bulletinOccluded=false;
-  const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)&&child!==departmentHover).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
+  const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
   // Full writes must cover subsequent partial animation writes in the same
   // frame. needsUpdate alone still leaves Three's previous updateRanges active.
   function uploadFullBatch(batch){const attribute=batch.mesh.instanceMatrix;attribute.clearUpdateRanges();attribute.addUpdateRange(0,attribute.array.length);attribute.needsUpdate=true;}
@@ -554,18 +568,18 @@ export function createOffice3DLayout(assets) {
       const parent=map.values().next().value.mesh.parent;
       for(const batch of map.values()){
         const keep=batch.matrices.map((_,index)=>index).filter(index=>!changed.has(batch.bodyOwners[index]));statistics.staticInstances-=batch.matrices.length-keep.length;
-        for(const field of['matrices','colors','owners','bodyOwners','bodyParts'])batch[field]=keep.map(index=>batch[field][index]);parent.remove(batch.mesh);batch.mesh.dispose();
+        for(const field of['matrices','colors','owners','bodyOwners','bodyParts','departments'])batch[field]=keep.map(index=>batch[field][index]);parent.remove(batch.mesh);batch.mesh.dispose();
       }
-      activeBatches=map;for(const seat of affected){activeSeatId=seat.id;const geometry=map===overviewBatches?officeSeatForView(seat):[...departmentBatches.values()].includes(map)?seat:officeSeatForView(seat,{detail:true});seatedPost(geometry);}
+      activeBatches=map;for(const seat of affected){activeSeatId=seat.id;activeDepartmentId=seat.departmentId;const geometry=map===overviewBatches?officeSeatForView(seat):[...departmentBatches.values()].includes(map)?seat:officeSeatForView(seat,{detail:true});seatedPost(geometry);}
       emit(map,parent);
-      for(const batch of map.values()){batch.owners.forEach((id,index)=>{const hidden=hiddenInstance(batch,index,map===overviewBatches);if(hidden)batch.mesh.setMatrixAt(index,zeroMatrix);});uploadFullBatch(batch);batch.mesh.updateMatrixWorld(true);batch.mesh.matrixAutoUpdate=false;batch.mesh.matrixWorldAutoUpdate=false;}
+      for(const batch of map.values()){batch.owners.forEach((id,index)=>{const hidden=hiddenInstance(batch,index,map===overviewBatches);if(hidden)writeInstance(batch,index,zeroMatrix);});uploadFullBatch(batch);batch.mesh.updateMatrixWorld(true);batch.mesh.matrixAutoUpdate=false;batch.mesh.matrixWorldAutoUpdate=false;}
     }
-    activeBatches=batches;activeSeatId=null;statistics.people=peopleCount;indexPoseParts();return true;
+    activeBatches=batches;activeSeatId=null;activeDepartmentId=null;statistics.people=peopleCount;indexPoseParts();indexHoverEntries();return true;
   }
   const idlePartSets={look:new Set(['head']),nod:new Set(['head']),typing:new Set(['head','leftLower','rightLower']),wave:new Set(['head','leftUpper','leftLower']),stretch:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower']),settle:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower'])};
   const poseMatrix=new THREE.Matrix4(),bodyPose=new THREE.Matrix4(),headPose=new THREE.Matrix4(),leftUpperPose=new THREE.Matrix4(),leftLowerPose=new THREE.Matrix4(),rightUpperPose=new THREE.Matrix4(),rightLowerPose=new THREE.Matrix4(),pivotMatrix=new THREE.Matrix4(),poseEuler=new THREE.Euler();
   function pivot(matrix,x,y,z,rx=0,ry=0,rz=0){matrix.makeRotationFromEuler(poseEuler.set(rx,ry,rz));const e=matrix.elements;e[12]=x-e[0]*x-e[4]*y-e[8]*z;e[13]=y-e[1]*x-e[5]*y-e[9]*z;e[14]=z-e[2]*x-e[6]*y-e[10]*z;return matrix;}
-  function restoreIdlePose(id){const activity=idlePoses.get(id);if(!activity)return 0;let changed=0;for(const entry of activity.entries){const {batch,index,overview}=entry,hidden=hiddenInstance(batch,index,overview);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}idlePoses.delete(id);return changed;}
+  function restoreIdlePose(id){const activity=idlePoses.get(id);if(!activity)return 0;let changed=0;for(const entry of activity.entries){const {batch,index,overview}=entry,hidden=hiddenInstance(batch,index,overview);writeInstance(batch,index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}idlePoses.delete(id);return changed;}
   function clearIdlePoses(){let changed=0;for(const id of [...idlePoses.keys()])changed+=restoreIdlePose(id);return changed;}
   function setIdlePose(id,kind,{delay=0,duration=2400,partner=null,startedAt=null}={}){
     const seat=seatsById.get(id),parts=idlePartSets[kind];if(!seat||!seat.primarySeat||!seat.occupantVisible||!parts||away.has(primarySeatId(seat))||!isSeatVisible(id))return false;
@@ -592,7 +606,7 @@ export function createOffice3DLayout(assets) {
       leftUpperPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x-6.3*s,y+29*s,z-2*s,leftX,0,leftZ));leftLowerPose.multiplyMatrices(leftUpperPose,pivot(pivotMatrix,x-6.3*s,y+24*s,z-11*s,leftElbow,0,leftWrist));
       rightUpperPose.multiplyMatrices(bodyPose,pivot(pivotMatrix,x+6.3*s,y+29*s,z-2*s,rightX,0,rightZ));rightLowerPose.multiplyMatrices(rightUpperPose,pivot(pivotMatrix,x+6.3*s,y+24*s,z-11*s,rightElbow,0,0));
       const transforms={torso:bodyPose,head:headPose,leftUpper:leftUpperPose,leftLower:leftLowerPose,rightUpper:rightUpperPose,rightLower:rightLowerPose};
-      for(const entry of activity.entries){const {batch,index,part}=entry;poseMatrix.multiplyMatrices(transforms[part],batch.matrices[index]);batch.mesh.setMatrixAt(index,poseMatrix);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}
+      for(const entry of activity.entries){const {batch,index,part}=entry;poseMatrix.multiplyMatrices(transforms[part],batch.matrices[index]);writeInstance(batch,index,poseMatrix);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}
     }
     return changed;
   }
@@ -601,7 +615,7 @@ export function createOffice3DLayout(assets) {
     const changed=new Set([...next,...away].filter(id=>next.has(id)!==away.has(id)));if(!changed.size)return false;
     for(const id of idlePoses.keys())if(next.has(primarySeatId(seatsById.get(id))))restoreIdlePose(id);
     for(const map of[overviewBatches,...detailBatches.values(),...departmentBatches.values()])for(const batch of map.values()){
-      let uploaded=false;batch.bodyOwners.forEach((key,index)=>{if(!key||!changed.has(key))return;const hidden=next.has(key)||map===overviewBatches&&hiddenOverview(batch.owners[index]);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
+      let uploaded=false;batch.bodyOwners.forEach((key,index)=>{if(!key||!changed.has(key))return;const hidden=next.has(key)||map===overviewBatches&&hiddenOverview(batch.owners[index]);writeInstance(batch,index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
       if(uploaded)batch.mesh.instanceMatrix.needsUpdate=true;
     }
     away=next;return true;
@@ -615,7 +629,7 @@ export function createOffice3DLayout(assets) {
     for(const [child,visible]of campusVisibility)child.visible=!localTeamId&&visible;
     for(const info of seatGroups.values())info.root.visible=next.has(info.id);
     for(const batch of overviewBatches.values()){
-      let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;batch.mesh.setMatrixAt(index,next.has(owner)||departmentBatches.has(departmentDetailId)&&seatsById.get(id)?.departmentId===departmentDetailId||away.has(batch.bodyOwners[index])?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
+      let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;writeInstance(batch,index,next.has(owner)||departmentBatches.has(departmentDetailId)&&seatsById.get(id)?.departmentId===departmentDetailId||away.has(batch.bodyOwners[index])?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
       if(uploaded)batch.mesh.instanceMatrix.needsUpdate=true;
     }
     detailed=next;return true;
@@ -629,13 +643,13 @@ export function createOffice3DLayout(assets) {
     if(hideBulletin!==bulletinOccluded){
       bulletinOccluded=hideBulletin;
       for(const batch of batches.values()){
-        let changed=false;batch.owners.forEach((owner,index)=>{if(owner!=='facility:bulletin')return;batch.mesh.setMatrixAt(index,hideBulletin?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);changed=true;});
+        let changed=false;batch.owners.forEach((owner,index)=>{if(owner!=='facility:bulletin')return;writeInstance(batch,index,hideBulletin?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);changed=true;});
         if(changed)batch.mesh.instanceMatrix.needsUpdate=true;
       }
     }
     for(const [key,group]of departmentRoots){group.visible=key===next;if(group.visible&&animate){detailOpacity(group,0);departmentFade={group,started:null};}}
     for(const batch of overviewBatches.values()){
-      batch.owners.forEach((id,index)=>{const hidden=hiddenInstance(batch,index,true);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);});
+      batch.owners.forEach((id,index)=>{const hidden=hiddenInstance(batch,index,true);writeInstance(batch,index,hidden?zeroMatrix:batch.matrices[index]);});
       uploadFullBatch(batch);
     }
     return true;
@@ -648,7 +662,7 @@ export function createOffice3DLayout(assets) {
   function enterTeam(id){const team=officeTeamDetail(id);if(!team)return null;setDetailGroups([team.id]);return team;}
   function exitTeam(){return localTeamId?setDetailGroups([]):false;}
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,tickDetailTransition,finishDetailTransition,get detailTransitionActive(){return !!departmentFade;},dispose(){detailMaterials.forEach(material=>material.dispose());},refreshAppearances,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDepartmentDetail,get departmentDetailId(){return departmentDetailId;},get isBulletinOccluded(){return bulletinOccluded;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,tickDepartmentHover,finishDepartmentHover,get hoverAnimating(){return hoverTweens.size>0;},hoverPoint,transformPoint:hoverPoint,inverseHoverPoint,hoverScaleAt,tickDetailTransition,finishDetailTransition,get detailTransitionActive(){return !!departmentFade;},dispose(){detailMaterials.forEach(material=>material.dispose());},refreshAppearances,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDepartmentDetail,get departmentDetailId(){return departmentDetailId;},get isBulletinOccluded(){return bulletinOccluded;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
     get awaySeatIds(){return new Set(away);},

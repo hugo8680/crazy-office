@@ -755,7 +755,7 @@ test('clicking a team, representative, desk or department label selects or walks
  const hovers=[],f=sceneFixture({onDepartmentHover:id=>hovers.push(id)},{frames:true});try{
   f.drain();const room=OFFICE_ROOMS.find(room=>room.id==='finance'),node=f.groups.get('[data-node]').find(el=>el.dataset.node===room.id),post=f.groups.get('[data-position]').find(el=>ORGANIZATION_POSITION_META_FOR_TEST(el.dataset.position)?.departmentId===room.id);
   const hover=target=>f.svg.listeners.get('pointerover')({target:eventTarget(target)});hover(node);hover(post);hover(post);assert.equal(f.svg.dataset.hoverDepartment,room.id);assert.deepEqual(hovers,[room.id]);assert.equal(node.dataset.departmentHover,'true');
-  const point=f.screen({x:room.x+room.w/2,y:room.y+room.h/2});f.input('pointerdown',{clientX:point.x,clientY:point.y});f.input('pointermove',{clientX:point.x+30,clientY:point.y+20});assert.equal(f.svg.dataset.hoverDepartment,'');f.input('pointerup',{clientX:point.x+30,clientY:point.y+20});f.svg.listeners.get('pointerleave')();assert.equal(f.svg.dataset.hoverDepartment,'');assert.match(f.markup,/cnl-room-hover-surface/);assert.match(f.markup,/cnl-room-hover-outline/);
+  const point=f.screen({x:room.x+room.w/2,y:room.y+room.h/2});f.input('pointerdown',{clientX:point.x,clientY:point.y});f.input('pointermove',{clientX:point.x+30,clientY:point.y+20});assert.equal(f.svg.dataset.hoverDepartment,'');f.input('pointerup',{clientX:point.x+30,clientY:point.y+20});f.svg.listeners.get('pointerleave')();assert.equal(f.svg.dataset.hoverDepartment,'');assert.doesNotMatch(f.markup,/cnl-room-hover-surface|cnl-room-hover-outline/);
  }finally{f.destroy();}
 });
 function ORGANIZATION_POSITION_META_FOR_TEST(id){return OFFICE_SEATS.find(seat=>seat.id===id);}
@@ -856,5 +856,22 @@ test('fractional 2D wheel streams keep department entry when the moving label le
    }
    f.drain();assert.equal(f.scene.getDepartmentScope(),room.id,room.id+' preserves the pointer world anchor throughout the fractional stream');assert.equal(f.svg.dataset.visiblePosts,String(room.id==='ai_data'?OFFICE_SEATS.length:OFFICE_OVERVIEW_SEATS.length));
   }
+ }finally{f.destroy();}
+});
+
+test('2D department hover eases the existing room, people and names together without moving camera or canonical data',()=>{
+ const moves=[],f=sceneFixture({onMovePoint:point=>moves.push(point)},{frames:true});try{
+  f.drain();const room=OFFICE_ROOMS.find(room=>room.id==='finance'),cx=room.x+room.w/2,cy=room.y+room.h/2,node=f.groups.get('[data-node]').find(el=>el.dataset.node===room.id),seat=room.seats[0],post=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id),worldPoint={x:room.x+50,y:room.y+110},person={id:'hover-me',name:'悬浮同事',online:true,nodeId:room.id,x:worldPoint.x,y:worldPoint.y};
+  setOrganizationOccupants([{personId:seat.personId,name:'财务同事',title:'经理',seatIds:[seat.id]}]);f.scene.setPresence({enabled:true,people:[person]});f.drain();const human=f.layers.get('.cnl-presence-layer').children[0],agent=f.layers.get('.cnl-agent-layer').children.find(el=>el.dataset.agent==='finance'),before=f.svg.attrs.viewBox,artwork=post.innerHTML,canonical=JSON.stringify(OFFICE_SEATS),name=()=>f.layers.get('.cnl-name-layer').children.find(el=>el.dataset.nameFor==='post:'+seat.id),nameBefore=name().attrs.transform;
+  f.svg.listeners.get('pointerover')({target:eventTarget(node)});f.frame();assert.match(node.attrs.transform,/scale\(1\.00/,'first frame is an intermediate enlargement');f.drain();assert.ok(node.attrs.transform.includes('scale(1.025)'));assert.ok(human.attrs.transform.startsWith('matrix(1.025 0 0 1.025 '));assert.ok(agent.style.transform.startsWith('matrix(1.025, 0, 0, 1.025, '));assert.notEqual(name().attrs.transform,nameBefore,'the label follows the transformed desk');assert.equal(f.svg.attrs.viewBox,before);assert.equal(post.innerHTML,artwork);assert.equal(JSON.stringify(OFFICE_SEATS),canonical);assert.deepEqual(f.scene.getPresenceState().positions[person.id],worldPoint);
+  const intended={x:room.x+70,y:room.y+120},visual={x:cx+(intended.x-cx)*1.025,y:cy+(intended.y-cy)*1.025},click=f.screen(visual);node.listeners.get('click')({clientX:click.x,clientY:click.y,detail:1,stopPropagation(){},target:eventTarget(node)});assert.equal(moves.length,1);almost(moves[0].x,intended.x);almost(moves[0].y,intended.y,'floor hit maps back through the room-only hover transform');
+  f.svg.listeners.get('pointerleave')();f.frame();assert.ok(node.attrs.transform.includes('scale(1.02'),'leaving eases back');f.drain();assert.equal(node.attrs.transform,undefined);assert.equal(human.attrs.transform,`translate(${worldPoint.x} ${worldPoint.y})`);assert.equal(name().attrs.transform,nameBefore);assert.equal(f.svg.attrs.viewBox,before);assert.doesNotMatch(f.markup,/cnl-room-hover-surface|cnl-room-hover-outline/);
+ }finally{setOrganizationOccupants([]);f.destroy();}
+});
+
+test('rapid 2D department changes, reduced motion and view switches leave no enlarged room behind',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  f.drain();const finance=f.groups.get('[data-node]').find(el=>el.dataset.node==='finance'),research=f.groups.get('[data-node]').find(el=>el.dataset.node==='research'),hover=element=>f.svg.listeners.get('pointerover')({target:eventTarget(element)});
+  hover(finance);f.frame();hover(research);f.drain();assert.equal(finance.attrs.transform,undefined);assert.ok(research.attrs.transform.includes('scale(1.025)'));f.scene.setActive(false);assert.equal(research.attrs.transform,undefined);f.scene.setActive(true);f.drain();hover(finance);f.frame();[...f.preferenceListeners][0]({matches:true});assert.ok(finance.attrs.transform.includes('scale(1.025)'),'reduced motion settles immediately');f.svg.listeners.get('pointerleave')();assert.equal(finance.attrs.transform,undefined);f.drain();assert.equal(f.pending.size,0);
  }finally{f.destroy();}
 });

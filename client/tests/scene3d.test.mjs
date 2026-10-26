@@ -35,7 +35,7 @@ test('3D furnishes all twelve departments with 250 workplaces and 249 unique occ
 });
 
 test('room floors and identities use opaque materials without shadows or light effects',()=>{
-  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets),hover=new Set();layout.root.getObjectByName('department-hover').traverse(object=>hover.add(object));const virtual=createOffice3DActor(assets,{id:'zhang',hair:'#514333'},{virtual:true}),human=createOffice3DActor(assets,HUMAN_EMPLOYEES[0]);for(const root of[layout.root,virtual.root,human.root])root.traverse(mesh=>{assert.equal(mesh.castShadow,false);assert.equal(mesh.receiveShadow,false);if(mesh.material&&!hover.has(mesh)){assert.equal(mesh.material.transparent,false);assert.equal(mesh.material.opacity,1);assert.ok(!mesh.material.emissive||mesh.material.emissive.getHex()===0);}});assert.equal(virtual.identity.badge,'chip');assert.equal(human.identity.badge,'lanyard');assert.ok(virtual.root.getObjectByName('synthetic-face-panel'));assert.equal(human.root.getObjectByName('synthetic-face-panel'),undefined);assert.equal(actorIdentity({id:'same',color:'#bb9988'},{virtual:false}).uniform,actorIdentity({id:'same',color:'#c68b60'},{virtual:true}).uniform,'clothing is independent of employment type');assert.equal(OFFICE3D_COLORS.copper,'#b85a43');}finally{assets.dispose();}
+  const assets=createOffice3DAssets();try{const layout=createOffice3DLayout(assets),hover=new Set();const virtual=createOffice3DActor(assets,{id:'zhang',hair:'#514333'},{virtual:true}),human=createOffice3DActor(assets,HUMAN_EMPLOYEES[0]);for(const root of[layout.root,virtual.root,human.root])root.traverse(mesh=>{assert.equal(mesh.castShadow,false);assert.equal(mesh.receiveShadow,false);if(mesh.material&&!hover.has(mesh)){assert.equal(mesh.material.transparent,false);assert.equal(mesh.material.opacity,1);assert.ok(!mesh.material.emissive||mesh.material.emissive.getHex()===0);}});assert.equal(virtual.identity.badge,'chip');assert.equal(human.identity.badge,'lanyard');assert.ok(virtual.root.getObjectByName('synthetic-face-panel'));assert.equal(human.root.getObjectByName('synthetic-face-panel'),undefined);assert.equal(actorIdentity({id:'same',color:'#bb9988'},{virtual:false}).uniform,actorIdentity({id:'same',color:'#c68b60'},{virtual:true}).uniform,'clothing is independent of employment type');assert.equal(OFFICE3D_COLORS.copper,'#b85a43');}finally{assets.dispose();}
 });
 
 test('all reusable wardrobe silhouettes stay consistent with the shared appearance and physical identity',()=>{
@@ -494,7 +494,7 @@ test('object double clicks and empty-space double clicks never change camera pos
 
 
 test('colleague hover and press produce finite articulated feedback without adding draw calls',()=>{
- const f=mountedSceneFixture();try{f.frame();const initial=f.api.getPerformanceStats(),person=f.button('agent','zhang');person.emit('pointerenter');f.frame();assert.equal(f.greeting().hidden,false);assert.equal(f.pending.size,0,'a robot smile is static after its first paint');person.emit('click',{detail:0});f.frame();assert.ok(f.pending.size>0);f.drain();const settled=f.api.getPerformanceStats();assert.ok(settled.actorUpdates>initial.actorUpdates);assert.ok(settled.drawCalls<=initial.drawCalls+2,'one shared department highlight has bounded draw cost');assert.equal(settled.cameraMoving,false);assert.equal(person.animations.length,1);assert.ok(person.animations[0].settings.duration<=420);f.api.rotate(.4);f.frame();f.frame();assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.preference.listeners.get('change')({matches:true});assert.equal(f.api.getPerformanceStats().cameraMoving,false);f.frame();assert.equal(f.pending.size,0);
+ const f=mountedSceneFixture();try{f.frame();const initial=f.api.getPerformanceStats(),person=f.button('agent','zhang');person.emit('pointerenter');f.frame();assert.equal(f.greeting().hidden,false);f.drain();assert.equal(f.pending.size,0,'the robot smile rests after the finite department hover transition');person.emit('click',{detail:0});f.frame();assert.ok(f.pending.size>0);f.drain();const settled=f.api.getPerformanceStats();assert.ok(settled.actorUpdates>initial.actorUpdates);assert.ok(settled.drawCalls<=initial.drawCalls+2,'one shared department highlight has bounded draw cost');assert.equal(settled.cameraMoving,false);assert.equal(person.animations.length,1);assert.ok(person.animations[0].settings.duration<=420);f.api.rotate(.4);f.frame();f.frame();assert.equal(f.api.getPerformanceStats().cameraMoving,true);f.preference.listeners.get('change')({matches:true});assert.equal(f.api.getPerformanceStats().cameraMoving,false);f.frame();assert.equal(f.pending.size,0);
  }finally{f.restore();}
  const reduced=mountedSceneFixture({}, {reducedMotion:true});try{reduced.frame();const initial=reduced.api.getPerformanceStats();reduced.button('agent','zhang').emit('pointerenter');reduced.frame();assert.equal(reduced.greeting().hidden,false);assert.equal(reduced.pending.size,0);const greeted=reduced.api.getPerformanceStats();reduced.api.rotate(.5);assert.ok(Math.abs(reduced.api.getPerformanceStats().azimuth-initial.azimuth-.5)<1e-8);reduced.frame();assert.equal(reduced.pending.size,0);assert.equal(reduced.api.getPerformanceStats().actorUpdates,greeted.actorUpdates);}finally{reduced.restore();}
 });
@@ -947,25 +947,29 @@ test('a hidden seated colleague becomes visible when standing or walking without
  }finally{f.restore();}
 });
 
-test('all twelve department labels and floors share one visible, finite hover highlight without camera or business actions',()=>{
+test('all twelve department labels and floors gently enlarge existing elements without camera or business actions',()=>{
  const hovered=[],entered=[],selected=[],f=mountedSceneFixture({onDepartmentHover:id=>hovered.push(id),onEnterArea:id=>entered.push(id),onSelectNode:id=>selected.push(id)});try{
-  f.drain();const initial=f.api.getPerformanceStats(),highlight=f.scene.getObjectByName('department-hover');assert.equal(highlight.visible,false);
-  for(const room of OFFICE_ROOMS){const label=f.room(room.id);label.emit('pointerenter');assert.equal(f.api.getPerformanceStats().hoveredDepartment,room.id);assert.equal(highlight.visible,true);assert.equal(highlight.position.x,room.x+room.w/2);assert.equal(highlight.position.z,room.y+room.h/2);const count=hovered.length;label.emit('pointerenter');assert.equal(hovered.length,count,'remaining over the same department is silent');f.drain();assert.equal(f.pending.size,0);assert.equal(f.api.getPerformanceStats().scale,initial.scale);label.emit('pointerleave');f.drain();assert.equal(highlight.visible,false);const floor=cameraPixel(f,new THREE.Vector3(room.x+6,1.9,room.y+room.h-6));f.canvas.emit('pointermove',f.client(floor.x,floor.y));assert.equal(f.api.getPerformanceStats().hoveredDepartment,room.id,`${room.id} floor`);f.canvas.emit('pointerleave');f.drain();}
+  f.drain();const initial=f.api.getPerformanceStats();assert.equal(f.scene.getObjectByName('department-hover'),undefined,'no overlay or outline is added');
+  for(const room of OFFICE_ROOMS){const label=f.room(room.id);label.emit('pointerenter');assert.equal(f.api.getPerformanceStats().hoveredDepartment,room.id);const count=hovered.length;label.emit('pointerenter');assert.equal(hovered.length,count);f.drain();assert.equal(f.pending.size,0);assert.equal(f.api.getPerformanceStats().scale,initial.scale);label.emit('pointerleave');f.drain();assert.equal(f.api.getPerformanceStats().hoveredDepartment,null);const floor=cameraPixel(f,new THREE.Vector3(room.x+6,1.9,room.y+room.h-6));f.canvas.emit('pointermove',f.client(floor.x,floor.y));assert.equal(f.api.getPerformanceStats().hoveredDepartment,room.id,room.id+' floor');f.canvas.emit('pointerleave');f.drain();}
   assert.deepEqual(entered,[]);assert.deepEqual(selected,[]);assert.equal(f.api.getPerformanceStats().drawCalls,initial.drawCalls);assert.equal(f.api.getPerformanceStats().staticInstances,initial.staticInstances);
  }finally{f.restore();}
 });
 
-test('mounted department highlight moves its GPU world bounds after the static architecture is frozen',()=>{
+test('department hover keeps the articulated colleague hit box aligned and leaves real actor coordinates unchanged',()=>{
+ const selected=[],f=mountedSceneFixture({onSelectAgent:id=>selected.push(id)});try{
+  f.drain();const actor=f.scene.children.find(child=>child.userData.actorId==='zhang'),before=actor.position.clone();
+  f.room('maintenance').emit('pointerenter');f.drain();const at=f.api.getAgentAnchor('zhang');assert.ok(at.visible);
+  f.canvas.emit('pointerdown',{button:0,...f.client(at.x,at.y)});f.canvas.emit('pointerup',{button:0,...f.client(at.x,at.y)});f.drain();
+  assert.deepEqual(selected,['zhang']);assert.deepEqual(actor.position,before);
+ }finally{f.restore();}
+});
+
+test('mounted hover changes the real frozen floor matrices and restores them without changing camera scale',()=>{
  const f=mountedSceneFixture();try{
-  f.drain();const highlight=f.scene.getObjectByName('department-hover');assert.equal(highlight.matrixWorldAutoUpdate,false,'exercise the same frozen architecture as production');
+  f.drain();const root=f.scene.getObjectByName('office-architecture');assert.equal(root.matrixWorldAutoUpdate,false);const matrix=new THREE.Matrix4(),position=new THREE.Vector3(),rotation=new THREE.Quaternion(),size=new THREE.Vector3();
   for(const room of OFFICE_ROOMS){
-   f.room(room.id).emit('pointerenter');f.drain();
-   const bounds=new THREE.Box3().setFromObject(highlight),center=bounds.getCenter(new THREE.Vector3()),size=bounds.getSize(new THREE.Vector3());
-   assert.ok(Math.abs(center.x-room.x-room.w/2)<.001,`${room.id} GPU world x follows the hovered department`);
-   assert.ok(Math.abs(center.z-room.y-room.h/2)<.001,`${room.id} GPU world z follows the hovered department`);
-   assert.ok(size.x>room.w*.9&&size.z>room.h*.9,`${room.id} highlight covers the department rather than a one-unit slab at the origin`);
-   assert.ok(bounds.min.y>2.8,'the selected floor stays above AI work-island platforms');
-   f.room(room.id).emit('pointerleave');f.drain();assert.equal(highlight.visible,false);
+   let floor;for(const mesh of root.children.filter(child=>child.isInstancedMesh))for(let index=0;index<mesh.count;index++){mesh.getMatrixAt(index,matrix);matrix.decompose(position,rotation,size);if(Math.abs(position.x-room.x-room.w/2)<.01&&Math.abs(position.z-room.y-room.h/2)<.01&&Math.abs(position.y-.95)<.01&&Math.abs(size.x-room.w)<.01)floor={mesh,index,before:matrix.clone()};}
+   assert.ok(floor,room.id+' existing floor found');f.room(room.id).emit('pointerenter');f.drain();floor.mesh.getMatrixAt(floor.index,matrix);matrix.decompose(position,rotation,size);assert.ok(Math.abs(size.x-room.w*1.025)<.001);assert.ok(Math.abs(size.z-room.h*1.025)<.001);assert.ok(Math.abs(position.x-room.x-room.w/2)<.001);assert.ok(Math.abs(position.z-room.y-room.h/2)<.001);f.room(room.id).emit('pointerleave');f.drain();floor.mesh.getMatrixAt(floor.index,matrix);assert.deepEqual(matrix.elements,floor.before.elements);
   }
  }finally{f.restore();}
 });

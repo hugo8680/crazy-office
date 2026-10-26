@@ -274,42 +274,56 @@ test('shared quiet team finishes leave every desk and colleague footprint intact
  }finally{assets.dispose();}
 });
 
-test('department hover stays visible above every floor with unlit fill and a full inset geometric rim',()=>{
- const assets=createOffice3DAssets();try{
-  const layout=createOffice3DLayout(assets),group=layout.root.getObjectByName('department-hover'),[plane,rim]=group.children,roots=layout.root.children.length,instances=layout.statistics.staticInstances;
-  const staticFloors=[];
-  for(const mesh of layout.root.children.filter(mesh=>mesh.isInstancedMesh&&mesh.geometry===assets.geometries.slab)){
-   mesh.geometry.computeBoundingBox();const matrix=new THREE.Matrix4(),color=new THREE.Color(),floorColors=OFFICE_ROOMS.map(room=>new THREE.Color(room.floor)).concat(new THREE.Color('#e0e8de'));
-   for(let index=0;index<mesh.count;index++){
-    mesh.getColorAt(index,color);if(!floorColors.some(floor=>Math.abs(floor.r-color.r)+Math.abs(floor.g-color.g)+Math.abs(floor.b-color.b)<1e-5))continue;
-    mesh.getMatrixAt(index,matrix);staticFloors.push(mesh.geometry.boundingBox.clone().applyMatrix4(matrix));
-   }
-  }
-  assert.ok(staticFloors.length>=OFFICE_ROOMS.length+ai.teamZones.length,'inspect actual department and raised team floor geometry');
-  // Production disables both forms of automatic matrix updates for static
-  // architecture. Feedback must still move and resize in that exact state.
+function snapshotInstanceMatrices(layout){const result=new Map();layout.root.traverse(mesh=>{if(mesh.isInstancedMesh)result.set(mesh,Float32Array.from(mesh.instanceMatrix.array));});return result;}
+function assertHoverMatrices(layout,before,scales,context){
+ const actual=new THREE.Matrix4(),source=new THREE.Matrix4(),expected=new THREE.Matrix4(),hover=new THREE.Matrix4();
+ for(const [mesh,array]of before)for(let index=0;index<mesh.count;index++){
+  source.fromArray(array,index*16);const id=mesh.userData.departmentOwners[index],factor=scales[id]||1,room=OFFICE_ROOMS.find(room=>room.id===id);
+  if(room&&factor!==1){hover.makeScale(factor,factor,factor);hover.elements[12]=(room.x+room.w/2)*(1-factor);hover.elements[14]=(room.y+room.h/2)*(1-factor);expected.multiplyMatrices(hover,source);}else expected.copy(source);
+  mesh.getMatrixAt(index,actual);for(let element=0;element<16;element++)assert.ok(Math.abs(actual.elements[element]-expected.elements[element])<.00012,`${context}: ${mesh.parent.name} ${id||'shared'} instance ${index} element ${element}`);
+ }
+}
+
+test('hover gently enlarges each entire department without overlays, material changes, extra draws or logical footprint changes',()=>{
+ const assets=createOffice3DAssets();let layout;try{
+  layout=createOffice3DLayout(assets);const before=snapshotInstanceMatrices(layout),roots=layout.root.children.length,instances=layout.statistics.staticInstances,logical=JSON.stringify(OFFICE_ROOMS),colors=new Map([...before.keys()].map(mesh=>[mesh,Float32Array.from(mesh.instanceColor.array)]));
   layout.root.updateMatrixWorld(true);layout.root.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
-  assert.equal(layout.hoveredDepartmentId,null);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment(null),false);
-  assert.equal(plane.castShadow,false);assert.equal(plane.receiveShadow,false);assert.equal(plane.material.isMeshBasicMaterial,true);assert.equal(plane.material.toneMapped,false);assert.equal(plane.material.transparent,true);assert.ok(plane.material.opacity>=.18&&plane.material.opacity<=.25);assert.equal(plane.material.depthWrite,false);
-  assert.equal(rim.isInstancedMesh,true);assert.equal(rim.count,4);assert.equal(rim.geometry,assets.geometries.box);assert.equal(rim.material.isMeshBasicMaterial,true);assert.equal(rim.material.toneMapped,false);assert.equal(rim.material.depthWrite,false);assert.equal(rim.castShadow,false);assert.equal(rim.receiveShadow,false);
-  plane.geometry.computeBoundingBox();rim.geometry.computeBoundingBox();const rimMatrix=new THREE.Matrix4(),worldRimMatrix=new THREE.Matrix4();
+  assert.equal(layout.root.getObjectByName('department-hover'),undefined);assert.equal(layout.hoveredDepartmentId,null);assert.equal(layout.setHoveredDepartment(null),false);
   for(const room of OFFICE_ROOMS){
-   assert.equal(layout.setHoveredDepartment(room.id),true);assert.equal(layout.hoveredDepartmentId,room.id);assert.equal(group.visible,true);
-   assert.deepEqual(group.position.toArray(),[room.x+room.w/2,0,room.y+room.h/2]);assert.deepEqual(plane.scale.toArray(),[room.w-14,.08,room.h-14]);
-   const fillBounds=plane.geometry.boundingBox.clone().applyMatrix4(plane.matrixWorld),floors=staticFloors.filter(bounds=>bounds.min.x>=room.x-.01&&bounds.max.x<=room.x+room.w+.01&&bounds.min.z>=room.y-.01&&bounds.max.z<=room.y+room.h+.01),floorTop=Math.max(...floors.map(bounds=>bounds.max.y));
-   assert.ok(floors.length>0);assert.ok(fillBounds.min.y>floorTop+.1,`${room.id} raised floors cannot cover the hover fill`);assert.ok(fillBounds.max.y<5,'furniture and people stay in front of the floor feedback');
-   assert.ok(Math.abs((fillBounds.min.x+fillBounds.max.x)/2-(room.x+room.w/2))<1e-8);assert.ok(Math.abs((fillBounds.min.z+fillBounds.max.z)/2-(room.y+room.h/2))<1e-8);assert.ok(fillBounds.max.x-fillBounds.min.x>room.w-15,'the real frozen world matrix covers the department rather than the origin');
-   const base=new THREE.Color(room.floor),blended=base.clone().lerp(plane.material.color,plane.material.opacity);assert.ok(Math.abs(base.r-blended.r)+Math.abs(base.g-blended.g)+Math.abs(base.b-blended.b)>.08,'every department has measurable fill contrast');
-   const sides=[];
-   for(let index=0;index<rim.count;index++){
-    rim.getMatrixAt(index,rimMatrix);worldRimMatrix.multiplyMatrices(rim.matrixWorld,rimMatrix);const bounds=rim.geometry.boundingBox.clone().applyMatrix4(worldRimMatrix),size=bounds.getSize(new THREE.Vector3());
-    assert.ok(bounds.min.y>floorTop+.1);assert.ok(bounds.max.y<5);assert.ok(bounds.min.x>room.x+5&&bounds.max.x<room.x+room.w-5&&bounds.min.z>room.y+5&&bounds.max.z<room.y+room.h-5,'the rim sits inside the walls');assert.ok(Math.min(size.x,size.z)>2.7,'rim width is world geometry, independent of WebGL line width');sides.push(size.x>size.z?'horizontal':'vertical');
-   }
-   assert.deepEqual(sides,['horizontal','horizontal','vertical','vertical']);
-   const matrix=group.matrixWorld.elements.slice();assert.equal(layout.setHoveredDepartment(room.id),false);assert.deepEqual(group.matrixWorld.elements,matrix,'repeated pointer samples do not dirty the hover transform');
-   assert.equal(layout.root.children.length,roots);assert.equal(layout.statistics.staticInstances,instances);assert.equal(group.children[0],plane);assert.equal(group.children[1],rim);
+   assert.equal(layout.setHoveredDepartment(room.id),true);assert.equal(layout.hoveredDepartmentId,room.id);assert.equal(layout.hoverAnimating,false);assertHoverMatrices(layout,before,{[room.id]:1.025},room.id);
+   const tagged=[...before.keys()].flatMap(mesh=>mesh.userData.departmentOwners.filter(id=>id===room.id));assert.ok(tagged.length>30,'department floor, walls, fittings and colleagues belong to the same hover transform');
+   for(const [mesh,array]of colors)assert.deepEqual(mesh.instanceColor.array,array,'hover never paints a tint or changes materials');
+   assert.equal(layout.setHoveredDepartment(room.id),false);assert.equal(layout.root.children.length,roots);assert.equal(layout.statistics.staticInstances,instances);
+   const point={x:room.x+room.w*.1,y:room.y+room.h*.8},visual=layout.hoverPoint(point,37,room.id),restored=layout.inverseHoverPoint(visual,room.id);
+   assert.equal(layout.hoverScaleAt(point,room.id),1.025);assert.ok(Math.abs(visual.height-37*1.025)<1e-10);assert.ok(Math.abs(restored.x-point.x)<1e-10&&Math.abs(restored.y-point.y)<1e-10);
+   assert.deepEqual(point,{x:room.x+room.w*.1,y:room.y+room.h*.8});
   }
-  assert.equal(layout.setHoveredDepartment('missing'),true);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('missing'),false);
-  layout.setHoveredDepartment('ai_data');layout.enterTeam(ai.teamZones[0].id);assert.equal(layout.hoveredDepartmentId,null);assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('finance'),false,'a hidden campus cannot leave a department plane over the legacy local floor');layout.exitTeam();assert.equal(group.visible,false);assert.equal(layout.setHoveredDepartment('finance'),true);
- }finally{assets.dispose();}
+  assert.equal(layout.setHoveredDepartment(null),true);assertHoverMatrices(layout,before,{},'leave');assert.equal(JSON.stringify(OFFICE_ROOMS),logical);
+  assert.deepEqual(layout.hoverPoint({x:500,y:600},12),{x:500,y:600,height:12});assert.equal(layout.hoverScaleAt({x:500,y:600}),1);
+ }finally{layout?.dispose();assets.dispose();}
+});
+
+test('department hover animation reverses smoothly, settles on reduced motion and never changes GPU upload ownership',()=>{
+ const assets=createOffice3DAssets();let layout;try{
+  layout=createOffice3DLayout(assets);const before=snapshotInstanceMatrices(layout),gpu=replayMatrixUploads(layout),room=OFFICE_ROOMS.find(room=>room.id==='finance'),other=OFFICE_ROOMS.find(room=>room.id==='research'),point={x:room.x+10,y:room.y+20};
+  layout.setHoveredDepartment(room.id,{animate:true});assert.equal(layout.hoverAnimating,true);assert.equal(layout.hoverScaleAt(point),1);layout.tickDepartmentHover(1000);layout.tickDepartmentHover(1090);assert.equal(layout.hoverScaleAt(point),1.0125);gpu.flush();gpu.assertSynchronized('hover halfway');assertHoverMatrices(layout,before,{[room.id]:1.0125},'halfway');
+  layout.setHoveredDepartment(other.id,{animate:true});assert.equal(layout.hoverScaleAt(point),1.0125,'reversing starts at the visible scale');layout.tickDepartmentHover(1100);layout.tickDepartmentHover(1190);assertHoverMatrices(layout,before,{[room.id]:1.00625,[other.id]:1.0125},'change department halfway');gpu.flush();gpu.assertSynchronized('two department transitions');
+  assert.equal(layout.finishDepartmentHover(),true);assert.equal(layout.hoverAnimating,false);assertHoverMatrices(layout,before,{[other.id]:1.025},'reduced motion settle');assert.equal(layout.finishDepartmentHover(),false);
+  layout.setHoveredDepartment(null,{animate:true});layout.tickDepartmentHover(2000);layout.tickDepartmentHover(2180);assert.equal(layout.hoverAnimating,false);assertHoverMatrices(layout,before,{},'animated leave');gpu.flush();gpu.assertSynchronized('animated leave');
+  layout.setHoveredDepartment('ai_data');layout.enterTeam(ai.teamZones[0].id);assert.equal(layout.hoveredDepartmentId,null);assert.equal(layout.hoverAnimating,false);assert.equal(layout.setHoveredDepartment('finance'),false);layout.exitTeam();assert.equal(layout.setHoveredDepartment('finance'),true);
+ }finally{layout?.dispose();assets.dispose();}
+});
+
+test('hover composes with idle poses, full department LOD, presence and clothes without reviving enlarged representatives',()=>{
+ setOrganizationOccupants([]);const assets=createOffice3DAssets();let layout;try{
+  layout=createOffice3DLayout(assets);const gpu=replayMatrixUploads(layout),overview=layout.root.getObjectByName('organization-overview'),rep=ai.teamZones[0].overviewSeatIds[1],group=layout.root.getObjectByName('organization-department-ai_data');
+  layout.setIdlePose(rep,'wave');layout.tickIdlePoses(0);layout.tickIdlePoses(700);gpu.flush();const posed=snapshotInstanceMatrices(layout);
+  layout.setHoveredDepartment('ai_data');assertHoverMatrices(layout,posed,{ai_data:1.025},'hover over an active pose');gpu.flush();gpu.assertSynchronized('hover active pose');layout.setDepartmentDetail('ai_data');gpu.flush();gpu.assertSynchronized('detail and hover same frame');
+  for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0);
+  const ordinary=OFFICE_SEATS.find(seat=>seat.departmentId==='finance'&&seat.primarySeat);layout.setIdlePose(ordinary.id,'typing');layout.tickIdlePoses(1000);layout.tickIdlePoses(1200);layout.setHoveredDepartment('finance');gpu.flush();gpu.assertSynchronized('change hovered department during poses');
+  layout.setAwaySeats([rep]);layout.setHoveredDepartment('ai_data',{animate:true});layout.tickDepartmentHover(1300);layout.tickDepartmentHover(1480);layout.clearIdlePoses();gpu.flush();gpu.assertSynchronized('hover with away and pose restore');assert.equal(headBounds(group,rep).isEmpty(),true);
+  layout.setAwaySeats([]);setOrganizationOccupants([{personId:rep,name:'显示测试',seatIds:[rep],outfitId:'cloud'}]);layout.refreshAppearances();gpu.flush();gpu.assertSynchronized('hover with wardrobe replacement');
+  for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0);
+  layout.setDepartmentDetail(null);layout.setHoveredDepartment(null);gpu.flush();gpu.assertSynchronized('return to normal overview');assert.ok(gpu.visibleBodyParts(overview,rep)>0);
+ }finally{setOrganizationOccupants([]);layout?.dispose();assets.dispose();}
 });
