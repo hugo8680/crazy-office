@@ -275,11 +275,30 @@ test('retina, fullscreen resize and monitor density changes keep the backing buf
 test('wheel and native Safari pinch on scene labels control the camera instead of zooming the whole page',()=>{
   const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id),onSelectAgent:id=>selected.push(id)});try{f.frame();assert.equal(f.canvas.handlers.has('wheel'),false);assert.equal(f.wrapper.listenerOptions.get('wheel').passive,false);
     const person=f.button('agent','zhang'),room=f.button('node','meeting'),initial=f.api.getPerformanceStats();
-    for(const label of[person,room]){assert.equal(label.emit('contextmenu').defaultPrevented,true);const event=label.emit('wheel',{deltaY:-40,deltaMode:0,ctrlKey:true});assert.equal(event.defaultPrevented,true);}f.drain();assert.ok(f.api.getPerformanceStats().scale>initial.scale);assert.deepEqual(selected,[]);
+    for(const label of[person,room]){assert.equal(label.emit('contextmenu').defaultPrevented,true);const event=label.emit('wheel',{deltaY:-40,deltaMode:0});assert.equal(event.defaultPrevented,true);}f.drain();assert.ok(f.api.getPerformanceStats().scale>initial.scale);assert.deepEqual(selected,[]);
     f.api.focusArea('maintenance');f.drain();const before=f.api.getPerformanceStats();for(const name of['gesturestart','gesturechange','gestureend'])assert.equal(f.wrapper.listenerOptions.get(name).passive,false);
     assert.equal(person.emit('gesturestart',{scale:1,rotation:0}).defaultPrevented,true);assert.equal(person.emit('gesturechange',{scale:1.25,rotation:20}).defaultPrevented,true);f.drain();const changed=f.api.getPerformanceStats();assert.ok(Math.abs(changed.scale-before.scale*1.25)<1e-8);assert.ok(Math.abs(changed.azimuth-before.azimuth+20*Math.PI/180)<1e-8);assert.equal(person.emit('gestureend').defaultPrevented,true);f.drain();assert.equal(f.pending.size,0);assert.deepEqual(selected,[]);
     const outside=f.document.createElement('button');assert.equal(outside.emit('wheel',{deltaY:-40,ctrlKey:true}).defaultPrevented,false,'business UI and browser shortcuts outside the scene keep their native behavior');
   }finally{f.restore();}
+});
+
+test('3D unmodified two-finger scrolling and ctrl pinch zoom on room labels with fractional or diagonal deltas',()=>{
+ for(const sample of[{deltaY:-.75},{deltaY:-12},{deltaX:7.5,deltaY:-3.5},{deltaX:-4,deltaY:-8,ctrlKey:true}]){
+  const selected=[],f=mountedSceneFixture({onSelectNode:id=>selected.push(id)},{clockedMotion:true});try{
+   f.drain();f.api.focusArea('business');f.drain();const label=f.room('business'),screen={x:830,y:330},world=cameraGroundPoint(f,screen.x,screen.y),before=f.api.getPerformanceStats();
+   const event=label.emit('wheel',{...sample,deltaMode:0,...f.client(screen.x,screen.y)});assert.equal(event.defaultPrevented,true);f.drain();const zoomed=f.api.getPerformanceStats();assert.ok(Math.abs(zoomed.scale-before.scale*Math.exp(-sample.deltaY*.0016))<1e-8,'fractional unmodified wheel input must change scale');assert.equal(zoomed.azimuth,before.azimuth);assert.equal(zoomed.elevation,before.elevation);assertCameraPixel(f,world,screen,'diagonal scrolling retains the pointer anchor instead of panning');assert.deepEqual(selected,[]);
+   label.emit('wheel',{...sample,deltaY:Math.abs(sample.deltaY),deltaMode:0,...f.client(screen.x,screen.y)});f.drain();assert.ok(f.api.getPerformanceStats().scale<zoomed.scale,'a small positive two-finger delta must zoom out');assertCameraPixel(f,world,screen,'reverse scroll retains the pointer anchor');
+   const stable=f.api.getPerformanceStats();label.emit('wheel',{deltaX:22,deltaY:0,deltaMode:0,...f.client(screen.x,screen.y)});f.drain();const horizontal=f.api.getPerformanceStats();for(const key of['scale','panX','panY','azimuth','elevation'])assert.equal(horizontal[key],stable[key],`horizontal drift cannot change ${key}`);
+  }finally{f.restore();}
+ }
+});
+
+test('3D trackpad scroll stays a zoom stream through momentum and reverses from the visible frame',()=>{
+ const f=mountedSceneFixture({}, {clockedMotion:true});try{
+  f.drain();f.api.focusArea('business');f.drain();const screen={x:830,y:330},world=cameraGroundPoint(f,screen.x,screen.y);let previous=f.api.getPerformanceStats().scale;
+  for(const deltaY of[-3.5,-12,-100,-.75]){f.canvas.emit('wheel',{deltaX:2,deltaY,deltaMode:0,...f.client(screen.x,screen.y)});f.frame();f.frame();const current=f.api.getPerformanceStats().scale;assert.ok(current>previous,'all trackpad momentum samples keep zooming inward');assertCameraPixel(f,world,screen,'stream anchor');previous=current;}
+  f.canvas.emit('wheel',{deltaX:-1,deltaY:2.5,deltaMode:0,...f.client(screen.x,screen.y)});f.frame();f.frame();assert.ok(f.api.getPerformanceStats().scale<previous,'reversal cannot continue toward the previous target');f.drain();assertCameraPixel(f,world,screen,'reversed stream anchor');
+ }finally{f.restore();}
 });
 
 test('Safari gesture events cannot double-apply a two-pointer pinch',()=>{

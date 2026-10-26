@@ -617,7 +617,7 @@ export function mountScene3D(container,{
   // pixel values unchanged, resolve lines to 16px and pages to logical height.
   const wheelInput=createOfficeWheelInput();
   listen(wrapper,'wheel',e=>{
-    e.preventDefault();if(nativeGesture)return;const input=wheelInput({deltaX:e.deltaX,deltaY:e.deltaY,deltaMode:e.deltaMode,ctrlKey:e.ctrlKey,metaKey:e.metaKey,height}),amount=input.dy;if(input.kind==='pan'){if(!input.dx&&!input.dy)return;takeCameraControl('trackpad',true);viewTween.cancel();motionAnchor=null;pan(-input.dx,-input.dy);setHoveredDepartment(null);applyView();return;}if(!Number.isFinite(amount)||!amount)return;
+    e.preventDefault();if(nativeGesture)return;const input=wheelInput({deltaX:e.deltaX,deltaY:e.deltaY,deltaMode:e.deltaMode,ctrlKey:e.ctrlKey,metaKey:e.metaKey,height}),amount=input.dy;if(!Number.isFinite(amount)||!amount)return;
     const base=zoomBase(-amount,true),next=officeWheelScale(base,amount,0,height),anchor=anchorAt(gesturePointer(e));zoomTo(next,anchor);stageDepartmentZoom(e,anchor,-Math.sign(amount));
   },{passive:false});
   listen(wrapper,'gesturestart',e=>{e.preventDefault();takeCameraControl('native',true);clearGreeting();forceFrame=true;viewTween.cancel();motionAnchor=null;nativeGesture=touches.size>1?null:{lastScale:1,lastRotation:0,anchor:anchorAt(gesturePointer(e))};ambient?.refresh();suppressClickUntil=performance.now()+200;},{passive:false});

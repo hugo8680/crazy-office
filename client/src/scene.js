@@ -756,11 +756,8 @@ export function mountScene(container, { onSelectNode = () => {}, onEnterArea = (
     e.preventDefault();
     if(nativeGesture||touches.size>1)return;
     const rect=svg.getBoundingClientRect(),input=wheelInput({...e,deltaX:e.deltaX,deltaY:e.deltaY,deltaMode:e.deltaMode,ctrlKey:e.ctrlKey,metaKey:e.metaKey,height:svg.clientHeight||rect.height}),amount=input.dy;
-    if(input.kind==='pan'){
-      if(!input.dx&&!input.dy)return;beginManualCamera('trackpad');stopCamera();const from=worldPoint(e.clientX,e.clientY),to=worldPoint(e.clientX-input.dx,e.clientY-input.dy);panX+=from.x-to.x;panY+=from.y-to.y;setHoveredDepartment(null);applyView();return;
-    }
     if(!Number.isFinite(amount)||!amount)return;
-    setHoveredDepartment(departmentForEvent(e));beginManualCamera('wheel');if(viewTween.active&&Math.sign(viewTween.target.scale-scale)&&Math.sign(viewTween.target.scale-scale)!==-Math.sign(amount))stopCamera();const next=officeWheelScale(viewTween.target.scale,e.deltaY,e.deltaMode,svg.clientHeight||rect.height);if(!officeCameraChanged(viewTween.target,{scale:next}))return;const world=worldPoint(e.clientX,e.clientY);
+    setHoveredDepartment(departmentForEvent(e));beginManualCamera('wheel');if(viewTween.active&&Math.sign(viewTween.target.scale-scale)&&Math.sign(viewTween.target.scale-scale)!==-Math.sign(amount))stopCamera();const next=officeWheelScale(viewTween.target.scale,amount,0,svg.clientHeight||rect.height);if(!officeCameraChanged(viewTween.target,{scale:next}))return;const world=worldPoint(e.clientX,e.clientY);
     if(departmentZoom(next,-Math.sign(amount)))return;releaseDetailScope(next);animateView({scale:next,panX:world.x-WORLD_CX-(world.x-WORLD_CX-panX)*scale/next,panY:world.y-WORLD_CY-(world.y-WORLD_CY-panY)*scale/next},{x:e.clientX,y:e.clientY,world},{manual:true});
   };
   const onGestureStart=e=>{if(destroyed)return;onLeaveBulletin();cancelFloorClick();e.preventDefault();clearGreeting();setHoveredDepartment(departmentForEvent(e));beginManualCamera('pinch');const point=gesturePoint(e);nativeGesture=touches.size>1?null:{lastScale:1,anchor:worldPoint(point.x,point.y)};suppressClickUntil=performance.now()+200;};

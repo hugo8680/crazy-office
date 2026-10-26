@@ -191,16 +191,28 @@ test('2D drag and wheel stay attached to the pointer through a scaled stage and 
 test('2D wheel units are normalized and a continuous stream retargets smoothly without changing drag habits',()=>{
  const endpoints=[];
  for(const input of[{deltaMode:0,deltaY:-16},{deltaMode:1,deltaY:-1},{deltaMode:2,deltaY:-16/900}]){
-  const f=sceneFixture({}, {frames:true,layoutHeight:900});try{f.drain();f.input('wheel',{...input,ctrlKey:true});f.drain();endpoints.push(sceneScale(f));}finally{f.destroy();}
+  const f=sceneFixture({}, {frames:true,layoutHeight:900});try{f.drain();f.input('wheel',input);f.drain();endpoints.push(sceneScale(f));}finally{f.destroy();}
  }
  almost(endpoints[0],endpoints[1]);almost(endpoints[0],endpoints[2]);
  const f=sceneFixture({}, {frames:true});try{
   f.drain();const world={x:300,y:220},anchor=f.screen(world);let previous=sceneScale(f);
-  for(let i=0;i<12;i++){f.input('wheel',{deltaY:-12,ctrlKey:true,clientX:anchor.x,clientY:anchor.y});f.frame();f.frame();const current=sceneScale(f);assert.ok(current>=previous);previous=current;almost(f.screen(world).x,anchor.x);almost(f.screen(world).y,anchor.y);}
+  for(let i=0;i<12;i++){f.input('wheel',{deltaY:-12,clientX:anchor.x,clientY:anchor.y});f.frame();f.frame();const current=sceneScale(f);assert.ok(current>=previous);previous=current;almost(f.screen(world).x,anchor.x);almost(f.screen(world).y,anchor.y);}
   f.drain();almost(sceneScale(f),Math.exp(12*12*.0016));assert.equal(f.pending.size,0);
   f.input('wheel',{deltaY:100000,clientX:anchor.x,clientY:anchor.y});f.drain();assert.ok(sceneScale(f)>.72&&sceneScale(f)<2.25);
   f.scene.resetView();f.drain();f.input('wheel',{deltaY:-100000});f.drain();assert.ok(sceneScale(f)<1.35,'one mouse wheel event is bounded rather than jumping to the limit');
  }finally{f.destroy();}
+});
+
+test('2D mouse wheels, two-finger scroll and ctrl pinch all zoom on labels without lateral scroll changing the pointer anchor',()=>{
+ const cases=[{deltaY:-.75},{deltaY:-12},{deltaX:7.5,deltaY:-3.5},{deltaX:-4,deltaY:-8,ctrlKey:true}];
+ for(const sample of cases){
+  const selected=[],f=sceneFixture({onSelectNode:id=>selected.push(id)},{frames:true});try{
+   f.drain();f.scene.focusArea('business');f.drain();const room=OFFICE_ROOMS.find(room=>room.id==='business'),world={x:room.x+room.w/2,y:room.y+room.h/2},at=f.screen(world),label=f.groups.get('[data-node]').find(node=>node.dataset.node==='business'),before=sceneScale(f);
+   const event=f.input('wheel',{...sample,target:eventTarget(label),clientX:at.x,clientY:at.y});assert.equal(event.defaultPrevented,true);f.drain();almost(sceneScale(f),officeWheelScale(before,sample.deltaY));almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);assert.deepEqual(selected,[]);
+   const zoomed=sceneScale(f);f.input('wheel',{...sample,deltaY:Math.abs(sample.deltaY),target:eventTarget(label),clientX:at.x,clientY:at.y});f.drain();assert.ok(sceneScale(f)<zoomed,'a small positive two-finger delta must zoom out');almost(f.screen(world).x,at.x);almost(f.screen(world).y,at.y);
+   const unchanged=f.svg.attrs.viewBox;f.input('wheel',{deltaX:22,deltaY:0,clientX:at.x,clientY:at.y});f.drain();assert.equal(f.svg.attrs.viewBox,unchanged,'horizontal drift alone must not move the map');
+  }finally{f.destroy();}
+ }
 });
 
 test('Safari 2D pinch is synchronous, anchored and scene-scoped, without also applying wheel zoom',()=>{

@@ -22,10 +22,15 @@ test('incremental pinch immediately reverses at limits and no-op camera targets 
   assert.equal(officeCameraChanged({scale:24,panX:1},{scale:24,panX:1}),false);assert.equal(officeCameraChanged({scale:24},{scale:24-1e-9}),false);assert.equal(officeCameraChanged({scale:24},{scale:23.9}),true);
 });
 
-test('wheel input distinguishes two-finger scroll from pinch and retains momentum type until the sequence ends',async()=>{
- const {createOfficeWheelInput,officeScreenDirection}=await import('../src/office-camera.mjs');let time=0;const input=createOfficeWheelInput({now:()=>time});
- assert.equal(input({deltaMode:0,deltaY:3.5}).kind,'pan');time+=16;assert.equal(input({deltaMode:0,deltaY:96}).kind,'pan');
- time+=200;assert.equal(input({deltaMode:0,deltaY:-120}).kind,'zoom');time+=16;assert.equal(input({deltaMode:0,deltaY:4}).kind,'zoom','small reversal immediately reverses a mouse wheel zoom');
- assert.equal(input({deltaMode:0,deltaY:4,ctrlKey:true}).kind,'zoom');assert.equal(input({deltaMode:0,deltaX:12,deltaY:4}).kind,'pan');
+test('mouse wheels, smooth wheels, diagonal two-finger scroll and pinch all keep vertical zoom semantics',async()=>{
+ const {createOfficeWheelInput,officeScreenDirection}=await import('../src/office-camera.mjs');const input=createOfficeWheelInput();
+ for(const deltaY of[.1,3.5,4,39,40,96,120,-.1,-3.5,-120])for(const deltaX of[0,.2,12]){
+  const value=input({deltaMode:0,deltaX,deltaY});assert.equal(value.kind,'zoom');assert.equal(value.dy,deltaY);assert.equal(value.pinch,false);
+  const next=officeWheelScale(4,value.dy);assert.equal(Math.sign(next-4),-Math.sign(deltaY),'zoom direction is independent of input device or diagonal drift');
+ }
+ assert.equal(input({deltaMode:0,deltaY:4,ctrlKey:true}).pinch,true);assert.equal(input({deltaMode:0,deltaY:4,metaKey:true}).kind,'zoom');
+ assert.equal(input({deltaMode:1,deltaY:2}).dy,32);assert.equal(input({deltaMode:2,deltaY:.1,height:800}).dy,80);
+ assert.equal(input({deltaMode:0,deltaX:20,deltaY:0}).dy,0,'horizontal-only scrolling cannot change zoom or pan');
+ for(const invalid of[NaN,Infinity,-Infinity,undefined])assert.equal(input({deltaY:invalid}).dy,0);
  assert.deepEqual(officeScreenDirection(0,-1),{x:0,y:-1});assert.deepEqual(officeScreenDirection(1,0,{right:{x:0,y:1},up:{x:1,y:0}}),{x:0,y:1});
 });
