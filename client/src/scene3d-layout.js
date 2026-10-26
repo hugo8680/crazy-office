@@ -40,9 +40,13 @@ export function createOffice3DAssets() {
   // planner treat w/h as exact dimensions. Extrusion otherwise adds 7%.
   geometries.round.computeBoundingBox();const roundedSize=new THREE.Vector3();geometries.round.boundingBox.getSize(roundedSize);geometries.round.scale(1/roundedSize.x,1/roundedSize.y,1/roundedSize.z);
   geometries.slab=geometries.round.clone();geometries.slab.rotateX(-Math.PI/2);
+  // Dense rosters keep the same silhouettes and exact bounds with fewer
+  // curve segments at their much smaller screen footprints.
+  const compactRound=new THREE.ExtrudeGeometry(shape,{depth:.92,bevelEnabled:true,bevelSize:.035,bevelThickness:.04,bevelSegments:1,steps:1,curveSegments:1});compactRound.translate(0,0,-.46);compactRound.computeBoundingBox();const compactSize=new THREE.Vector3();compactRound.boundingBox.getSize(compactSize);compactRound.scale(1/compactSize.x,1/compactSize.y,1/compactSize.z);
+  const compactGeometries={round:compactRound,sphere:new THREE.SphereGeometry(1,8,6),hair:new THREE.SphereGeometry(1,8,6,0,Math.PI*2,0,Math.PI*.44),cylinder:new THREE.CylinderGeometry(1,1,1,8)};
   const materials=new Map();
   const material=(color,options={})=>{const key=JSON.stringify([color,options]);if(!materials.has(key))materials.set(key,new THREE.MeshStandardMaterial({color,roughness:.83,metalness:0,...options}));return materials.get(key);};
-  return {geometries,materials,material,dispose(){Object.values(geometries).forEach(g=>g.dispose());materials.forEach(m=>m.dispose());materials.clear();}};
+  return {geometries,compactGeometries,materials,material,dispose(){Object.values(compactGeometries).forEach(g=>g.dispose());Object.values(geometries).forEach(g=>g.dispose());materials.forEach(m=>m.dispose());materials.clear();}};
 }
 
 export function createOffice3DLayout(assets) {
@@ -50,7 +54,7 @@ export function createOffice3DLayout(assets) {
   const batches=new Map(),overviewBatches=new Map(),detailBatches=new Map(),departmentBatches=new Map(),departmentRoots=new Map(),object=new THREE.Object3D();let activeBatches=batches,activeSeatId=null,activeBodySeatId=null,activeBodyPart=null;const c=OFFICE3D_COLORS;
   const primarySeats=new Map(OFFICE_SEATS.filter(seat=>seat.primarySeat).map(seat=>[seat.personId,seat.id]));
   const primarySeatId=seat=>primarySeats.get(seat.personId)||seat.id;
-  const newBatch=kind=>({geometry:assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],colors:[],owners:[],bodyOwners:[],bodyParts:[]});
+  const newBatch=kind=>({geometry:([...departmentBatches.values()].includes(activeBatches)&&assets.compactGeometries[kind])||assets.geometries[kind],material:assets.material('#ffffff'),matrices:[],colors:[],owners:[],bodyOwners:[],bodyParts:[]});
   const statusLights=new Map(),nodeAnchors=new Map(),statistics={staticInstances:0,desks:0,people:0,racks:0,plants:0,rooms:OFFICE3D_ROOMS.length};
   function part(kind,color,x,y,z,w,h,d,rx=0,ry=0,rz=0){const key=kind;if(!activeBatches.has(key))activeBatches.set(key,newBatch(kind));object.position.set(x,y,z);object.rotation.set(rx,ry,rz);object.scale.set(w,h,d);object.updateMatrix();activeBatches.get(key).matrices.push(object.matrix.clone());activeBatches.get(key).colors.push(color);activeBatches.get(key).owners.push(activeSeatId);activeBatches.get(key).bodyOwners.push(activeBodySeatId);activeBatches.get(key).bodyParts.push(activeBodyPart);statistics.staticInstances++;}
   const box=(color,x,y,z,w,h,d,ry=0)=>part('box',color,x,y,z,w,h,d,0,ry);
@@ -480,9 +484,13 @@ export function createOffice3DLayout(assets) {
     status(id,x,id==='server'?69:networkIds.has(id)?25:6,z);
   }
   nodeAnchors.set('bulletin',{x:noticeBoard.x,y:35,z:noticeBoard.y});
+  const detailMaterials=new Set();
   function emit(map,parent){
     for(const batch of map.values()){
-      const instanced=new THREE.InstancedMesh(batch.geometry,batch.material,batch.matrices.length);
+      const fadingLayer=[...departmentBatches.values()].includes(map);
+      if(fadingLayer&&!batch.fadeMaterial){batch.fadeMaterial=batch.material.clone();detailMaterials.add(batch.fadeMaterial);}
+      const instanced=new THREE.InstancedMesh(batch.geometry,batch.fadeMaterial||batch.material,batch.matrices.length);
+      instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       batch.matrices.forEach((matrix,index)=>{instanced.setMatrixAt(index,matrix);instanced.setColorAt(index,new THREE.Color(batch.colors[index]));});
       instanced.computeBoundingSphere();instanced.userData.bodySeats=Object.freeze([...batch.bodyOwners]);instanced.userData.bodyParts=Object.freeze([...batch.bodyParts]);batch.mesh=instanced;parent.add(instanced);
       if(batch.owners.some(id=>id?.startsWith('facility:')))instanced.userData.facilityOwners=Object.freeze(batch.owners.map(id=>id?.startsWith('facility:')?id.slice(9):null));
@@ -524,6 +532,15 @@ export function createOffice3DLayout(assets) {
   }
   let detailed=new Set(),away=new Set(),localTeamId=null,departmentDetailId=null,bulletinOccluded=false;
   const detailRoots=new Set([...seatGroups.values()].map(info=>info.root)),campusVisibility=new Map(root.children.filter(child=>!detailRoots.has(child)&&child!==departmentHover).map(child=>[child,child.visible]));const zeroMatrix=new THREE.Matrix4().makeScale(0,0,0),idlePoses=new Map(),poseParts=new Map();
+  // Full writes must cover subsequent partial animation writes in the same
+  // frame. needsUpdate alone still leaves Three's previous updateRanges active.
+  function uploadFullBatch(batch){const attribute=batch.mesh.instanceMatrix;attribute.clearUpdateRanges();attribute.addUpdateRange(0,attribute.array.length);attribute.needsUpdate=true;}
+  function hiddenOverview(id){return detailed.has(seatGroupById.get(id))||departmentBatches.has(departmentDetailId)&&seatsById.get(id)?.departmentId===departmentDetailId;}
+  function hiddenInstance(batch,index,overview=false){return away.has(batch.bodyOwners[index])||overview&&hiddenOverview(batch.owners[index]);}
+  let departmentFade=null;
+  function detailOpacity(group,alpha){for(const mesh of group.children){const material=mesh.material,translucent=alpha<1;if(material.transparent!==translucent){material.transparent=translucent;material.depthWrite=!translucent;material.needsUpdate=true;}material.opacity=alpha;}}
+  function finishDetailTransition(){if(!departmentFade)return false;detailOpacity(departmentFade.group,1);departmentFade=null;return true;}
+  function tickDetailTransition(now){if(!departmentFade)return false;departmentFade.started??=now;const progress=Math.max(0,Math.min(1,(now-departmentFade.started)/180)),alpha=progress*progress*(3-2*progress);detailOpacity(departmentFade.group,alpha);if(progress===1)departmentFade=null;return true;}
   function indexPoseParts(){poseParts.clear();for(const map of[overviewBatches,...detailBatches.values(),...departmentBatches.values()])for(const batch of map.values())batch.bodyParts.forEach((part,index)=>{
     if(!part||part==='legs')return;const id=batch.owners[index];if(!poseParts.has(id))poseParts.set(id,[]);poseParts.get(id).push({batch,index,part,overview:map===overviewBatches,department:[...departmentBatches].find(([,value])=>value===map)?.[0],groupId:seatGroupById.get(id)});
   });}indexPoseParts();
@@ -541,14 +558,14 @@ export function createOffice3DLayout(assets) {
       }
       activeBatches=map;for(const seat of affected){activeSeatId=seat.id;const geometry=map===overviewBatches?officeSeatForView(seat):[...departmentBatches.values()].includes(map)?seat:officeSeatForView(seat,{detail:true});seatedPost(geometry);}
       emit(map,parent);
-      for(const batch of map.values()){batch.owners.forEach((id,index)=>{const seat=seatsById.get(id),hidden=away.has(batch.bodyOwners[index])||map===overviewBatches&&(detailed.has(seatGroupById.get(id))||departmentBatches.has(departmentDetailId)&&seat?.departmentId===departmentDetailId);if(hidden)batch.mesh.setMatrixAt(index,zeroMatrix);});batch.mesh.instanceMatrix.needsUpdate=true;batch.mesh.updateMatrixWorld(true);batch.mesh.matrixAutoUpdate=false;batch.mesh.matrixWorldAutoUpdate=false;}
+      for(const batch of map.values()){batch.owners.forEach((id,index)=>{const hidden=hiddenInstance(batch,index,map===overviewBatches);if(hidden)batch.mesh.setMatrixAt(index,zeroMatrix);});uploadFullBatch(batch);batch.mesh.updateMatrixWorld(true);batch.mesh.matrixAutoUpdate=false;batch.mesh.matrixWorldAutoUpdate=false;}
     }
     activeBatches=batches;activeSeatId=null;statistics.people=peopleCount;indexPoseParts();return true;
   }
   const idlePartSets={look:new Set(['head']),nod:new Set(['head']),typing:new Set(['head','leftLower','rightLower']),wave:new Set(['head','leftUpper','leftLower']),stretch:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower']),settle:new Set(['torso','head','leftUpper','leftLower','rightUpper','rightLower'])};
   const poseMatrix=new THREE.Matrix4(),bodyPose=new THREE.Matrix4(),headPose=new THREE.Matrix4(),leftUpperPose=new THREE.Matrix4(),leftLowerPose=new THREE.Matrix4(),rightUpperPose=new THREE.Matrix4(),rightLowerPose=new THREE.Matrix4(),pivotMatrix=new THREE.Matrix4(),poseEuler=new THREE.Euler();
   function pivot(matrix,x,y,z,rx=0,ry=0,rz=0){matrix.makeRotationFromEuler(poseEuler.set(rx,ry,rz));const e=matrix.elements;e[12]=x-e[0]*x-e[4]*y-e[8]*z;e[13]=y-e[1]*x-e[5]*y-e[9]*z;e[14]=z-e[2]*x-e[6]*y-e[10]*z;return matrix;}
-  function restoreIdlePose(id){const activity=idlePoses.get(id);if(!activity)return 0;let changed=0;for(const entry of activity.entries){const {batch,index,overview,groupId}=entry,hidden=away.has(batch.bodyOwners[index])||overview&&detailed.has(groupId);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}idlePoses.delete(id);return changed;}
+  function restoreIdlePose(id){const activity=idlePoses.get(id);if(!activity)return 0;let changed=0;for(const entry of activity.entries){const {batch,index,overview}=entry,hidden=hiddenInstance(batch,index,overview);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);batch.mesh.instanceMatrix.needsUpdate=true;changed++;}idlePoses.delete(id);return changed;}
   function clearIdlePoses(){let changed=0;for(const id of [...idlePoses.keys()])changed+=restoreIdlePose(id);return changed;}
   function setIdlePose(id,kind,{delay=0,duration=2400,partner=null,startedAt=null}={}){
     const seat=seatsById.get(id),parts=idlePartSets[kind];if(!seat||!seat.primarySeat||!seat.occupantVisible||!parts||away.has(primarySeatId(seat))||!isSeatVisible(id))return false;
@@ -584,7 +601,7 @@ export function createOffice3DLayout(assets) {
     const changed=new Set([...next,...away].filter(id=>next.has(id)!==away.has(id)));if(!changed.size)return false;
     for(const id of idlePoses.keys())if(next.has(primarySeatId(seatsById.get(id))))restoreIdlePose(id);
     for(const map of[overviewBatches,...detailBatches.values(),...departmentBatches.values()])for(const batch of map.values()){
-      let uploaded=false;batch.bodyOwners.forEach((key,index)=>{if(!key||!changed.has(key))return;const seat=seatsById.get(batch.owners[index]),hidden=next.has(key)||map===overviewBatches&&(detailed.has(seatGroupById.get(batch.owners[index]))||departmentBatches.has(departmentDetailId)&&seat?.departmentId===departmentDetailId);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
+      let uploaded=false;batch.bodyOwners.forEach((key,index)=>{if(!key||!changed.has(key))return;const hidden=next.has(key)||map===overviewBatches&&hiddenOverview(batch.owners[index]);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
       if(uploaded)batch.mesh.instanceMatrix.needsUpdate=true;
     }
     away=next;return true;
@@ -593,21 +610,21 @@ export function createOffice3DLayout(assets) {
     const requested=ids.filter(id=>seatGroups.has(id)),team=requested.find(id=>officeTeamDetail(id)),next=new Set(team?[team]:requested),nextLocal=team||null;
     if(nextLocal&&departmentDetailId)setDepartmentDetail(null);
     if(nextLocal===localTeamId&&next.size===detailed.size&&[...next].every(id=>detailed.has(id)))return false;
-    clearIdlePoses();setHoveredDepartment(null);
+    finishDetailTransition();clearIdlePoses();setHoveredDepartment(null);
     const changed=new Set([...next,...detailed].filter(id=>next.has(id)!==detailed.has(id)));localTeamId=nextLocal;
     for(const [child,visible]of campusVisibility)child.visible=!localTeamId&&visible;
     for(const info of seatGroups.values())info.root.visible=next.has(info.id);
     for(const batch of overviewBatches.values()){
-      let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;batch.mesh.setMatrixAt(index,next.has(owner)||away.has(batch.bodyOwners[index])?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
+      let uploaded=false;batch.owners.forEach((id,index)=>{const owner=seatGroupById.get(id);if(!changed.has(owner))return;batch.mesh.setMatrixAt(index,next.has(owner)||departmentBatches.has(departmentDetailId)&&seatsById.get(id)?.departmentId===departmentDetailId||away.has(batch.bodyOwners[index])?zeroMatrix:batch.matrices[index]);batch.mesh.instanceMatrix.addUpdateRange(index*16,16);uploaded=true;});
       if(uploaded)batch.mesh.instanceMatrix.needsUpdate=true;
     }
     detailed=next;return true;
   }
-  function setDepartmentDetail(id){
+  function setDepartmentDetail(id,{animate=false}={}){
     const next=OFFICE3D_ROOMS.some(room=>room.id===id)?id:null;
     if(next===departmentDetailId)return false;
     if(next&&localTeamId)setDetailGroups([]);
-    clearIdlePoses();departmentDetailId=next;
+    finishDetailTransition();clearIdlePoses();departmentDetailId=next;
     const hideBulletin=next==='ai_data';
     if(hideBulletin!==bulletinOccluded){
       bulletinOccluded=hideBulletin;
@@ -616,10 +633,10 @@ export function createOffice3DLayout(assets) {
         if(changed)batch.mesh.instanceMatrix.needsUpdate=true;
       }
     }
-    for(const [key,group]of departmentRoots)group.visible=key===next;
+    for(const [key,group]of departmentRoots){group.visible=key===next;if(group.visible&&animate){detailOpacity(group,0);departmentFade={group,started:null};}}
     for(const batch of overviewBatches.values()){
-      batch.owners.forEach((id,index)=>{const seat=seatsById.get(id),hidden=departmentBatches.has(next)&&seat?.departmentId===next||detailed.has(seatGroupById.get(id))||away.has(batch.bodyOwners[index]);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);});
-      batch.mesh.instanceMatrix.needsUpdate=true;
+      batch.owners.forEach((id,index)=>{const hidden=hiddenInstance(batch,index,true);batch.mesh.setMatrixAt(index,hidden?zeroMatrix:batch.matrices[index]);});
+      uploadFullBatch(batch);
     }
     return true;
   }
@@ -631,7 +648,7 @@ export function createOffice3DLayout(assets) {
   function enterTeam(id){const team=officeTeamDetail(id);if(!team)return null;setDetailGroups([team.id]);return team;}
   function exitTeam(){return localTeamId?setDetailGroups([]):false;}
   root.userData.statistics=statistics;
-  return {root,statusLights,nodeAnchors,statistics,seatGroups,refreshAppearances,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDepartmentDetail,get departmentDetailId(){return departmentDetailId;},get isBulletinOccluded(){return bulletinOccluded;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
+  return {root,statusLights,nodeAnchors,statistics,seatGroups,tickDetailTransition,finishDetailTransition,get detailTransitionActive(){return !!departmentFade;},dispose(){detailMaterials.forEach(material=>material.dispose());},refreshAppearances,setHoveredDepartment,get hoveredDepartmentId(){return hoveredDepartmentId;},setDepartmentDetail,get departmentDetailId(){return departmentDetailId;},get isBulletinOccluded(){return bulletinOccluded;},setDetailGroups,enterTeam,exitTeam,displayPoint:point=>officeDisplayPoint(point,localTeamId),canonicalPoint:point=>officeCanonicalPoint(point,localTeamId),get localTeamId(){return localTeamId;},setAwaySeats,setIdlePose,tickIdlePoses,clearIdlePoses,clearIdlePose:restoreIdlePose,isSeatVisible,seatGeometry,
     get visibleSeatIds(){return new Set(OFFICE_SEATS.filter(seat=>isSeatVisible(seat.id)).map(seat=>seat.id));},
     get detailGroupIds(){return [...detailed];},
     get awaySeatIds(){return new Set(away);},

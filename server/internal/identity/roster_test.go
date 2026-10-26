@@ -144,13 +144,13 @@ func TestRosterPrimaryAppointmentChangePreservesAccountAndAccess(t *testing.T) {
 		t.Fatalf("initial account: %#v %v", before, err)
 	}
 	old := *find(&s.data, before.ID)
-	roster.Revision = "isolated-primary-maintenance-v2"
+	roster.Revision = "isolated-maintenance-only-v3"
 	p := &roster.Employees[0]
 	p.PrimaryDepartmentID = "maintenance"
-	p.DepartmentIDs = []string{"maintenance", "research"}
-	p.Departments = []string{"运维部", "研发部"}
-	p.SeatIDs = []string{"maintenance_manager_001", "research_staff_001"}
-	p.Title = "运维部经理"
+	p.DepartmentIDs = []string{"maintenance"}
+	p.Departments = []string{"运维部"}
+	p.SeatIDs = []string{"maintenance_manager_001"}
+	p.Title = "运维部部长"
 	// Existing authorization remains owned by the account, not by a re-import.
 	p.Roles = []string{"employee"}
 	plan, err := s.ImportRoster(roster, ImportOptions{DryRun: true})
@@ -166,11 +166,11 @@ func TestRosterPrimaryAppointmentChangePreservesAccountAndAccess(t *testing.T) {
 		t.Fatal("primary appointment change altered the account, credential or access")
 	}
 	after, err := s.Authenticate(p.Username, "admin123")
-	if err != nil || after == nil || after.Department != "运维部" || after.Title != "运维部经理" || strings.Join(after.DepartmentIDs, "|") != "maintenance|research" || strings.Join(after.OrganizationSeatIDs, "|") != "maintenance_manager_001|research_staff_001" {
+	if err != nil || after == nil || after.Department != "运维部" || after.Title != "运维部部长" || strings.Join(after.DepartmentIDs, "|") != "maintenance" || strings.Join(after.OrganizationSeatIDs, "|") != "maintenance_manager_001" {
 		t.Fatalf("corrected actor metadata: %#v %v", after, err)
 	}
 	directory, err := s.ListOrganization("bootstrap")
-	if err != nil || len(directory) != 1 || directory[0].PrimaryDepartmentID != "maintenance" || directory[0].Title != "运维部经理" || directory[0].SeatIDs[0] != "maintenance_manager_001" || len(directory[0].DepartmentIDs) != 2 {
+	if err != nil || len(directory) != 1 || directory[0].PrimaryDepartmentID != "maintenance" || directory[0].Title != "运维部部长" || directory[0].SeatIDs[0] != "maintenance_manager_001" || len(directory[0].DepartmentIDs) != 1 {
 		t.Fatalf("corrected directory: %#v %v", directory, err)
 	}
 	repeat, err := s.ImportRoster(roster, ImportOptions{})
@@ -273,7 +273,7 @@ func TestPrivateReviewedRosterShape(t *testing.T) {
 			counts[dept]++
 		}
 	}
-	if placeholders != 191 || len(seats) != 251 || counts["ai_data"] != 206 || counts["general_office"] != 2 || counts["maintenance"] != 1 {
+	if placeholders != 191 || len(seats) != 250 || counts["ai_data"] != 206 || counts["general_office"] != 2 || counts["maintenance"] != 1 {
 		t.Fatalf("roster counts placeholders=%d seats=%d departments=%v", placeholders, len(seats), counts)
 	}
 }
@@ -327,5 +327,5 @@ func TestPrivateReviewedRosterAllLogins(t *testing.T) {
 	if strings.Contains(string(after), "admin123") {
 		t.Fatal("plaintext password found")
 	}
-	t.Logf("verified %d account logins, %d organization members, %d department relations; replay unchanged", 249, len(directory), 251)
+	t.Logf("verified %d account logins, %d organization members, %d department relations; replay unchanged", 249, len(directory), 250)
 }

@@ -260,15 +260,15 @@ test('2D cancelled captures, hidden pages, blur and destroy release input state 
  }finally{f.destroy();}
 });
 
-test('the organization retains 251 workplaces and 249 people while the overview exposes representative posts only',()=>{
+test('the organization retains 250 workplaces and 249 people while the overview exposes representative posts only',()=>{
   const selected=[],f=sceneFixture({onSelectNode:id=>selected.push(id)});
   try {
     const positions=f.groups.get('[data-position]');
-    assert.equal(positions.length,251);assert.equal(new Set(positions.map(position=>position.dataset.position)).size,251);
-    assert.equal(positions.filter(position=>position.dataset.visible==='true').length,OFFICE_OVERVIEW_SEATS.length);assert.equal(OFFICE_OVERVIEW_SEATS.length,66);
+    assert.equal(positions.length,250);assert.equal(new Set(positions.map(position=>position.dataset.position)).size,250);
+    assert.equal(positions.filter(position=>position.dataset.visible==='true').length,OFFICE_OVERVIEW_SEATS.length);assert.equal(OFFICE_OVERVIEW_SEATS.length,65);
     assert.equal([...f.markup.matchAll(/class="cnl-position-person"/g)].length,OFFICE_OVERVIEW_SEATS.filter(seat=>seat.occupantVisible).length);
     assert.equal([...f.markup.matchAll(/data-occupied="true"/g)].length,249);
-    assert.equal([...f.markup.matchAll(/data-occupied="false"/g)].length,2);
+    assert.equal([...f.markup.matchAll(/data-occupied="false"/g)].length,1);
     for(const room of OFFICE_ROOMS){
       assert.ok(f.markup.includes(`data-room="${room.id}"`));assert.ok(f.markup.includes(room.title));
       const node=f.groups.get('[data-node]').find(node=>node.dataset.node===room.id);assert.ok(node,room.title);
@@ -486,7 +486,7 @@ test('the public wall has exactly four content actions while its furniture remai
   const panels=f.groups.get('[data-bulletin-section]');assert.deepEqual(panels.map(el=>el.dataset.bulletinSection),BULLETIN_SECTIONS.map(item=>item.id));
   for(const panel of panels){panel.listeners.get('pointerenter')();panel.listeners.get('click')({stopPropagation(){}});panel.listeners.get('keydown')({key:'Enter',preventDefault(){},stopPropagation(){}});}
   assert.deepEqual(selected,BULLETIN_SECTIONS.flatMap(item=>[item.id,item.id]));assert.deepEqual(hover.map(item=>item.id),BULLETIN_SECTIONS.map(item=>item.id));for(const item of hover){assert.ok(Number.isFinite(item.at.x));assert.ok(Number.isFinite(item.at.y));}
-  assert.equal(OFFICE_ROOMS.length,12);assert.equal(OFFICE_SEATS.length,251);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));
+  assert.equal(OFFICE_ROOMS.length,12);assert.equal(OFFICE_SEATS.length,250);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));
   const point=f.scene.getNodeAnchor('bulletin'),screen=f.screen(OFFICE_BULLETIN_AREA.anchor);almost(point.x,screen.x);almost(point.y,screen.y);
  }finally{f.destroy();}
 });
@@ -499,7 +499,7 @@ test('the unattended convenience shop is a furnished passive courtyard area with
     for(const fixture of ['shelf','fridge','counter'])assert.ok(area.includes(`data-store-fixture="${fixture}"`));
     assert.ok(area.includes('cnl-store-glass'));assert.ok(area.includes('cnl-store-canopy'));
     assert.doesNotMatch(area,/data-node=|data-position=|tabindex=|role="button"|扫码|支付|销量|库存|订单|价格|¥|￥|元/);
-    assert.ok(!f.groups.get('[data-node]').some(node=>node.dataset.node==='convenience'));assert.equal(OFFICE_ROOMS.length,12);assert.equal(OFFICE_SEATS.length,251);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));
+    assert.ok(!f.groups.get('[data-node]').some(node=>node.dataset.node==='convenience'));assert.equal(OFFICE_ROOMS.length,12);assert.equal(OFFICE_SEATS.length,250);assert.equal(f.svg.dataset.visiblePosts,String(OFFICE_OVERVIEW_SEATS.length));
     assert.equal(OFFICE_CONVENIENCE_AREA.title,'无人便利店');assert.ok(OFFICE_CONVENIENCE_AREA.w<=150&&OFFICE_CONVENIENCE_AREA.h<=110);
   }finally{f.destroy();}
 });
@@ -535,11 +535,13 @@ test('presence replacement survives directory updates and detail expansion witho
  }finally{f.destroy();setOrganizationOccupants([]);}
 });
 
-test('shared departmental posts follow the primary colleague identity when they become represented by live presence',()=>{
+test('maintenance head presence replaces only the remaining maintenance workplace',()=>{
  const f=sceneFixture();try{
-  f.scene.setPresence({enabled:true,people:[{...onlinePerson('maintenance'),appearanceKey:'research_staff_002'}]});
-  for(const id of ['research_staff_002','maintenance_manager_001']){const position=f.groups.get('[data-position]').find(el=>el.dataset.position===id);assert.equal(position.dataset.presenceRepresented,'true');assert.equal(position.props['--position-person-display'],'none');}
-  f.scene.setPresence({enabled:true,people:[]});for(const id of ['research_staff_002','maintenance_manager_001'])assert.equal(f.groups.get('[data-position]').find(el=>el.dataset.position===id).props['--position-person-display'],'block');
+  f.scene.setPresence({enabled:true,people:[{...onlinePerson('maintenance'),appearanceKey:'maintenance_manager_001'}]});
+  const post=f.groups.get('[data-position]').find(el=>el.dataset.position==='maintenance_manager_001');
+  assert.equal(post.dataset.presenceRepresented,'true');assert.equal(post.props['--position-person-display'],'none');
+  assert.equal(f.groups.get('[data-position]').some(el=>el.dataset.position==='research_staff_002'),false);
+  f.scene.setPresence({enabled:true,people:[]});assert.equal(post.props['--position-person-display'],'block');
  }finally{f.destroy();}
 });
 
@@ -567,10 +569,13 @@ test('focused idle candidates exclude offscreen posts, LOD-hidden employees and 
 });
 
 
-test('a shared staff appointment keeps its desk rank while the colleague’s primary maintenance appointment shows the manager role',()=>{
- const f=sceneFixture(),seat=OFFICE_SEATS.find(item=>item.id==='research_staff_002');try{
-  f.scene.focusNode('research');f.drain();setOrganizationOccupants([{personId:seat.personId,name:'李嘉明',title:'运维部经理',username:'test@example.invalid',seatIds:[seat.id,'maintenance_manager_001']}]);
-  const staff=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id),manager=f.groups.get('[data-position]').find(el=>el.dataset.position==='maintenance_manager_001');assert.match(staff.innerHTML,/>李嘉明<\/text>/);assert.doesNotMatch(staff.innerHTML,/cnl-position-rank|运维部经理/);assert.doesNotMatch(staff.attrs['aria-label'],/运维部经理/);assert.match(manager.innerHTML,/>运维部经理<\/text>/);
+test('maintenance head directory caption has no duplicate research appearance',()=>{
+ const f=sceneFixture(),seat=OFFICE_SEATS.find(item=>item.id==='maintenance_manager_001');try{
+  f.scene.focusNode('maintenance');f.drain();setOrganizationOccupants([{personId:seat.personId,name:'李嘉明',title:'运维部部长',username:'test@example.invalid',seatIds:[seat.id]}]);
+  const post=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id);
+  assert.match(post.innerHTML,/>李嘉明<\/text>/);assert.match(post.innerHTML,/>运维部部长<\/text>/);
+  assert.equal(f.groups.get('[data-position]').some(el=>el.dataset.position==='research_staff_002'),false);
+  for(const research of f.groups.get('[data-position]').filter(el=>el.dataset.position.startsWith('research_')))assert.doesNotMatch(research.innerHTML,/李嘉明/);
  }finally{f.destroy();setOrganizationOccupants([]);}
 });
 
@@ -627,7 +632,7 @@ test('blank department floors request movement inside the named department witho
 
 test('live employees sit at the displayed desk, keep one body and stand while walking before settling into a physical free chair',()=>{
  const f=sceneFixture({}, {frames:true});try{
-  const seat=OFFICE_OVERVIEW_SEATS.find(seat=>seat.id==='research_staff_002'),person={...onlinePerson('research'),appearanceKey:'research_staff_002',posture:'seated',seatId:seat.id,x:seat.x,y:seat.y};f.scene.setPresence({enabled:true,people:[person]});const el=f.layers.get('.cnl-presence-layer').children[0],original=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id);assert.ok(el.classes.has('is-seated'));assert.equal(el.attrs.transform,`translate(${seat.x} ${seat.y})`);assert.match(el.innerHTML,/cnl-pose-seated/);assert.match(el.innerHTML,/--chair-display:none/);assert.equal(original.props['--position-person-display'],'none');assert.match(original.innerHTML,/cnl-position-chair/);
+  const seat=OFFICE_OVERVIEW_SEATS.find(seat=>seat.id==='research_staff_003'),person={...onlinePerson('research'),appearanceKey:'research_staff_003',posture:'seated',seatId:seat.id,x:seat.x,y:seat.y};f.scene.setPresence({enabled:true,people:[person]});const el=f.layers.get('.cnl-presence-layer').children[0],original=f.groups.get('[data-position]').find(el=>el.dataset.position===seat.id);assert.ok(el.classes.has('is-seated'));assert.equal(el.attrs.transform,`translate(${seat.x} ${seat.y})`);assert.match(el.innerHTML,/cnl-pose-seated/);assert.match(el.innerHTML,/--chair-display:none/);assert.equal(original.props['--position-person-display'],'none');assert.match(original.innerHTML,/cnl-position-chair/);
   const free={...person,seatId:'',x:520,y:740};f.scene.setPresence({enabled:true,people:[free]});assert.equal(el.classes.has('is-seated'),false);assert.equal(el.dataset.walking,'true');assert.match(el.innerHTML,/cnl-pose-standing/);f.drain();assert.equal(el.dataset.walking,'false');assert.ok(el.classes.has('is-seated'));assert.equal(el.attrs.transform,'translate(520 740)');assert.match(el.innerHTML,/--chair-display:block/);assert.match(el.innerHTML,/--resting-display:block/,'free sitting has relaxed hands and an actual chair');
   f.scene.setPresence({enabled:true,people:[{...free,posture:'standing'}]});assert.ok(!el.classes.has('is-seated'));assert.match(el.innerHTML,/cnl-pose-standing/);
  }finally{f.destroy();}
@@ -793,10 +798,10 @@ test('department pinch transitions retire the old native and touch gesture befor
 test('complete department roster persists through manual camera control and collapses only on a real overview exit',()=>{
  const f=sceneFixture({}, {frames:true});try{
   f.drain();f.scene.focusArea('ai_data');f.drain();const visible=()=>f.groups.get('[data-position]').filter(el=>el.dataset.visible==='true');
-  assert.equal(visible().length,251);assert.equal(visible().filter(el=>OFFICE_SEATS.find(seat=>seat.id===el.dataset.position).departmentId==='ai_data').length,206);
-  f.scene.zoom(2);f.drain();assert.equal(visible().length,251);assert.equal(f.scene.getDepartmentScope(),'ai_data');
-  f.input('pointerdown',{clientX:500,clientY:300});f.input('pointermove',{clientX:550,clientY:330});f.input('pointerup');f.drain();assert.equal(visible().length,251);
-  f.input('gesturestart',{clientX:550,clientY:330});f.input('gesturechange',{scale:1.1,clientX:550,clientY:330});f.input('gestureend');f.drain();assert.equal(visible().length,251);
+  assert.equal(visible().length,250);assert.equal(visible().filter(el=>OFFICE_SEATS.find(seat=>seat.id===el.dataset.position).departmentId==='ai_data').length,206);
+  f.scene.zoom(2);f.drain();assert.equal(visible().length,250);assert.equal(f.scene.getDepartmentScope(),'ai_data');
+  f.input('pointerdown',{clientX:500,clientY:300});f.input('pointermove',{clientX:550,clientY:330});f.input('pointerup');f.drain();assert.equal(visible().length,250);
+  f.input('gesturestart',{clientX:550,clientY:330});f.input('gesturechange',{scale:1.1,clientX:550,clientY:330});f.input('gestureend');f.drain();assert.equal(visible().length,250);
   f.scene.focusArea('finance');f.drain();assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length);f.scene.resetView();f.drain();assert.equal(f.scene.getDepartmentScope(),null);assert.equal(visible().length,OFFICE_OVERVIEW_SEATS.length);
  }finally{f.destroy();}
 });
@@ -828,4 +833,28 @@ test('2D local movement withstands heartbeat and same-account outfit changes, wh
   setOrganizationOccupants([{personId:post.personId,name:'同事',seatIds:[post.id],outfitId:'linen'}]);f.scene.update({animateEvents:false});const name=f.layers.get('.cnl-name-layer').children.find(el=>el.dataset.nameFor==='post:'+post.id);assert.ok(name);assert.match(name.innerHTML,/class="cnl-name-hit"[^>]+style="pointer-events:all"/);name.listeners.get('click')({preventDefault(){},stopPropagation(){}});assert.deepEqual(selected,[post.id]);assert.deepEqual(seats,[]);
   const person={id:'me',name:'自己',online:true,x:500,y:740,nodeId:'research',outfitId:'linen'};f.scene.setPresence({enabled:true,currentUserId:'me',people:[person]});f.scene.setLocalPresencePoint('me',{x:520,y:740},{moving:true});f.scene.setPresence({enabled:true,currentUserId:'me',people:[{...person,outfitId:'marine'}]});assert.deepEqual(f.scene.getPresenceState().positions.me,{x:520,y:740});assert.match(f.layers.get('.cnl-presence-layer').children[0].innerHTML,/data-outfit="marine"/);f.scene.clearLocalPresencePoint('me');f.drain();assert.deepEqual(f.scene.getPresenceState().positions.me,{x:500,y:740});
  }finally{setOrganizationOccupants([]);f.destroy();}
+});
+
+test('dense 2D geometry switches retain parsed workplaces and fade only the entering geometry',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  f.drain();const room=OFFICE_ROOMS.find(room=>room.id==='ai_data'),hiddenSeat=room.seats.find(seat=>!seat.overviewVisible),representative=room.seats.find(seat=>seat.overviewVisible&&seat.role==='staff'),posts=f.groups.get('[data-position]'),hidden=posts.find(el=>el.dataset.position===hiddenSeat.id),sample=posts.find(el=>el.dataset.position===representative.id);
+  f.scene.focusNode(room.id);f.drain();const canonical=hidden.innerHTML,geometry=hidden.dataset.geometry,first=hidden.animations.at(-1);assert.ok(canonical.includes('cnl-position-person'));assert.deepEqual(first.frames,[{opacity:0},{opacity:1}]);assert.equal(first.settings.duration,180);assert.ok(sample.innerHTML.includes(`translate(${representative.desk.x-representative.desk.w/2} ${representative.desk.y-representative.desk.h/2})`),'only canonical furniture remains after entry');
+  f.scene.resetView();f.drain();assert.equal(hidden.dataset.visible,'false');assert.equal(hidden.innerHTML,canonical,'hidden complete posts are retained instead of cleared and parsed on every visit');assert.equal(hidden.dataset.geometry,geometry);assert.equal(first.cancelled,true,'leaving cancels the old fade before returning to overview');const overview=officeSeatForView(representative);assert.ok(sample.innerHTML.includes(`translate(${overview.desk.x-overview.desk.w/2} ${overview.desk.y-overview.desk.h/2})`),'representatives regain overview furniture');
+  f.scene.focusNode(room.id);f.drain();assert.equal(hidden.innerHTML,canonical);assert.equal(hidden.dataset.geometry,geometry);assert.equal(hidden.animations.length,2,'cached workplaces still enter with the same quiet fade');const current=hidden.animations.at(-1);f.scene.setActive(false);assert.equal(current.cancelled,true,'hidden view has no animations running');f.scene.setActive(true);[...f.preferenceListeners][0]({matches:true});f.scene.resetView();f.drain();const before=hidden.animations.length;f.scene.focusNode(room.id);f.drain();assert.equal(hidden.animations.length,before,'reduced motion switches without a fade');
+ }finally{f.destroy();}
+});
+
+test('fractional 2D wheel streams keep department entry when the moving label leaves a stationary pointer',()=>{
+ const f=sceneFixture({}, {frames:true});try{
+  f.drain();
+  for(const room of OFFICE_ROOMS){
+   f.scene.resetView();f.drain();const label=f.groups.get('[data-node]').find(el=>el.dataset.node===room.id),point=f.screen({x:room.x+room.w/2,y:room.y+22});
+   for(let tick=0;tick<60&&!f.scene.getDepartmentScope();tick++){
+    // The first sample hits the label. Later samples hit bare SVG under the
+    // same physical pointer while the label moves with the camera.
+    f.input('wheel',{deltaY:-1.5,deltaX:.7,clientX:point.x,clientY:point.y,target:tick===0?eventTarget(label):{closest:()=>null}});f.frame();
+   }
+   f.drain();assert.equal(f.scene.getDepartmentScope(),room.id,room.id+' preserves the pointer world anchor throughout the fractional stream');assert.equal(f.svg.dataset.visiblePosts,String(room.id==='ai_data'?OFFICE_SEATS.length:OFFICE_OVERVIEW_SEATS.length));
+  }
+ }finally{f.destroy();}
 });

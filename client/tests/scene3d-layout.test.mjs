@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from '../src/vendor/three.module.js';
 import {createOffice3DAssets,createOffice3DLayout} from '../src/scene3d-layout.js';
 import {OFFICE_ROOMS,OFFICE_SEATS,officeSeatForView,ORGANIZATION_TOTALS} from '../src/organization.mjs';
+import {setOrganizationOccupants} from '../src/organization-occupants.mjs';
 
 const ai=OFFICE_ROOMS.find(room=>room.id==='ai_data');
 const owners=group=>new Set(group.children.flatMap(mesh=>mesh.userData.bodySeats||[]).filter(Boolean));
@@ -19,6 +20,130 @@ function headBounds(group,seatId){
  }
  return bounds;
 }
+
+// Mirror Three's buffer upload contract: a nonempty updateRanges list uploads
+// only those floats. CPU-only matrix assertions miss stale furniture on GPU.
+function replayMatrixUploads(layout){
+ const buffers=new Map(),versions=new Map();
+ const visibleMeshes=()=>{const meshes=[];layout.root.traverseVisible(object=>{if(object.isInstancedMesh)meshes.push(object);});return meshes;};
+ function flush(){
+  for(const mesh of visibleMeshes()){
+   const attribute=mesh.instanceMatrix,previous=buffers.get(mesh);
+   if(!previous||previous.length!==attribute.array.length){buffers.set(mesh,Float32Array.from(attribute.array));versions.set(mesh,attribute.version);attribute.clearUpdateRanges();continue;}
+   if(versions.get(mesh)===attribute.version)continue;
+   if(attribute.updateRanges.length)for(const range of attribute.updateRanges)previous.set(attribute.array.subarray(range.start,range.start+range.count),range.start);
+   else previous.set(attribute.array);
+   versions.set(mesh,attribute.version);attribute.clearUpdateRanges();
+  }
+ }
+ function assertSynchronized(context){
+  for(const mesh of visibleMeshes()){
+   const actual=buffers.get(mesh),expected=mesh.instanceMatrix.array;assert.ok(actual,`${context}: visible batch has been uploaded`);let stale=0;
+   for(let index=0;index<expected.length;index++)if(actual[index]!==expected[index])stale++;
+   assert.equal(stale,0,`${context}: ${mesh.parent.name}/${mesh.geometry.type} retains stale GPU matrix values`);
+  }
+ }
+ function visibleBodyParts(group,id){
+  const matrix=new THREE.Matrix4();let count=0;
+  for(const mesh of group.children){const array=buffers.get(mesh);if(!array)continue;for(let index=0;index<mesh.count;index++)if(mesh.userData.bodySeats[index]===id){matrix.fromArray(array,index*16);if(Math.abs(matrix.determinant())>1e-9)count++;}}
+  return count;
+ }
+ flush();return {flush,assertSynchronized,visibleBodyParts};
+}
+
+test('department LOD uploads every changed GPU matrix even when idle poses queued partial updates in the same frame',()=>{
+ const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets),gpu=replayMatrixUploads(layout),overview=layout.root.getObjectByName('organization-overview'),representative=ai.teamZones[0].overviewSeatIds[1],ordinary=OFFICE_SEATS.find(seat=>seat.departmentId==='finance'&&seat.primarySeat);
+  assert.equal(layout.setIdlePose(representative,'wave'),true);layout.tickIdlePoses(0);layout.tickIdlePoses(700);gpu.flush();gpu.assertSynchronized('overview wave');
+  layout.setDepartmentDetail('ai_data');
+  // A later pose may append a small range after the full LOD rewrite. It must
+  // never turn the pending full upload back into a partial body-only upload.
+  assert.equal(layout.setIdlePose(ordinary.id,'nod'),true);layout.tickIdlePoses(800);layout.tickIdlePoses(1000);gpu.flush();gpu.assertSynchronized('enter complete department after pending wave');
+  for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0,'no enlarged overview body remains over canonical desks');
+  assert.equal(layout.setIdlePose(representative,'typing'),true);layout.tickIdlePoses(1100);layout.tickIdlePoses(1400);layout.setAwaySeats([representative]);gpu.flush();gpu.assertSynchronized('presence removes a moving full-roster body');
+  layout.setAwaySeats([]);layout.clearIdlePoses();gpu.flush();gpu.assertSynchronized('restoring presence and ending poses');
+  for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0,'pose restoration preserves hidden overview bodies');
+  layout.setDepartmentDetail(null);assert.equal(layout.setIdlePose(representative,'wave'),true);layout.tickIdlePoses(1500);layout.tickIdlePoses(1800);gpu.flush();gpu.assertSynchronized('leave department with same-frame overview pose');
+  assert.ok(gpu.visibleBodyParts(overview,representative)>0);
+  for(let round=0;round<4;round++){
+   layout.setDepartmentDetail('ai_data');layout.setAwaySeats(round%2?[representative]:[]);layout.setDepartmentDetail(null);layout.setDepartmentDetail('ai_data');gpu.flush();gpu.assertSynchronized(`rapid enter/exit ${round}`);
+   for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0);
+  }
+ }finally{assets.dispose();}
+});
+
+test('changing clothes during full-roster inspection keeps hidden representatives and GPU appearance batches consistent',()=>{
+ setOrganizationOccupants([]);const assets=createOffice3DAssets();try{
+  const layout=createOffice3DLayout(assets),gpu=replayMatrixUploads(layout),overview=layout.root.getObjectByName('organization-overview'),representative=ai.teamZones[0].overviewSeatIds[1];
+  layout.setIdlePose(representative,'wave');layout.tickIdlePoses(0);layout.tickIdlePoses(800);gpu.flush();layout.setDepartmentDetail('ai_data');
+  const fixture={personId:representative,name:'显示测试',seatIds:[representative],outfitId:'cloud'};
+  setOrganizationOccupants([fixture]);layout.refreshAppearances();gpu.flush();gpu.assertSynchronized('clothing refresh while entering full department');
+  for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0,'refreshing clothes cannot revive larger overview occupants');
+  assert.equal(layout.setIdlePose(representative,'stretch'),true);layout.tickIdlePoses(1000);layout.tickIdlePoses(1500);gpu.flush();
+  setOrganizationOccupants([{...fixture,outfitId:'terracotta'}]);assert.equal(layout.refreshAppearances(),true);layout.setAwaySeats([representative]);gpu.flush();gpu.assertSynchronized('clothing refresh and presence update');
+  layout.setAwaySeats([]);layout.setDepartmentDetail(null);gpu.flush();gpu.assertSynchronized('overview after refreshed clothes');assert.ok(gpu.visibleBodyParts(overview,representative)>0);
+ }finally{setOrganizationOccupants([]);assets.dispose();}
+});
+
+test('department fade introduces only canonical workplaces and returns to ordinary opaque rendering when settled',()=>{
+ const assets=createOffice3DAssets();let layout;try{
+  layout=createOffice3DLayout(assets);const gpu=replayMatrixUploads(layout),overview=layout.root.getObjectByName('organization-overview'),group=layout.root.getObjectByName('organization-department-ai_data');
+  const assertOpacity=value=>{for(const mesh of group.children)assert.ok(Math.abs(mesh.material.opacity-value)<1e-8);};
+  assert.equal(layout.setDepartmentDetail('ai_data',{animate:true}),true);assert.equal(layout.detailTransitionActive,true);assert.equal(group.visible,true);assertOpacity(0);
+  gpu.flush();gpu.assertSynchronized('first department fade frame');for(const id of ai.overviewSeatIds)assert.equal(gpu.visibleBodyParts(overview,id),0,'outgoing footprints disappear before incoming detail fades');
+  for(const mesh of group.children){assert.equal(mesh.material.transparent,true);assert.equal(mesh.material.depthWrite,false,'invisible incoming furniture cannot write depth');}
+  assert.equal(layout.tickDetailTransition(1000),true);assertOpacity(0);assert.equal(layout.tickDetailTransition(1090),true);assertOpacity(.5);
+  assert.equal(layout.tickDetailTransition(1180),true);assertOpacity(1);assert.equal(layout.detailTransitionActive,false);assert.equal(layout.tickDetailTransition(1200),false);
+  for(const mesh of group.children){assert.equal(mesh.material.transparent,false,'settled dense furniture uses the opaque render queue');assert.equal(mesh.material.depthWrite,true);}
+  assert.equal(layout.setDepartmentDetail(null),true);assert.equal(group.visible,false);gpu.flush();gpu.assertSynchronized('overview after settled fade');
+ }finally{layout?.dispose();assets.dispose();}
+});
+
+test('cancel, reduced-motion finish, repeated entry and local-team focus never leave a half-transparent roster behind',()=>{
+ const assets=createOffice3DAssets();let layout;try{
+  layout=createOffice3DLayout(assets);const group=layout.root.getObjectByName('organization-department-ai_data');
+  const assertSettled=()=>{assert.equal(layout.detailTransitionActive,false);for(const mesh of group.children){assert.equal(mesh.material.opacity,1);assert.equal(mesh.material.transparent,false);assert.equal(mesh.material.depthWrite,true);}};
+  layout.setDepartmentDetail('ai_data',{animate:true});layout.tickDetailTransition(100);layout.tickDetailTransition(145);assert.equal(layout.detailTransitionActive,true);
+  layout.setDepartmentDetail('finance');assert.equal(group.visible,false);assertSettled();assert.equal(layout.tickDetailTransition(1000),false);
+  layout.setDepartmentDetail('ai_data',{animate:false});assert.equal(group.visible,true);assertSettled();
+  for(let round=0;round<3;round++){
+   layout.setDepartmentDetail(null);layout.setDepartmentDetail('ai_data',{animate:true});layout.tickDetailTransition(2000+round*300);layout.tickDetailTransition(2050+round*300);
+   assert.equal(layout.finishDetailTransition(),true,'a reduced-motion preference or inactive renderer settles once');assertSettled();assert.equal(layout.finishDetailTransition(),false);
+  }
+  layout.setDepartmentDetail(null);layout.setDepartmentDetail('ai_data',{animate:true});layout.tickDetailTransition(4000);layout.tickDetailTransition(4020);layout.enterTeam(ai.teamZones[0].id);
+  assert.equal(group.visible,false);assert.equal(layout.localTeamId,ai.teamZones[0].id);assertSettled();layout.exitTeam();assert.equal(group.visible,false);
+ }finally{layout?.dispose();assets.dispose();}
+});
+
+test('all 206 canonical AI colleagues share one body and desk scale, including the department manager',()=>{
+ const assets=createOffice3DAssets();let layout;try{
+  layout=createOffice3DLayout(assets);layout.setDepartmentDetail('ai_data');const group=layout.root.getObjectByName('organization-department-ai_data'),heights=[];
+  assert.equal(ai.seats.length,206);assert.equal(ai.seats.filter(seat=>layout.isSeatVisible(seat.id)).length,206);
+  for(const seat of ai.seats){
+   const shown=layout.seatGeometry(seat.id);assert.equal(shown.scale,.24);assert.equal(shown.desk.w,14);assert.equal(shown.desk.h,9);
+   const height=headBounds(group,seat.id).getSize(new THREE.Vector3()).y;assert.ok(height>2,'each canonical colleague has a real visible body');heights.push(height);
+  }
+  assert.ok(Math.max(...heights)-Math.min(...heights)<1e-4,'leaders and staff cannot produce oversized bodies in the same canonical department');
+ }finally{layout?.dispose();assets.dispose();}
+});
+
+test('dense department meshes preserve exact footprints and batch count while drawing fewer triangles',()=>{
+ const assets=createOffice3DAssets();let layout;try{
+  const triangles=geometry=>(geometry.index?.count??geometry.attributes.position.count)/3;
+  for(const [kind,geometry]of Object.entries(assets.compactGeometries)){
+   const full=assets.geometries[kind];geometry.computeBoundingBox();full.computeBoundingBox();
+   for(const edge of['min','max'])for(const axis of['x','y','z'])assert.ok(Math.abs(geometry.boundingBox[edge][axis]-full.boundingBox[edge][axis])<1e-7,`${kind} preserves ${edge}.${axis} footprint`);
+   assert.ok(triangles(geometry)<triangles(full),`${kind} genuinely reduces geometry`);
+  }
+  layout=createOffice3DLayout(assets);const group=layout.root.getObjectByName('organization-department-ai_data');let actual=0,unreduced=0;
+  assert.ok(group.children.length<=6,'all 206 workplaces retain six shared draw batches');
+  for(const mesh of group.children){
+   const kind=Object.keys(assets.compactGeometries).find(key=>assets.compactGeometries[key]===mesh.geometry)||Object.keys(assets.geometries).find(key=>assets.geometries[key]===mesh.geometry);assert.ok(kind);
+   actual+=triangles(mesh.geometry)*mesh.count;unreduced+=triangles(assets.geometries[kind])*mesh.count;
+  }
+  assert.ok(actual<unreduced*.6,`dense roster should use less than 60% of the previous triangles: ${actual}/${unreduced}`);
+ }finally{layout?.dispose();assets.dispose();}
+});
 
 test('department detail shows every canonical AI workplace and restores the compact representative overview without rebuilding',()=>{
  const assets=createOffice3DAssets();try{
@@ -59,8 +184,8 @@ test('AI inspection removes only the foreground public board and restores its ex
 test('AI team details build all forty staff and their head at normal scale without changing logical employees or campus bounds',()=>{
  const assets=createOffice3DAssets();try{
   const layout=createOffice3DLayout(assets);
-  assert.equal(ORGANIZATION_TOTALS.people,249);assert.equal(OFFICE_SEATS.length,251);assert.equal(ai.seats.length,206);
-  assert.equal(layout.statistics.workplaces,251);assert.equal(layout.statistics.people,249);
+  assert.equal(ORGANIZATION_TOTALS.people,249);assert.equal(OFFICE_SEATS.length,250);assert.equal(ai.seats.length,206);
+  assert.equal(layout.statistics.workplaces,250);assert.equal(layout.statistics.people,249);
   for(const team of ai.teamZones){
    const group=layout.seatGroups.get(team.id),bounds=team.detailBounds;
    assert.equal(team.seats.length,41);assert.equal(group.seatIds.length,41);assert.deepEqual(group.seatIds,team.detailSeatIds);assert.equal(group.overviewSeatIds.length,4);

@@ -119,7 +119,7 @@ func TestHTTPOfficeLogoutReleasesOnlyItsBrowserLeaseAndRejectsLateHeartbeat(t *t
 }
 func TestHTTPOfficeDualMembershipFreeSittingAndHeartbeatStaleness(t *testing.T) {
 	f := newApp(t)
-	person, cookie := f.officePerson("dual-office", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_002", "maintenance_manager_001"})
+	person, cookie := f.officePerson("dual-office", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_003", "maintenance_manager_001"})
 	id := erpflow.S(person["id"])
 	headers := map[string]string{"X-Office-Actor": id}
 	me := httpOfficePerson(t, f.expect(f.send("GET", "/api/erp/presence", cookie, nil, nil), 200), id)

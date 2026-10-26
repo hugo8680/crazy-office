@@ -57,7 +57,7 @@ func officeAction(t *testing.T, s *Service, a *identity.Actor, op string, p M) M
 }
 func TestOfficePresenceUsesActualMembershipAndStableWhitelistedIdentity(t *testing.T) {
 	f := newFlow(t)
-	real := presenceRosterPerson(t, f.ids, "dual-presence", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_002", "maintenance_manager_001"})
+	real := presenceRosterPerson(t, f.ids, "dual-presence", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_003", "maintenance_manager_001"})
 	fake := *real
 	fake.Department = "财务部"
 	fake.DepartmentIDs = []string{"finance"}
@@ -66,14 +66,14 @@ func TestOfficePresenceUsesActualMembershipAndStableWhitelistedIdentity(t *testi
 	fake.Roles = []string{"admin"}
 	fake.Active = false
 	me := officeHeartbeat(t, f.svc, &fake)
-	if me["nodeId"] != "research" || me["department"] != "研发部" || me["name"] != real.Name || me["appearanceKey"] != "research_staff_002" {
+	if me["nodeId"] != "research" || me["department"] != "研发部" || me["name"] != real.Name || me["appearanceKey"] != "research_staff_003" {
 		t.Fatalf("caller forged actual identity: %#v", me)
 	}
 	_, err := f.svc.UpdateOfficePresence(&fake, M{"operation": "sit", "seatId": "finance_manager_001", "expectedRevision": me["revision"]})
 	domainStatus(t, err, 403)
 	for _, seat := range []string{"research_staff_001", "maintenance_manager_001"} {
 		me = officeAction(t, f.svc, &fake, "sit", M{"seatId": seat})
-		if me["posture"] != "seated" || me["seatId"] != seat || me["appearanceKey"] != "research_staff_002" {
+		if me["posture"] != "seated" || me["seatId"] != seat || me["appearanceKey"] != "research_staff_003" {
 			t.Fatalf("dual department seat failed: %#v", me)
 		}
 	}
@@ -91,20 +91,26 @@ func TestOfficePresenceUsesActualMembershipAndStableWhitelistedIdentity(t *testi
 	}
 }
 
-func TestOfficePresenceStartsAtCorrectedPrimaryMaintenanceAppointment(t *testing.T) {
+func TestOfficePresenceMaintenanceHeadCannotUseFormerResearchPost(t *testing.T) {
 	f := newFlow(t)
-	real := presenceRosterPerson(t, f.ids, "primary-maintenance", []string{"maintenance", "research"}, []string{"运维部", "研发部"}, []string{"maintenance_manager_001", "research_staff_002"})
+	real := presenceRosterPerson(t, f.ids, "primary-maintenance", []string{"maintenance"}, []string{"运维部"}, []string{"maintenance_manager_001"})
 	me := officeHeartbeat(t, f.svc, real)
 	if me["nodeId"] != "maintenance" || me["department"] != "运维部" || me["appearanceKey"] != "maintenance_manager_001" {
 		t.Fatalf("corrected primary appointment was ignored: %#v", me)
 	}
-	for _, seat := range []string{"maintenance_manager_001", "research_staff_002"} {
-		me = officeAction(t, f.svc, real, "sit", M{"seatId": seat})
-		if me["posture"] != "seated" || me["seatId"] != seat || me["appearanceKey"] != "maintenance_manager_001" {
-			t.Fatalf("corrected primary identity or shared appointment was lost: %#v", me)
+	me = officeAction(t, f.svc, real, "sit", M{"seatId": "maintenance_manager_001"})
+	if me["posture"] != "seated" || me["seatId"] != "maintenance_manager_001" {
+		t.Fatalf("maintenance post unavailable: %#v", me)
+	}
+	_, err := f.svc.UpdateOfficePresence(real, M{"operation": "sit", "seatId": "research_staff_001", "expectedRevision": me["revision"]})
+	domainStatus(t, err, 403)
+	for _, seat := range officeLayout.Seats {
+		if seat.ID == "research_staff_002" {
+			t.Fatal("former research workplace is still available")
 		}
 	}
 }
+
 func TestOfficeSeatRaceIsAtomicAndAllReleasePathsFreeTheSeat(t *testing.T) {
 	f := newFlow(t)
 	a, b := f.employee, f.approver
@@ -273,7 +279,7 @@ func TestOfficePresenceRejectsInvalidOrDisabledIdentitiesAndIsTransient(t *testi
 	}
 }
 func TestOfficeGeometryAndCoordinatesAreAuthoritativeFiniteAndOrdered(t *testing.T) {
-	if len(officeLayout.Seats) != 251 || len(officeLayout.Rooms) != 12 {
+	if len(officeLayout.Seats) != 250 || len(officeLayout.Rooms) != 12 {
 		t.Fatal("organization geometry is incomplete")
 	}
 	ids := map[string]bool{}

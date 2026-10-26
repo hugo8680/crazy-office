@@ -7,12 +7,12 @@ import (
 
 func TestPresenceCarriesOnlyStableWorkplaceAppearanceKey(t *testing.T) {
 	f := newFlow(t)
-	person := presenceRosterPerson(t, f.ids, "appearance", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_002", "maintenance_manager_001"})
+	person := presenceRosterPerson(t, f.ids, "appearance", []string{"research", "maintenance"}, []string{"研发部", "运维部"}, []string{"research_staff_003", "maintenance_manager_001"})
 	people, err := f.svc.Touch(person, "maintenance")
 	if err != nil || len(people) != 1 {
 		t.Fatalf("presence failed: %v", err)
 	}
-	if people[0]["appearanceKey"] != "research_staff_002" {
+	if people[0]["appearanceKey"] != "research_staff_003" {
 		t.Fatal("moving between departments changed the primary workplace appearance")
 	}
 	for _, key := range []string{"password", "passwordHash", "roles", "username"} {

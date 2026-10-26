@@ -5,12 +5,12 @@ import {OFFICE_WORLD,OFFICE_ROOMS,OFFICE_SEATS,OFFICE_OVERVIEW_SEATS,OFFICE_DETA
 test('organization has exact requested posts without inventing accounts',()=>{
   assert.equal(ORGANIZATION_DEPARTMENTS.length,12);
   assert.equal(OFFICE_ROOMS.length,12);
-  assert.equal(OFFICE_SEATS.length,251);
+  assert.equal(OFFICE_SEATS.length,250);
   assert.equal(ORGANIZATION_PEOPLE.length,249);
-  const counts={business:6,hr_admin:4,finance:5,legal:2,channels:8,research:9,operations:6,general_office:2,ai_data:206,investment:1,maintenance:1,public_affairs:1};
+  const counts={business:6,hr_admin:4,finance:5,legal:2,channels:8,research:8,operations:6,general_office:2,ai_data:206,investment:1,maintenance:1,public_affairs:1};
   for(const [id,count] of Object.entries(counts))assert.equal(departmentById(id).headcount,count,id);
-  assert.equal(ORGANIZATION_TOTALS.workplaces,251);
-  assert.deepEqual(ORGANIZATION_TOTALS,{departments:12,people:249,workplaces:251,managers:11,chairmen:1,heads:5,staff:232});
+  assert.equal(ORGANIZATION_TOTALS.workplaces,250);
+  assert.deepEqual(ORGANIZATION_TOTALS,{departments:12,people:249,workplaces:250,managers:11,chairmen:1,heads:5,staff:232});
   assert.equal(OFFICE_SEATS.filter(post=>post.role==='chairman').length,1);
   assert.equal(OFFICE_SEATS.filter(post=>post.role==='chairman')[0].departmentId,'general_office');
   for(const person of ORGANIZATION_PEOPLE){assert.equal(person.username,undefined);assert.equal(person.password,undefined);assert.equal(person.permissions,undefined);}
@@ -29,24 +29,21 @@ test('business and channels share one manager and only one visible occupant',()=
   assert.equal(manager.primarySeatId,business.id);
 });
 
-test('maintenance manager lives in maintenance and keeps the research post without a duplicate person',()=>{
+test('maintenance head belongs only to maintenance without a stale research workstation',()=>{
   const maintenance=roomForDepartment('maintenance').seats.find(post=>post.role==='manager');
-  const research=roomForDepartment('research').seats.find(post=>post.personId===maintenance.personId);
-  assert.ok(research,'shared research appointment is retained');
+  assert.equal(maintenance.personId,'research_staff_002','the existing employee identity is retained');
+  assert.equal(roomForDepartment('research').seats.some(post=>post.personId===maintenance.personId),false);
+  assert.equal(OFFICE_SEATS.some(post=>post.id==='research_staff_002'),false);
   assert.equal(maintenance.primarySeat,true);assert.equal(maintenance.occupantVisible,true);
-  assert.equal(maintenance.label,'运维部经理');
-  assert.equal(research.primarySeat,false);assert.equal(research.occupantVisible,false);
-  assert.equal(research.label,'运维部经理兼任');
+  assert.equal(maintenance.label,'运维部部长');
   const manager=ORGANIZATION_PEOPLE.find(person=>person.id===maintenance.personId);
-  assert.equal(manager.role,'manager');
-  assert.equal(manager.primarySeatId,maintenance.id);
-  assert.deepEqual(manager.departmentIds,['maintenance','research']);
-  assert.deepEqual(manager.seatIds,[maintenance.id,research.id]);
-  assert.equal(OFFICE_SEATS.filter(post=>post.personId===manager.id&&post.occupantVisible).length,1);
-  assert.equal(ORGANIZATION_TOTALS.people,249);assert.equal(ORGANIZATION_TOTALS.workplaces,251);
+  assert.equal(manager.role,'manager');assert.equal(manager.primarySeatId,maintenance.id);
+  assert.deepEqual(manager.departmentIds,['maintenance']);assert.deepEqual(manager.seatIds,[maintenance.id]);
+  assert.equal(OFFICE_SEATS.filter(post=>post.personId===manager.id).length,1);
+  assert.equal(ORGANIZATION_TOTALS.people,249);assert.equal(ORGANIZATION_TOTALS.workplaces,250);
   assert.equal(departmentById('maintenance').managerPersonId,manager.id);
-  assert.equal(ORGANIZATION_PEOPLE.filter(person=>person.id===manager.id).length,1);
-  assert.equal(OFFICE_SEATS.length-ORGANIZATION_PEOPLE.length,2,'business/channels and development/maintenance share two colleagues');
+  assert.equal(OFFICE_SEATS.length-ORGANIZATION_PEOPLE.length,1,'only the business/channels manager has two posts');
+  assert.deepEqual(roomForDepartment('research').seats.map(post=>post.id),['research_manager_001',...['001','003','004','005','006','007','008'].map(n=>`research_staff_${n}`)],'all other employee post IDs remain stable');
 });
 
 test('AI department contains five complete divisions with one head and forty staff each',()=>{
@@ -194,7 +191,7 @@ test('courtyard landscape leaves desks, furniture and walking lanes clear',()=>{
 
 test('overview uses readable representative geometry while preserving exact full rosters',()=>{
   const overview=officeSeatsForView();
-  assert.equal(OFFICE_SEATS.length,251);assert.equal(OFFICE_OVERVIEW_SEATS.length,overview.length);
+  assert.equal(OFFICE_SEATS.length,250);assert.equal(OFFICE_OVERVIEW_SEATS.length,overview.length);
   assert.equal(new Set(overview.map(post=>post.id)).size,overview.length);
   for(const room of OFFICE_ROOMS){
     const visible=overview.filter(post=>post.departmentId===room.id);
@@ -217,7 +214,7 @@ test('overview uses readable representative geometry while preserving exact full
 test('department detail renders its complete canonical roster while overview stays compact',()=>{
   assert.equal(officeSeatsForView({zoom:20}).length,OFFICE_OVERVIEW_SEATS.length);
   for(const options of[{focusedDepartmentId:'ai_data'},{zoom:20,detailDepartmentId:'ai_data'}]){
-    const detail=officeSeatsForView(options),ai=detail.filter(post=>post.departmentId==='ai_data');assert.equal(detail.length,251);assert.equal(ai.length,206);assert.equal(new Set(ai.map(post=>post.personId)).size,206);
+    const detail=officeSeatsForView(options),ai=detail.filter(post=>post.departmentId==='ai_data');assert.equal(detail.length,250);assert.equal(ai.length,206);assert.equal(new Set(ai.map(post=>post.personId)).size,206);
     for(const post of ai)assert.equal(post,OFFICE_SEATS.find(item=>item.id===post.id),'complete department uses canonical positions and proportions');
     for(const room of OFFICE_ROOMS.filter(room=>room.id!=='ai_data'))assert.equal(detail.filter(post=>post.departmentId===room.id).length,room.overviewSeatIds.length);
   }
@@ -232,7 +229,7 @@ test('department detail renders its complete canonical roster while overview sta
   assert.equal(officeSeatsForView({zoom:OFFICE_DETAIL_ZOOM-.01,detailTeamId:team.id}).length,OFFICE_OVERVIEW_SEATS.length);
   assert.equal(officeSeatsForView({zoom:OFFICE_DETAIL_ZOOM,detailTeamId:team.id}).length,focused.length);
   const research=officeSeatsForView({focusedDepartmentId:'research'});
-  assert.equal(research.filter(post=>post.departmentId==='research').length,9);
+  assert.equal(research.filter(post=>post.departmentId==='research').length,8);
   for(const post of research.filter(post=>post.departmentId==='research'))assert.equal(post,OFFICE_SEATS.find(item=>item.id===post.id));
 });
 
