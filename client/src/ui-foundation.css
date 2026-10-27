@@ -78,6 +78,24 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 button,input,textarea,select{font:inherit;color:inherit}
+/* Interface labels behave as controls; business text remains selectable. */
+:where(button,[role="button"],[role="tab"],nav,summary,label,legend,
+ .session-identity,.session-heading,.session-field-note,
+ .erp-heading-emblem,.erp-heading-copy>small,.erp-section-head>h2,
+ .bulletin-header,.bulletin-tabs,.bulletin-kicker,.bulletin-preview-heading,
+ .bulletin-dashboard-head>div>h2,.bulletin-section-title>div>h2,
+ .office-chart-card>header h3,.office-chart-legend,[data-ui-label]){
+  -webkit-user-select:none;
+  user-select:none;
+  cursor:default;
+}
+:where(button,[role="button"],[role="tab"],summary,select,input:is([type="checkbox"],[type="radio"],[type="range"],[type="color"],[type="file"])){cursor:pointer}
+:where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]),textarea,[contenteditable="true"],[contenteditable=""],[data-ui-content]){
+  -webkit-user-select:text;
+  user-select:text;
+  cursor:text;
+}
+:where(.session-brand img,.workspace-home img,.bulletin-brand img,.session-pass-art svg){-webkit-user-drag:none;pointer-events:none}
 button{cursor:pointer;border:0;background:none;-webkit-tap-highlight-color:transparent}
 button:disabled{cursor:not-allowed;opacity:var(--office-ui-disabled-opacity)}
 :is(button,input,textarea,select,a,summary):focus-visible{outline:2px solid var(--office-ui-accent);outline-offset:3px}
