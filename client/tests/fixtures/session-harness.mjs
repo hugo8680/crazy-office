@@ -21,7 +21,7 @@ export function harness({session=null,fragment='',pathname='/',responder,reduced
   const dialog=element('dialog'),container={append(node){this.child=node;}},documentListeners=new Map();
   const document={body:container,activeElement:element('before-focus'),hidden:false,createElement:element,addEventListener(type,fn){documentListeners.set(type,fn);},removeEventListener(type){documentListeners.delete(type);}};
   const location={hash:fragment,pathname,replace(url){redirects.push(url);},assign(url){redirects.push(url);}};
-  const scope={EMPLOYEE_WARDROBE,employeeAppearance,employeeAppearanceKey,URLSearchParams,TextEncoder,AbortController,Date,Promise,document,window:{location,matchMedia:()=>({matches:reducedMotion}),history:{replaceState(_state,_title,url){history.push(url);location.pathname='/';location.hash='';}}},
+  const scope={EMPLOYEE_WARDROBE,employeeAppearance,employeeAppearanceKey,URL,URLSearchParams,TextEncoder,AbortController,Date,Promise,document,window:{location,matchMedia:()=>({matches:reducedMotion}),history:{replaceState(_state,_title,url){history.push(url);location.pathname='/';location.hash='';}}},
     setTimeout(fn,delay){const id=++timer;timers.set(id,{fn,delay});return id;},clearTimeout(id){timers.delete(id);},
     fetch:async(url,options)=>{requests.push({url,options});return responder?responder(url,options):response({session:session||{authenticated:false}});},
     console:{log(){throw Error('credential log');},error(){throw Error('credential log');}},localStorage:{setItem(){throw Error('credential persistence');}},sessionStorage:{setItem(){throw Error('credential persistence');}}};

@@ -317,7 +317,7 @@ export function mountScene3D(container,{
     onEnd:activity=>{for(const participant of activity.participants){if(participant.kind==='post')layout.clearIdlePose(participant.seatId);else(agents.get(participant.id)||humans.get(participant.id))?.clearAmbient();}markDirty('ambient');},
   });
 
-  const approvalMarker=button('office3d-approval-marker','需要你审批',()=>select('human',latestState.approvalHumanId||'owner'));approvalMarker.textContent='!';approvalMarker.hidden=true;
+  const approvalMarker=button('office3d-approval-marker','需要你审批',()=>select('human',latestState.approvalHumanId||'owner'));approvalMarker.innerHTML='<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-clipboard-check"/></svg>';approvalMarker.hidden=true;
   function positionEmployee(entry){
     const actor=actualPeople.get(entry.person.id);if(!actor)return;
     const walking=!!entry.motion||localPresencePoints.get(entry.person.id)?.moving===true,seated=entry.person.posture==='seated'&&!walking,assigned=postsById.get(entry.person.seatId),appearance=postsById.get(entry.person.appearanceKey),known=assigned||(appearance&&Math.hypot(appearance.x-entry.point.x,appearance.y-entry.point.y)<2?appearance:null),seat=seated&&known?layout.seatGeometry(known.id):null;

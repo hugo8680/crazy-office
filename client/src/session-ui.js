@@ -1,5 +1,7 @@
 import {EMPLOYEE_WARDROBE,employeeAppearance,employeeAppearanceKey} from './employee-appearance.mjs';
 
+const accountPortrait='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 21v-2a7 7 0 0 1 14 0v2"/></svg>';
+
 const ROLE_NAMES = Object.freeze({admin:'管理员',manager:'负责人',procurement:'采购',warehouse:'仓管',project_manager:'项目经理',employee:'员工',finance:'财务',hr:'人事'});
 
 const outfitPreview=style=>`<svg class="session-outfit-art" viewBox="0 0 82 70" aria-hidden="true"><path d="M24 21 9 30l7 19 9-5v20h32V44l9 5 7-19-15-9-8-2H32Z" fill="${style.jacket}"/><path d="m32 19 9 9 9-9-3 31H35Z" fill="${style.shirt}"/>${['jacket','cardigan','overshirt'].includes(style.garment)?`<path d="m32 19-3 15 8-3 4 26M50 19l3 15-8-3-4 26" stroke="${style.trim}" fill="none"/>`:style.garment==='hoodie'?`<path d="M29 21q12 18 24 0M34 28v11m14-11v11M31 49h20" stroke="${style.trim}" fill="none"/>`:`<path d="M32 20q9 12 18 0M27 57h28" stroke="${style.trim}" fill="none"/>`}<path d="M25 64h32" stroke="${style.trousers}" stroke-width="5"/></svg>`;
@@ -27,9 +29,6 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-username"><span class="session-field-label">企业邮箱</span><span class="session-input">${fieldIcon('account')}<input id="session-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" inputmode="email" placeholder="name@laisengou.com" required></span></label>
       <label for="session-password"><span class="session-field-label">密码</span><span class="session-input">${fieldIcon('password')}<input id="session-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="session-password-toggle" data-session-action="toggle-password" aria-label="显示密码" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></span></label></fieldset>
       <p class="session-error" id="session-login-error" role="alert" hidden></p>
-      <div class="session-login-actions">
-        <button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button>
-      </div>
     </form>
     <section id="session-profile" hidden>
       <div class="session-profile-card"><div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div class="session-person-copy"><h2 id="session-name"></h2><p id="session-account"></p></div><button type="button" class="session-locate" data-session-action="locate" aria-label="定位自己" title="定位自己"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button></div>
@@ -51,19 +50,20 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <div class="session-form-actions"><button type="button" data-session-action="profile" class="session-secondary">取消</button><button id="session-password-submit" class="session-primary" type="submit">${spinner('session-password-spinner')}<span id="session-password-label">保存密码</span></button></div>
     </form>
     <form id="session-invitation-form" class="session-form" hidden>
+      <label id="session-registration-field" hidden><span class="session-field-label">邀请链接或邀请码</span><span class="session-input">${fieldIcon('account')}<input id="session-registration-code" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="2048" placeholder="粘贴人事发送的邀请链接或邀请码"></span><span class="session-field-note">使用人事发送的邀请链接注册。</span></label>
       <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-invitation-password"><span class="session-field-label">新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-invitation-password" type="password" autocomplete="new-password" minlength="12" required></span><span class="session-field-note">至少 12 个字符</span></label>
       <label for="session-invitation-confirm"><span class="session-field-label">确认新密码</span><span class="session-input">${fieldIcon('password')}<input id="session-invitation-confirm" type="password" autocomplete="new-password" minlength="12" required></span></label></fieldset>
       <p class="session-error" id="session-invitation-error" role="alert" hidden></p>
-      <button id="session-invitation-submit" class="session-primary" type="submit">${spinner('session-invitation-spinner')}<span id="session-invitation-label">设置密码</span></button>
+      <div class="session-form-actions"><button type="button" id="session-registration-back" data-session-action="login" class="session-secondary" hidden>返回登录</button><button id="session-invitation-submit" class="session-primary" type="submit">${spinner('session-invitation-spinner')}<span id="session-invitation-label">设置密码</span></button></div>
     </form>
     </div>
-    <a class="session-contact" href="mailto:wangfugen@laisengou.com" title="邮件联系人事：王福根">联系人事</a>
+    <div class="session-login-actions"><button type="button" class="session-text-action" data-session-action="register">注册</button><button id="session-login-submit" class="session-primary" type="submit" form="session-login-form">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button></div>
   </section>`;
   container.append(dialog);
   const q=selector=>dialog.querySelector(selector);
   const login=q('#session-login-form'),profile=q('#session-profile'),passwordForm=q('#session-password-form'),invitationForm=q('#session-invitation-form'),appearanceForm=q('#session-appearance-form');
   const username=q('#session-username'),password=q('#session-password'),current=q('#session-current'),next=q('#session-new'),confirmation=q('#session-confirm');
-  const invitationPassword=q('#session-invitation-password'),invitationConfirmation=q('#session-invitation-confirm');
+  const invitationPassword=q('#session-invitation-password'),invitationConfirmation=q('#session-invitation-confirm'),registrationCode=q('#session-registration-code');
   const pendingActions=[['login','login','进入办公室','正在进入'],['profile','signout','退出登录','正在退出'],['password','password','保存密码','正在保存'],['invitation','invitation','设置密码','正在保存'],['appearance','appearance','保存搭配','正在保存']];
   let session=null,mode='login',pending=false,destroyed=false,generation=0,expiryTimer=null,returnFocus=null,closeTimer=null,closing=false,surfaceOpen=false,surfaceGeneration=0,closeGeneration=0,restoreCloseFocus=true,selectedOutfit='',afterClose=null;
   const outfitIds=new Set(EMPLOYEE_WARDROBE.map(style=>style.id));
@@ -76,7 +76,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
   if(hasToken||invalidInvitation)window.history.replaceState(null,'','/');
   const controllers=new Map();
   const notify=(fn,...args)=>{try{const result=fn(...args);if(result&&typeof result.catch==='function')result.catch(()=>{});}catch{}};
-  const clearPasswords=()=>{for(const field of [password,current,next,confirmation,invitationPassword,invitationConfirmation])field.value='';password.type='password';const toggle=q('[data-session-action="toggle-password"]');toggle?.setAttribute('aria-label','显示密码');toggle?.setAttribute('aria-pressed','false');};
+  const clearPasswords=()=>{for(const field of [password,current,next,confirmation,invitationPassword,invitationConfirmation])field.value='';registrationCode.value='';password.type='password';const toggle=q('[data-session-action="toggle-password"]');toggle?.setAttribute('aria-label','显示密码');toggle?.setAttribute('aria-pressed','false');};
   function message(selector,text=''){
     const element=q(selector);
     if(element.textContent===text&&element.hidden===!text)return;
@@ -86,9 +86,9 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     pending=value;dialog.setAttribute('aria-busy',String(value));
     for(const control of dialog.querySelectorAll('input,button'))control.disabled=value||closing;
     for(const [view,id,idle,busy] of pendingActions){
-      const active=value&&view===mode,button=q(`#session-${id}-submit`);
+      const active=value&&(view===mode||view==='invitation'&&mode==='register'),button=q(`#session-${id}-submit`);
       button.dataset.busy=String(active);button.setAttribute('aria-busy',String(active));
-      q(`#session-${id}-label`).textContent=active?busy:idle;
+      q(`#session-${id}-label`).textContent=active?(mode==='register'?'正在注册':busy):(id==='invitation'&&mode==='register'?'注册':idle);
       q(`#session-${id}-spinner`).hidden=!active;
     }
   }
@@ -127,7 +127,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     clearTimeout(expiryTimer);expiryTimer=null;
     if(session){
       const actor=session.actor||session,name=actor.name||session.username||'账户';
-      q('#session-initial').textContent=Array.from(name)[0]||'';
+      q('#session-initial').innerHTML=accountPortrait;
       q('#session-name').textContent=name;
       q('#session-account').textContent=session.username||actor.username||'';
       q('#session-department').textContent=(Array.isArray(actor.departments)&&actor.departments.length?actor.departments.join('、'):actor.department)||'—';
@@ -156,17 +156,18 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
     cancelClose();
     mode=view;
     dialog.dataset.view=view;
-    login.hidden=view!=='login';profile.hidden=view!=='profile';passwordForm.hidden=view!=='password';invitationForm.hidden=view!=='invitation';appearanceForm.hidden=view!=='appearance';
-    q('#session-title').textContent=view==='login'?'登录':view==='password'?'修改密码':view==='invitation'?'设置密码':view==='appearance'?'着装':'账户';
+    login.hidden=view!=='login';profile.hidden=view!=='profile';passwordForm.hidden=view!=='password';invitationForm.hidden=view!=='invitation'&&view!=='register';q('#session-registration-field').hidden=view!=='register';q('#session-registration-back').hidden=view!=='register';registrationCode.required=view==='register';appearanceForm.hidden=view!=='appearance';
+    q('#session-title').textContent=view==='login'?'登录':view==='password'?'修改密码':view==='register'?'注册':view==='invitation'?'设置密码':view==='appearance'?'着装':'账户';
     if(entering){
       message('#session-message',notice);
       for(const selector of ['#session-login-error','#session-profile-error','#session-password-error','#session-invitation-error','#session-appearance-error'])message(selector);
       clearPasswords();
       if(view==='appearance'){const actor=session.actor||session;chooseOutfit(employeeAppearance({id:employeeAppearanceKey(actor),outfitId:actor.outfitId}).outfitId);}
     }else if(notice)message('#session-message',notice);
+    q('#session-invitation-label').textContent=view==='register'?'注册':'设置密码';
     if(view==='login'&&!username.value)username.value=session?.username||'';
     if(!dialog.open){returnFocus=document.activeElement;dialog.showModal();surfaceOpen=true;surfaceGeneration++;restoreCloseFocus=true;}
-    const focus=view==='login'?(username.value?password:username):view==='password'?current:view==='invitation'?invitationPassword:view==='appearance'?q(`#session-outfit-${selectedOutfit}`):q('.session-close');
+    const focus=view==='login'?(username.value?password:username):view==='password'?current:view==='register'?registrationCode:view==='invitation'?invitationPassword:view==='appearance'?q(`#session-outfit-${selectedOutfit}`):q('.session-close');
     if(entering)focus.focus();
   }
   function close(){if(pending||destroyed)return;dismiss();}
@@ -240,12 +241,18 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       }
     }finally{credentials.currentPassword='';credentials.newPassword='';if(!destroyed&&stamp===generation){clearPasswords();setPending(false);}}
   }
+  function invitationCode(value){
+    const text=String(value||'').trim();if(/^[A-Za-z0-9_-]{43}$/.test(text))return text;
+    try{const origin=window.location.origin||'https://office.laisengou.com',url=new URL(text,origin);if(url.origin!==origin||!/^\/join(?:\.html)?\/?$/.test(url.pathname))return '';const values=new URLSearchParams(url.hash.slice(1)).getAll('token');return values.length===1&&/^[A-Za-z0-9_-]{43}$/.test(values[0])?values[0]:'';}catch{return '';}
+  }
   async function submitInvitation(event){
-    event.preventDefault();if(pending||destroyed||!invitationToken||!invitationForm.reportValidity())return;
+    event.preventDefault();if(pending||destroyed||!invitationForm.reportValidity())return;
+    const registering=mode==='register',token=registering?invitationCode(registrationCode.value):invitationToken;
+    if(!token){if(registering){message('#session-invitation-error','请输入有效的邀请链接或邀请码。');registrationCode.focus();}return;}
     if(invitationPassword.value.length<12){message('#session-invitation-error','密码至少 12 个字符。');return;}
     if(new TextEncoder().encode(invitationPassword.value).length>1024){message('#session-invitation-error','密码过长。');return;}
     if(invitationPassword.value!==invitationConfirmation.value){message('#session-invitation-error','两次新密码不一致。');invitationConfirmation.focus();return;}
-    const credentials={token:invitationToken,password:invitationPassword.value},stamp=++generation;
+    const credentials={token,password:invitationPassword.value},stamp=++generation;
     setPending(true);message('#session-invitation-error');
     try{
       const data=await request('/api/erp/invitations/accept',credentials);
@@ -254,9 +261,9 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       invitationToken='';invalidInvitation=false;username.value=data.employee.username;
       // The successful acceptance response clears the old HttpOnly cookie.
       // It deliberately never grants a session to the accepted employee.
-      setSession(null);setPending(false);notify(onSignedOut);show('login','密码已设置，请登录。');
+      setSession(null);setPending(false);notify(onSignedOut);show('login',registering?'注册完成，请登录。':'密码已设置，请登录。');
     }catch(error){if(!destroyed&&stamp===generation){
-      if(error.status===410){invitationToken='';setPending(false);show('login','链接已失效，请联系管理员。');}
+      if(error.status===410){invitationToken='';setPending(false);if(registering)message('#session-invitation-error','邀请链接已失效，请向人事获取新链接。');else show('login','链接已失效，请联系管理员。');}
       else message('#session-invitation-error',errorText(error,'invitation'));
     }}finally{credentials.token='';credentials.password='';if(!destroyed&&stamp===generation){clearPasswords();setPending(false);}}
   }
@@ -285,16 +292,17 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       if(destroyed||stamp!==generation)return session;
       const wasAuthenticated=Boolean(session);
       setSession(data.session);
-      if(invitationToken)show('invitation');
-      else if(session){if(dialog.open&&mode==='login')dismiss(false);notify(onAuthenticated,session);}
+      if(mode==='register'&&dialog.open&&!session)show('register');
+      else if(invitationToken)show('invitation');
+      else if(session){if(dialog.open&&(mode==='login'||mode==='register'))dismiss(false);notify(onAuthenticated,session);}
       else{show('login',wasAuthenticated?'登录已过期，请重新登录。':'');if(wasAuthenticated)notify(onSessionExpired);}
       return session;
-    }catch(error){if(!destroyed&&stamp===generation){const wasAuthenticated=Boolean(session);setSession(null);show(invitationToken?'invitation':'login');message(invitationToken?'#session-invitation-error':'#session-login-error',errorText(error,'refresh'));if(wasAuthenticated)notify(onSessionExpired);}return null;}
+    }catch(error){if(!destroyed&&stamp===generation){const wasAuthenticated=Boolean(session);setSession(null);const view=invitationToken?'invitation':mode==='register'&&dialog.open?'register':'login';show(view);message(view==='login'?'#session-login-error':'#session-invitation-error',errorText(error,'refresh'));if(wasAuthenticated)notify(onSessionExpired);}return null;}
   }
   function onClick(event){
     const button=event.target.closest('[data-session-action]');
     if(!button||pending)return;
-    switch(button.dataset.sessionAction){case 'toggle-password':{const visible=password.type==='password';password.type=visible?'text':'password';button.setAttribute('aria-label',visible?'隐藏密码':'显示密码');button.setAttribute('aria-pressed',String(visible));password.focus();break;}case 'close':close();break;case 'locate':if(session){const personId=(session.actor||session).id;dismiss(false,()=>{if((session?.actor||session)?.id===personId)notify(onLocate,session);});}break;case 'password':show('password');break;case 'appearance':show('appearance');break;case 'choose-outfit':if(session&&mode==='appearance')chooseOutfit(button.dataset.outfit);break;case 'profile':show(session?'profile':'login');break;case 'signout':void signOut();break;}
+    switch(button.dataset.sessionAction){case 'toggle-password':{const visible=password.type==='password';password.type=visible?'text':'password';button.setAttribute('aria-label',visible?'隐藏密码':'显示密码');button.setAttribute('aria-pressed',String(visible));password.focus();break;}case 'register':if(!session)show('register');break;case 'login':invitationToken='';show(session?'profile':'login');break;case 'close':close();break;case 'locate':if(session){const personId=(session.actor||session).id;dismiss(false,()=>{if((session?.actor||session)?.id===personId)notify(onLocate,session);});}break;case 'password':show('password');break;case 'appearance':show('appearance');break;case 'choose-outfit':if(session&&mode==='appearance')chooseOutfit(button.dataset.outfit);break;case 'profile':show(session?'profile':'login');break;case 'signout':void signOut();break;}
   }
   function onWardrobeKey(event){
     if(pending||destroyed||!session||mode!=='appearance'||!['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Home','End'].includes(event.key))return;

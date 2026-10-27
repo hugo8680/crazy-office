@@ -3,7 +3,7 @@ import { AGENTS } from './simulation.js';
 
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-const icon = (name, className = '') => `<svg class="icon ${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const icon = (name, className = '') => `<svg class="icon ${className}" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const time = (seconds = 0) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 const numeric = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const phaseList = [['detect', '发现'], ['diagnose', '诊断'], ['recover', '处置'], ['verify', '验收']];

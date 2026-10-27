@@ -46,7 +46,7 @@ let preferredDocument=null,dockSignature='',viewSignature='',viewFocus=null;
 let pendingLoginLocation=false,officeNavigation=null,officeInput=null,returnTicket=0;
 const departmentIDs=new Set(ORGANIZATION_DEPARTMENTS.map(item=>item.id));
 const navigation=[['desk','工作台','grid'],['projects','项目','book'],['flows','单据','layers'],['inventory','进销存','server'],['people','人员','users'],['reports','报表','activity']];
-const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const icon=name=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const isAuthenticated=()=>!!(session?.actor?.id||session?.user?.id);
 const actor=()=>session?.actor||session?.user||{};
 function toast(message){clearTimeout(toastTimer);toastElement.textContent=message;toastElement.hidden=false;revealSurface(toastElement,'toast');toastTimer=setTimeout(()=>{toastElement.hidden=true;cancelSurfaceMotion(toastElement);},4500);}
@@ -88,7 +88,7 @@ function renderDock(){
   const focusData=focused?{...focused.dataset}:null;
   dock.innerHTML=`<button type="button" class="workspace-home" data-office-action="home" aria-label="办公室" title="办公室"><img src="./brand-mark.svg" width="27" height="27" alt="莱森购"></button>
     <div class="workspace-navigation">${navigation.map(([id,label,symbol])=>`<button type="button" data-office-section="${id}" class="workspace-nav-item ${section===id?'is-active':''}" ${section===id?'aria-current="page"':''}>${icon(symbol)}<span>${label}</span>${id==='desk'&&counts.approvals?`<em aria-label="${counts.approvals} 项待审批">${counts.approvals}</em>`:''}</button>`).join('')}</div>
-    <div class="workspace-utilities"><button type="button" class="workspace-sound" data-office-action="sound" aria-label="${officeAudio.muted?'开启音效':'关闭音效'}" title="${officeAudio.muted?'开启音效':'关闭音效'}" aria-pressed="${!officeAudio.muted}"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4Z"/>${officeAudio.muted?'<path d="m16 9 5 6m0-6-5 6"/>':'<path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>'}</svg></button><button type="button" class="workspace-account" data-office-action="account" aria-label="账户：${e(name)}" title="${e(name)}"><span class="workspace-avatar">${e(name.slice(0,1))}</span><span class="workspace-account-name">${e(name)}</span></button></div>`;
+    <div class="workspace-utilities"><button type="button" class="workspace-sound" data-office-action="sound" aria-label="${officeAudio.muted?'开启音效':'关闭音效'}" title="${officeAudio.muted?'开启音效':'关闭音效'}" aria-pressed="${!officeAudio.muted}"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4Z"/>${officeAudio.muted?'<path d="m16 9 5 6m0-6-5 6"/>':'<path d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>'}</svg></button><button type="button" class="workspace-account" data-office-action="account" aria-label="账户：${e(name)}" title="${e(name)}"><span class="workspace-avatar" aria-hidden="true">${icon('user')}</span><span class="workspace-account-name">${e(name)}</span></button></div>`;
   if(focusData)for(const button of dock.querySelectorAll('button'))if(['officeAction','officeSection','officeView'].some(key=>focusData[key]&&button.dataset[key]===focusData[key])){button.focus();break;}
 }
 function requireAccount(){if(isAuthenticated()&&erp)return true;account?.requireLogin();return false;}

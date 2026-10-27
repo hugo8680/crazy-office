@@ -286,3 +286,26 @@ test('native session closure clears a pending exit animation and never notifies 
  h.dialog.close();h.dialog.listeners.get('close')();assert.equal(h.events.closed,1);assert.equal(h.timers.size,0);assert.equal(h.dialog.dataset.closing,undefined);
  h.ui.open();old();h.dialog.listeners.get('close')();assert.equal(h.ui.isOpen,true);assert.equal(h.events.closed,1);h.destroy();
 });
+
+test('注册入口复用真实邀请激活接口，支持邀请码和同源链接，成功后明确登录',async()=>{
+ for(const code of[TOKEN,`https://office.laisengou.com/join#token=${TOKEN}`,`/join.html#token=${TOKEN}`]){
+  const h=harness();await h.ui.ready;h.click('register');assert.equal(h.dialog.dataset.view,'register');assert.equal(h.element('#session-registration-field').hidden,false);assert.equal(h.element('#session-registration-code').required,true);assert.equal(h.element('#session-invitation-label').textContent,'注册');
+  h.element('#session-registration-code').value=code;h.setResponder(async()=>response({employee:{id:'registered-employee',username:'new@laisengou.com'}}));await h.invitation();
+  assert.equal(h.requests.at(-1).url,'/api/erp/invitations/accept');assert.deepEqual(JSON.parse(h.requests.at(-1).options.body),{token:TOKEN,password:PASSWORD});assert.equal(h.ui.session,null);assert.equal(h.events.authenticated.length,0);assert.equal(h.dialog.dataset.view,'login');assert.equal(h.element('#session-username').value,'new@laisengou.com');assert.equal(h.element('#session-message').textContent,'注册完成，请登录。');assert.equal(h.element('#session-registration-code').value,'');h.destroy();
+ }
+});
+
+test('注册拒绝无效或外站邀请，不发请求；返回和关闭清除邀请码及口令',async()=>{
+ const h=harness();await h.ui.ready;h.click('register');for(const code of['','short',`https://other.example/join#token=${TOKEN}`,`https://office.laisengou.com/join#token=${TOKEN}&token=${TOKEN}`,`https://office.laisengou.com/other#token=${TOKEN}`]){h.element('#session-registration-code').value=code;await h.invitation();assert.equal(h.requests.length,1);assert.equal(h.element('#session-invitation-error').hidden,false);}
+ h.element('#session-registration-code').value=TOKEN;h.click('login');assert.equal(h.dialog.dataset.view,'login');assert.equal(h.element('#session-registration-code').value,'');assert.equal(h.element('#session-invitation-password').value,'');h.click('register');h.element('#session-registration-code').value=TOKEN;h.ui.close();assert.equal(h.element('#session-registration-code').value,'');h.destroy();
+});
+
+test('注册防止重复提交并保持等待状态，过期或失败不创建会话',async()=>{
+ const h=harness();await h.ui.ready;h.click('register');const waiting=deferred();h.setResponder(()=>waiting.promise);h.element('#session-registration-code').value=TOKEN;const submit=h.invitation();await h.invitation();assert.equal(h.requests.length,2);assert.equal(h.element('#session-invitation-label').textContent,'正在注册');assert.equal(h.element('#session-invitation-submit').getAttribute('aria-busy'),'true');waiting.resolve(response({},410));await submit;assert.equal(h.dialog.dataset.view,'register');assert.match(h.element('#session-invitation-error').textContent,/已失效/);assert.equal(h.element('#session-registration-code').value,'');assert.equal(h.ui.session,null);
+ h.setResponder(async()=>response({},429));h.element('#session-registration-code').value=TOKEN;await h.invitation();assert.match(h.element('#session-invitation-error').textContent,/尝试过多/);assert.equal(h.ui.session,null);h.destroy();
+});
+
+test('刷新会话保留注册草稿，过时注册响应不能覆盖重新登录',async()=>{
+ const h=harness();await h.ui.ready;h.click('register');h.element('#session-registration-code').value=TOKEN;h.element('#session-invitation-password').value=PASSWORD;await h.ui.refresh();assert.equal(h.dialog.dataset.view,'register');assert.equal(h.element('#session-registration-code').value,TOKEN);assert.equal(h.element('#session-invitation-password').value,PASSWORD);
+ const waiting=deferred();h.setResponder(()=>waiting.promise);const submit=h.invitation();h.ui.requireLogin();h.element('#session-password').value='new-login-draft';waiting.resolve(response({employee:{id:'new',username:'new@laisengou.com'}}));await submit;assert.equal(h.dialog.dataset.view,'login');assert.equal(h.element('#session-password').value,'new-login-draft');assert.equal(h.element('#session-registration-code').value,'');assert.equal(h.events.authenticated.length,0);h.destroy();
+});
