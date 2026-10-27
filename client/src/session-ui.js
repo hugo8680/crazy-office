@@ -28,7 +28,6 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <label for="session-password"><span class="session-field-label">密码</span><span class="session-input">${fieldIcon('password')}<input id="session-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="session-password-toggle" data-session-action="toggle-password" aria-label="显示密码" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></span></label></fieldset>
       <p class="session-error" id="session-login-error" role="alert" hidden></p>
       <div class="session-login-actions">
-        <a class="session-contact" href="mailto:wangfugen@laisengou.com" title="邮件联系人事：王福根">联系人事</a>
         <button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button>
       </div>
     </form>
@@ -58,6 +57,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <button id="session-invitation-submit" class="session-primary" type="submit">${spinner('session-invitation-spinner')}<span id="session-invitation-label">设置密码</span></button>
     </form>
     </div>
+    <a class="session-contact" href="mailto:wangfugen@laisengou.com" title="邮件联系人事：王福根">联系人事</a>
   </section>`;
   container.append(dialog);
   const q=selector=>dialog.querySelector(selector);
