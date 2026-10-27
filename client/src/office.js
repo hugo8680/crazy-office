@@ -5,6 +5,7 @@ import {createSceneViewController} from './scene-view.js';
 import {mountErp} from './erp.js';
 import {mountErpPresence} from './erp-presence.js';
 import {mountSession} from './session-ui.js';
+import {mountFormFeedback} from './form-feedback.mjs';
 import {mountBulletinCenter} from './bulletin-center.js';
 import {mountOfficeLocation} from './office-location.js';
 import {mountOfficePerson} from './office-person.js';
@@ -15,6 +16,7 @@ import {escapeHtml as e} from './erp-ui.mjs';
 import {mountWorkspaceViewport} from './workspace-viewport.mjs';
 import {CREW,ROOM_SECTIONS,SECTION_ROOMS,sceneProjection,crewDocument,workspaceCounts,createDocumentObserver} from './workspace-state.mjs';
 
+const formFeedback=mountFormFeedback();
 const lab=document.querySelector('#lab');
 const dock=document.querySelector('#action-dock');
 const viewSwitch=document.querySelector('#view-switch');
@@ -205,4 +207,4 @@ await account.ready;
 // Reconcile while the business pane is closed; the pane owns its own visible polling.
 pollTimer=setInterval(()=>{if(erp&&!erp.isOpen&&!document.hidden)void erp.refresh({silent:true}).catch(()=>{});},8000);
 document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelSurfaceMotions();officeAudio.pause();}else if(erp)void erp.refresh({silent:true}).catch(()=>{});});
-window.addEventListener('pagehide',event=>{if(event?.persisted)return;workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);officeNavigation?.destroy();officeInput?.destroy();officeAudio.destroy();returnTicket++;bulletin?.destroy();locationMenu?.destroy();personMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});
+window.addEventListener('pagehide',event=>{if(event?.persisted)return;formFeedback.destroy();workspaceViewport.destroy();cancelSurfaceMotions();motionPreference?.removeEventListener?.('change',updateMotionPreference);clearInterval(pollTimer);clearTimeout(toastTimer);clearTimeout(receiptTimer);officeNavigation?.destroy();officeInput?.destroy();officeAudio.destroy();returnTicket++;bulletin?.destroy();locationMenu?.destroy();personMenu?.destroy();presence?.destroy();erp?.destroy();account?.destroy();scene.destroy();});

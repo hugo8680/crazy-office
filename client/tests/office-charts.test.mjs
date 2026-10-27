@@ -22,6 +22,11 @@ test('line and distribution charts expose exact record values and valid accessib
 
 test('stock bars compare inbound and outbound only within the same product and unit',()=>{
  const html=renderOfficeReportCharts(snapshot(),{mode:'stock',now});
- assert.equal([...html.matchAll(/width:100%;--chart-color:#366c61/g)].length,2,'each product has its own inbound/outbound scale');
- assert.match(html,/width:40%;--chart-color:#c5a26a/,'two of five servers is forty percent, unaffected by metres of cable');
+ const products=[...html.matchAll(/<div><header><strong>([^<]+)<\/strong><span>当前 ([^<]+)<\/span><\/header>((?:<div class="office-stock-bar">.*?<\/div>){2})<\/div>/g)].map(([,name,quantity,bars])=>({name,quantity,bars:[...bars.matchAll(/<span>(入库|出库)<\/span><i style="width:([\d.]+)%;[^"]*"><\/i><b>([\d,]+)<\/b>/g)].map(([,series,width,value])=>({series,width:Number(width),value:Number(value.replaceAll(',',''))}))}));
+ assert.equal(products.length,2,'both product scales are rendered separately');
+ const servers=products.find(row=>row.name==='服务器'),cable=products.find(row=>row.name==='网线');
+ assert.equal(servers.quantity,'3 台');assert.equal(cable.quantity,'200 米');
+ assert.deepEqual(servers.bars,[{series:'入库',width:100,value:5},{series:'出库',width:40,value:2}],'two of five servers is forty percent, unaffected by metres of cable');
+ assert.deepEqual(cable.bars.map(({series,value})=>({series,value})),[{series:'入库',value:300},{series:'出库',value:100}]);
+ assert.equal(cable.bars[0].width,100,'cable inbound uses its own scale');assert.ok(Math.abs(cable.bars[1].width-100/3)<1e-9,'one hundred of three hundred metres is one third');
 });

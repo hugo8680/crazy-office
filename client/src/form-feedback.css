@@ -1,0 +1,15 @@
+/* Shared feedback for native constraints and server errors. */
+.office-field-feedback{display:flex;align-items:flex-start;gap:6px;min-width:0;margin:0;padding:0;color:var(--office-ui-danger);font:400 var(--office-ui-text-meta)/1.5 var(--office-ui-font-sans);letter-spacing:0;overflow-wrap:anywhere;animation:office-feedback-in .16s var(--office-ui-ease)}
+.office-field-feedback>svg,.session-body .office-field-feedback>svg{width:15px;height:15px;margin-top:1px;flex:none;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.office-field-feedback>span{min-width:0;color:inherit;font:inherit}
+:is(input,select,textarea)[data-office-invalid]{border-color:var(--office-ui-danger)!important;background:var(--office-ui-danger-soft,#fff1eb)!important;outline-color:var(--office-ui-danger)!important}
+.session-input:has([data-office-invalid]) .session-field-icon{color:var(--office-ui-danger)}
+:is(.session-error,.erp-error,.erp-form-errors,.bulletin-error,.office-error,.form-error){display:grid;grid-template-columns:18px minmax(0,1fr);align-items:start;gap:10px;padding:12px 14px;border:0;border-radius:10px;background:var(--office-ui-danger-soft,#fff1eb);color:var(--office-ui-danger);font:400 var(--office-ui-text-control)/1.6 var(--office-ui-font-sans);box-shadow:none;overflow-wrap:anywhere}
+:is(.session-error,.erp-error,.erp-form-errors,.bulletin-error,.office-error,.form-error)::before{content:"";display:block;width:18px;height:18px;margin-top:1px;background:currentColor;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v6m0 4h.01'/%3E%3C/svg%3E") center/contain no-repeat}
+:is(.session-error,.erp-error,.erp-form-errors,.bulletin-error,.office-error,.form-error):has(>.icon)::before{display:none}
+:is(.session-error,.erp-error,.erp-form-errors,.bulletin-error,.office-error,.form-error):empty{display:none}
+.bulletin-error>button{grid-column:2;justify-self:start;padding:0;min-height:28px;color:inherit;font-weight:600}
+.workspace-toast{display:flex;align-items:flex-start;gap:10px;padding:13px 18px;border:0;border-radius:12px;background:var(--office-ui-paper);color:var(--office-ui-ink);text-align:left}
+.workspace-toast::before{content:"";flex:none;width:18px;height:18px;margin-top:1px;background:var(--office-ui-accent);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v6m0-10h.01'/%3E%3C/svg%3E") center/contain no-repeat}
+@keyframes office-feedback-in{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.office-field-feedback{animation:none}}

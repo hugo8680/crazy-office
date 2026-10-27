@@ -1,22 +1,22 @@
 /* In-scene access pass. One surface, two purposeful columns; no nested cards. */
 .session-dialog{box-sizing:border-box;position:fixed;inset:auto;left:calc(var(--workspace-visible-left,0px) + var(--workspace-visible-width,100vw) * .5);top:calc(var(--workspace-visible-top,0px) + var(--workspace-visible-height,100dvh) * .5);width:min(680px,calc(var(--workspace-logical-width,100vw) - 40px));max-height:calc(var(--workspace-logical-height,100dvh) - 40px);margin:0;translate:-50% -50%;scale:var(--workspace-inverse-scale,1);padding:0;border:0;border-radius:20px;background:var(--office-ui-paper);color:var(--office-ui-ink);font:var(--office-ui-weight-regular) var(--office-ui-text-body)/var(--office-ui-leading-body) var(--office-ui-font-sans);overflow:auto;box-shadow:none;transform-origin:center;scrollbar-width:thin;scrollbar-color:var(--office-ui-scrollbar) transparent}
 .session-dialog[open]{animation:session-enter .26s var(--office-ui-ease) both}
-.session-dialog::backdrop{background:rgba(24,40,33,.2);animation:session-backdrop-enter .22s ease both}
+.session-dialog::backdrop{background:rgba(43,32,22,.2);animation:session-backdrop-enter .22s ease both}
 .session-dialog[data-closing="true"]{pointer-events:none;animation:session-exit .14s ease-in both}
 .session-dialog[data-closing="true"]::backdrop{animation:session-backdrop-exit .14s ease-in both}
 .session-dialog *{box-sizing:border-box}
 .session-card{position:relative;display:grid;grid-template-columns:235px minmax(0,1fr);min-height:430px}
-.session-identity{display:flex;flex-direction:column;justify-content:space-between;padding:28px 24px 20px;background:#e6eadc;overflow:hidden;min-width:0}
-.session-brand{display:flex;align-items:center;gap:11px;color:#294339}
+.session-identity{display:flex;flex-direction:column;justify-content:space-between;padding:28px 24px 20px;background:var(--office-ui-brand-panel);overflow:hidden;min-width:0}
+.session-brand{display:flex;align-items:center;gap:11px;color:var(--office-ui-ink)}
 .session-brand img{width:30px;height:30px;object-fit:contain}
 .session-brand>span{font:600 11px/1.3 var(--office-ui-font-sans);letter-spacing:.15em}
 .session-pass-art{margin:12px -16px 0;line-height:0}
 .session-pass-art svg{display:block;width:100%;height:auto}
 .session-identity-copy{display:grid;gap:8px;min-width:0}
-.session-access-label{font-size:11px;letter-spacing:.15em;color:#647665}
-.session-identity-copy strong{font-size:21px;font-weight:600;line-height:1.35;letter-spacing:-.04em;color:#294339;overflow-wrap:anywhere}
-#session-card-department{font-size:11px;line-height:1.7;color:#65705f;overflow-wrap:anywhere}
-.session-pass-foot{display:flex;justify-content:space-between;align-items:center;margin-top:24px;color:#7c8b74}
+.session-access-label{font-size:11px;letter-spacing:.15em;color:var(--office-ui-muted)}
+.session-identity-copy strong{font-size:21px;font-weight:600;line-height:1.35;letter-spacing:-.04em;color:var(--office-ui-ink);overflow-wrap:anywhere}
+#session-card-department{font-size:11px;line-height:1.7;color:var(--office-ui-muted);overflow-wrap:anywhere}
+.session-pass-foot{display:flex;justify-content:space-between;align-items:center;margin-top:24px;color:var(--office-ui-placeholder)}
 .session-pass-foot>span{font-size:9px;letter-spacing:.22em}
 .session-pass-foot svg{width:51px;height:11px;stroke:currentColor;stroke-width:1;fill:none}
 .session-body{padding:30px 30px 28px;min-width:0;align-self:center}
@@ -35,29 +35,34 @@
 .session-form label{display:grid;min-width:0;gap:8px;color:var(--office-ui-ink);font-size:13px;font-weight:500}
 .session-field-label{display:block}
 .session-input{display:block;position:relative;min-width:0}
-.session-dialog .session-field-icon{position:absolute;top:50%;left:13px;width:17px;height:17px;color:#83917f;transform:translateY(-50%);pointer-events:none}
+.session-dialog .session-field-icon{position:absolute;top:50%;left:13px;width:17px;height:17px;color:var(--office-ui-muted);transform:translateY(-50%);pointer-events:none}
 .session-input:focus-within .session-field-icon{color:var(--office-ui-accent)}
-.session-form input{display:block;width:100%;min-width:0;height:46px;padding:0 12px 0 40px;border:1px solid #d8ded3;border-radius:8px;background:#f7f8f2;color:var(--office-ui-ink);font:inherit;font-size:var(--office-ui-text-input-touch);font-weight:400;line-height:1.2;outline:none;transition:border-color .15s ease,background .15s ease}
-.session-form input::placeholder{color:#8b9588;font-size:13px}
-.session-form input:hover:not(:disabled){border-color:#acbda9}
+.session-form input{display:block;width:100%;min-width:0;height:46px;padding:0 12px 0 40px;border:1px solid var(--office-ui-control-line);border-radius:8px;background:var(--office-ui-surface);color:var(--office-ui-ink);font:inherit;font-size:var(--office-ui-text-input-touch);font-weight:400;line-height:1.2;outline:none;transition:border-color .15s ease,background .15s ease}
+.session-form input::placeholder{color:var(--office-ui-placeholder);font-size:13px}
+.session-form input:hover:not(:disabled){border-color:var(--office-ui-accent-line)}
 .session-form input:focus{border-color:transparent;background:var(--office-ui-paper);outline:2px solid var(--office-ui-accent);outline-offset:0}
 #session-password{padding-right:44px}
-.session-dialog .session-password-toggle{position:absolute;right:5px;top:5px;display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:6px;background:transparent;color:#7c8e7c}
-.session-password-toggle:hover:not(:disabled){background:#e5ecdf;color:var(--office-ui-ink)}
-.session-password-toggle[aria-pressed="true"]{color:var(--office-ui-accent);background:#e5ecdf}
+.session-dialog .session-password-toggle{position:absolute;right:5px;top:5px;display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:6px;background:transparent;color:var(--office-ui-muted)}
+.session-password-toggle:hover:not(:disabled){background:var(--office-ui-accent-soft);color:var(--office-ui-ink)}
+.session-password-toggle[aria-pressed="true"]{color:var(--office-ui-accent);background:var(--office-ui-accent-soft)}
 .session-field-note{font-size:11px;font-weight:400;line-height:1.5;color:var(--office-ui-muted)}
 .session-dialog .session-primary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:46px;padding:11px 16px;border:0;border-radius:8px;background:var(--office-ui-accent);color:var(--office-ui-on-accent);font-size:14px;font-weight:550}
 .session-dialog .session-primary:hover:not(:disabled){background:var(--office-ui-accent-hover)}
 .session-dialog .session-primary svg{width:19px;height:19px}
 .session-login-actions{display:flex;align-items:center;justify-content:flex-end;gap:18px}
 .session-login-actions .session-primary{flex:0 0 auto;width:auto;min-width:132px;justify-content:center}
+.session-dialog[data-view="login"] .session-card{min-height:0}
+.session-dialog[data-view="login"] .session-body{align-self:stretch;padding-bottom:24px}
+.session-dialog[data-view="login"] .session-pass-art{margin:12px -8px 0}
+.session-dialog[data-view="login"] .session-pass-art svg{height:120px}
+.session-primary[data-busy="true"] .session-entry-icon{display:none}
 .session-dialog .session-text-action{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:8px 0;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--office-ui-muted);font-size:13px;white-space:nowrap;transition:color .16s ease}
 .session-dialog .session-text-action:hover:not(:disabled){color:var(--office-ui-accent)}
 .session-dialog .session-spinner{flex:none;width:18px;height:18px;animation:session-spin .85s linear infinite}
 .session-spinner circle{opacity:.25}
 .session-spinner path{stroke-width:2}
 .session-dialog .session-secondary,.session-signout{display:flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:9px 12px;border:0;border-radius:8px;background:var(--office-ui-soft);color:var(--office-ui-ink);font-size:13px;font-weight:500}
-.session-dialog .session-secondary:hover:not(:disabled){background:#e3eadd}
+.session-dialog .session-secondary:hover:not(:disabled){background:var(--office-ui-accent-soft)}
 .session-dialog .session-secondary svg{width:17px;height:17px}
 .session-signout{color:#934b37;background:#f6ebe2}
 .session-signout:hover:not(:disabled){background:#eddbce}
@@ -66,7 +71,7 @@
 .session-profile-card{padding:0;border:0;background:transparent}
 .session-person{display:flex;align-items:center;gap:13px;min-width:0;margin:0 0 24px}
 .session-body .session-avatar svg{width:25px;height:25px}
-.session-avatar{display:grid;place-items:center;flex:none;width:44px;height:44px;border:0;border-radius:50%;background:#e6ecdf;color:#446c50;font-size:19px;font-weight:500}
+.session-avatar{display:grid;place-items:center;flex:none;width:44px;height:44px;border:0;border-radius:50%;background:var(--office-ui-accent-soft);color:var(--office-ui-accent);font-size:19px;font-weight:500}
 .session-person-copy{min-width:0;flex:1}
 .session-dialog .session-locate{display:grid;place-items:center;flex:none;width:34px;height:34px;padding:7px;border:0;border-radius:50%;background:transparent;color:var(--office-ui-muted)}
 .session-dialog .session-locate:hover:not(:disabled){background:var(--office-ui-soft);color:var(--office-ui-accent)}
@@ -86,9 +91,9 @@
 .session-appearance-entry:hover:not(:disabled){color:var(--office-ui-accent)}
 .session-appearance-entry+ .session-profile-actions{margin-top:16px}
 .session-wardrobe{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
-.session-dialog .session-outfit{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:5px;position:relative;min-width:0;min-height:84px;padding:8px;border:0;border-radius:10px;background:#f0f1e8;color:var(--office-ui-muted);text-align:left;font-size:12px;line-height:1.4}
-.session-dialog .session-outfit:hover:not(:disabled){background:#e5ebdf;color:var(--office-ui-ink)}
-.session-dialog .session-outfit[aria-checked="true"]{background:#dfe9dc;color:var(--office-ui-ink)}
+.session-dialog .session-outfit{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:5px;position:relative;min-width:0;min-height:84px;padding:8px;border:0;border-radius:10px;background:var(--office-ui-surface-muted);color:var(--office-ui-muted);text-align:left;font-size:12px;line-height:1.4}
+.session-dialog .session-outfit:hover:not(:disabled){background:var(--office-ui-soft);color:var(--office-ui-ink)}
+.session-dialog .session-outfit[aria-checked="true"]{background:var(--office-ui-accent-soft);color:var(--office-ui-ink)}
 .session-body .session-outfit-art{width:52px;height:58px;fill:none;stroke:none;stroke-width:1.5;stroke-linejoin:round}
 .session-body .session-outfit-check{position:absolute;top:5px;right:5px;width:14px;height:14px;color:var(--office-ui-accent);opacity:0;transition:opacity .15s ease}
 .session-outfit[aria-checked="true"] .session-outfit-check{opacity:1}
@@ -104,7 +109,8 @@
 @keyframes session-content-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes session-feedback-enter{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:translateY(0)}}
 @keyframes session-spin{to{transform:rotate(1turn)}}
-@media(max-width:620px){.session-dialog{width:min(420px,calc(var(--workspace-logical-width,100vw) - 24px));max-height:calc(var(--workspace-logical-height,100dvh) - 24px)}.session-card{display:block;min-height:0}.session-identity{padding:20px 24px;background:#e6eadc}.session-pass-art,.session-identity-copy,.session-pass-foot{display:none}.session-body{padding:24px}.session-heading{margin-bottom:24px}.session-form input{font-size:16px}.session-brand img{width:25px;height:25px}}
+@media(max-width:620px){.session-dialog{width:min(420px,calc(var(--workspace-logical-width,100vw) - 24px));max-height:calc(var(--workspace-logical-height,100dvh) - 24px)}.session-card{display:block;min-height:0}.session-identity{padding:20px 24px;background:var(--office-ui-brand-panel)}.session-pass-art,.session-identity-copy,.session-pass-foot{display:none}.session-body{padding:24px}.session-heading{margin-bottom:24px}.session-form input{font-size:16px}.session-brand img{width:25px;height:25px}}
 @media(max-height:520px) and (min-width:621px){.session-card{min-height:0}.session-pass-art{max-height:140px;overflow:hidden}.session-body{padding:22px 26px}.session-heading{margin-bottom:18px}.session-fields{gap:14px}.session-form{gap:16px}}
+@media(max-height:520px) and (min-width:621px){.session-dialog[data-view="login"] .session-pass-art svg{height:96px}}
 @media(min-width:2560px){.session-dialog{width:800px}.session-card{grid-template-columns:280px minmax(0,1fr);min-height:500px}.session-body{padding:36px}.session-identity{padding:32px 28px}.session-form label,.session-message,.session-error{font-size:var(--office-ui-text-control)}.session-dialog .session-primary{font-size:var(--office-ui-text-body);min-height:54px}.session-form input{height:54px}.session-dialog .session-password-toggle{top:9px;right:8px}.session-identity-copy strong{font-size:26px}#session-card-department{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.session-dialog[open],.session-dialog[data-closing="true"],.session-dialog::backdrop,.session-dialog[data-closing="true"]::backdrop,.session-dialog *{animation:none!important;transition:none!important}.session-dialog button:active:not(:disabled){transform:none}}
