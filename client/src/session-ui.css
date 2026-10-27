@@ -27,7 +27,7 @@
 .session-dialog button:active:not(:disabled){transform:translateY(1px)}
 .session-dialog .session-close{display:grid;place-items:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:transparent;color:var(--office-ui-muted)}
 .session-close:hover:not(:disabled){background:var(--office-ui-soft);color:var(--office-ui-ink)}
-.session-body svg,.session-login-actions svg{flex:none;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.session-body svg{flex:none;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .session-message{margin:0 0 20px;padding:0;background:transparent;border:0;border-radius:0;color:var(--office-ui-muted);font-size:13px;line-height:1.65;overflow-wrap:anywhere}
 .session-form{display:grid;gap:20px}
 .session-form:not([hidden]),#session-profile:not([hidden]){animation:session-content-enter .18s var(--office-ui-ease) both}
@@ -49,15 +49,10 @@
 .session-dialog .session-primary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:46px;padding:11px 16px;border:0;border-radius:8px;background:var(--office-ui-accent);color:var(--office-ui-on-accent);font-size:14px;font-weight:550}
 .session-dialog .session-primary:hover:not(:disabled){background:var(--office-ui-accent-hover)}
 .session-dialog .session-primary svg{width:19px;height:19px}
-.session-login-actions{position:absolute;right:30px;bottom:0;display:none;align-items:center;justify-content:flex-end;gap:18px}
-.session-dialog[data-view="login"] .session-login-actions{display:flex}
+.session-login-actions{display:flex;align-items:center;justify-content:flex-end;gap:18px}
 .session-login-actions .session-primary{flex:0 0 auto;width:auto;min-width:132px;justify-content:center}
-.session-dialog[data-view="login"] .session-body{padding-bottom:64px}
 .session-dialog .session-text-action{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:8px 0;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--office-ui-muted);font-size:13px;white-space:nowrap;transition:color .16s ease}
 .session-dialog .session-text-action:hover:not(:disabled){color:var(--office-ui-accent)}
-.session-arrow{transition:transform .16s ease}
-.session-primary:hover:not(:disabled) .session-arrow{transform:translateX(3px)}
-.session-primary[data-busy="true"] .session-arrow{display:none}
 .session-dialog .session-spinner{flex:none;width:18px;height:18px;animation:session-spin .85s linear infinite}
 .session-spinner circle{opacity:.25}
 .session-spinner path{stroke-width:2}
@@ -112,7 +107,4 @@
 @media(max-width:620px){.session-dialog{width:min(420px,calc(var(--workspace-logical-width,100vw) - 24px));max-height:calc(var(--workspace-logical-height,100dvh) - 24px)}.session-card{display:block;min-height:0}.session-identity{padding:20px 24px;background:#e6eadc}.session-pass-art,.session-identity-copy,.session-pass-foot{display:none}.session-body{padding:24px}.session-heading{margin-bottom:24px}.session-form input{font-size:16px}.session-brand img{width:25px;height:25px}}
 @media(max-height:520px) and (min-width:621px){.session-card{min-height:0}.session-pass-art{max-height:140px;overflow:hidden}.session-body{padding:22px 26px}.session-heading{margin-bottom:18px}.session-fields{gap:14px}.session-form{gap:16px}}
 @media(min-width:2560px){.session-dialog{width:800px}.session-card{grid-template-columns:280px minmax(0,1fr);min-height:500px}.session-body{padding:36px}.session-identity{padding:32px 28px}.session-form label,.session-message,.session-error{font-size:var(--office-ui-text-control)}.session-dialog .session-primary{font-size:var(--office-ui-text-body);min-height:54px}.session-form input{height:54px}.session-dialog .session-password-toggle{top:9px;right:8px}.session-identity-copy strong{font-size:26px}#session-card-department{font-size:13px}}
-@media(prefers-reduced-motion:reduce){.session-dialog[open],.session-dialog[data-closing="true"],.session-dialog::backdrop,.session-dialog[data-closing="true"]::backdrop,.session-dialog *{animation:none!important;transition:none!important}.session-dialog button:active:not(:disabled),.session-primary:hover:not(:disabled) .session-arrow{transform:none}}
-@media(max-width:620px){.session-dialog .session-login-actions{right:24px}}
-@media(max-height:520px) and (min-width:621px){.session-dialog .session-login-actions{right:26px}}
-@media(min-width:2560px){.session-dialog .session-login-actions{right:36px}}
+@media(prefers-reduced-motion:reduce){.session-dialog[open],.session-dialog[data-closing="true"],.session-dialog::backdrop,.session-dialog[data-closing="true"]::backdrop,.session-dialog *{animation:none!important;transition:none!important}.session-dialog button:active:not(:disabled){transform:none}}

@@ -29,6 +29,7 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <fieldset class="session-fields" aria-labelledby="session-title"><label for="session-username"><span class="session-field-label">企业邮箱</span><span class="session-input">${fieldIcon('account')}<input id="session-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="80" inputmode="email" placeholder="name@laisengou.com" required></span></label>
       <label for="session-password"><span class="session-field-label">密码</span><span class="session-input">${fieldIcon('password')}<input id="session-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="session-password-toggle" data-session-action="toggle-password" aria-label="显示密码" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg></button></span></label></fieldset>
       <p class="session-error" id="session-login-error" role="alert" hidden></p>
+      <div class="session-login-actions"><button type="button" class="session-text-action" data-session-action="register">注册</button><button id="session-login-submit" class="session-primary" type="submit">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span></button></div>
     </form>
     <section id="session-profile" hidden>
       <div class="session-profile-card"><div class="session-person"><span class="session-avatar" id="session-initial" aria-hidden="true"></span><div class="session-person-copy"><h2 id="session-name"></h2><p id="session-account"></p></div><button type="button" class="session-locate" data-session-action="locate" aria-label="定位自己" title="定位自己"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/></svg></button></div>
@@ -57,7 +58,6 @@ export function mountSession({container=document.body,requestRaw=(...args)=>fetc
       <div class="session-form-actions"><button type="button" id="session-registration-back" data-session-action="login" class="session-secondary" hidden>返回登录</button><button id="session-invitation-submit" class="session-primary" type="submit">${spinner('session-invitation-spinner')}<span id="session-invitation-label">设置密码</span></button></div>
     </form>
     </div>
-    <div class="session-login-actions"><button type="button" class="session-text-action" data-session-action="register">注册</button><button id="session-login-submit" class="session-primary" type="submit" form="session-login-form">${spinner('session-login-spinner')}<span id="session-login-label">进入办公室</span><svg class="session-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-5-5 5 5-5 5"/></svg></button></div>
   </section>`;
   container.append(dialog);
   const q=selector=>dialog.querySelector(selector);
